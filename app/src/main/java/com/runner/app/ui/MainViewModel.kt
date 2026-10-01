@@ -7,8 +7,8 @@ import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.runner.app.data.GroqClient
-import com.runner.app.data.GroqResult
+import com.runner.app.data.AIResponseResult
+import com.runner.app.data.OpenAIClient
 import com.runner.app.tools.ToolDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,10 +38,28 @@ data class ChatMessage(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("runner_prefs", Context.MODE_PRIVATE)
-    private val groqClient = GroqClient()
+    private val apiClient = OpenAIClient()
 
-    private val _apiKey = MutableStateFlow(prefs.getString("groq_api_key", "") ?: "")
+    // Preferences with fallback/migration
+    private val defaultBaseUrl = "https://api.groq.com/openai/v1"
+    private val defaultModel = "llama-3.3-70b-versatile"
+
+    private val _baseUrl = MutableStateFlow(
+        prefs.getString("api_base_url", defaultBaseUrl) ?: defaultBaseUrl
+    )
+    val baseUrl: StateFlow<String> = _baseUrl.asStateFlow()
+
+    private val _apiKey = MutableStateFlow(
+        prefs.getString("api_key", null)
+            ?: prefs.getString("groq_api_key", "")
+            ?: ""
+    )
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+
+    private val _modelName = MutableStateFlow(
+        prefs.getString("api_model_name", defaultModel) ?: defaultModel
+    )
+    val modelName: StateFlow<String> = _modelName.asStateFlow()
 
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
@@ -61,11 +79,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         checkStoragePermission()
         resetConversationContext()
 
-        // Welcome message
         _messages.value = listOf(
             ChatMessage(
                 role = MessageRole.ASSISTANT,
-                content = "Привет! Я твой автономный агент Runner. Могу просканировать папку Download, распаковать любой ZIP или навести порядок в файлах по типам.\n\nЧем помочь?"
+                content = "Привет! Я твой автономный агент Runner. Могу просканировать папку Download, распаковать любой ZIP или навести порядок в файлах по типам.\n\nПоддерживаю любого OpenAI-совместимого провайдера (Groq, OpenRouter, DeepSeek, OpenAI). Чем помочь?"
             )
         )
     }
@@ -82,10 +99,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _hasStoragePermission.value = granted
     }
 
-    fun saveApiKey(newKey: String) {
-        val trimmed = newKey.trim()
-        prefs.edit().putString("groq_api_key", trimmed).apply()
-        _apiKey.value = trimmed
+    fun saveSettings(newBaseUrl: String, newApiKey: String, newModelName: String) {
+        val bUrl = newBaseUrl.trim()
+        val key = newApiKey.trim()
+        val model = newModelName.trim()
+
+        prefs.edit()
+            .putString("api_base_url", bUrl)
+            .putString("api_key", key)
+            .putString("api_model_name", model)
+            .apply()
+
+        _baseUrl.value = bUrl
+        _apiKey.value = key
+        _modelName.value = model
     }
 
     private fun resetConversationContext() {
@@ -97,7 +124,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             put(
                 "content",
                 """
-                Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам для работы с файлами.
+                Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам для работы с файлами на устройстве.
                 Инструменты:
                 1. get_folder_summary: вызывай, когда пользователь просит проанализировать папку, узнать, что там лежит, показать тяжелые файлы.
                 2. extract_archive: вызывай, когда нужно распаковать zip-архив.
@@ -118,7 +145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_apiKey.value.isBlank()) {
             _messages.value = _messages.value + ChatMessage(
                 role = MessageRole.SYSTEM_INFO,
-                content = "⚠️ Groq API ключ не задан. Перейдите во вкладку 'Настройки' в правом верхнем углу и укажите ваш ключ."
+                content = "⚠️ API ключ не задан. Перейдите во вкладку 'Настройки' в правом верхнем углу и укажите ключ провайдера."
             )
             return
         }
@@ -127,60 +154,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_hasStoragePermission.value) {
             _messages.value = _messages.value + ChatMessage(
                 role = MessageRole.SYSTEM_INFO,
-                content = "⚠️ Нет доступа ко всем файлам (MANAGE_EXTERNAL_STORAGE). Предоставьте разрешение в 'Настройках', чтобы я мог работать с файлами."
+                content = "⚠️ Нет доступа ко всем файлам (MANAGE_EXTERNAL_STORAGE). Предоставьте разрешение в 'Настройках'."
             )
             return
         }
 
-        // Add user message
-        val userMsg = ChatMessage(role = MessageRole.USER, content = userText)
-        _messages.value = _messages.value + userMsg
-
-        val userJson = JSONObject().apply {
+        _messages.value = _messages.value + ChatMessage(role = MessageRole.USER, content = userText)
+        conversationJson.put(JSONObject().apply {
             put("role", "user")
             put("content", userText)
-        }
-        conversationJson.put(userJson)
+        })
 
         viewModelScope.launch {
             _isLoading.value = true
-            _currentStatus.value = "Связываюсь с Groq Llama 3.3..."
+            val activeModel = _modelName.value.ifBlank { "моделью" }
+            _currentStatus.value = "Связываюсь с $activeModel..."
 
             val maxSteps = 5
             var step = 0
 
             while (step < maxSteps) {
                 step++
-                when (val result = groqClient.sendChatCompletion(_apiKey.value, conversationJson)) {
-                    is GroqResult.Error -> {
+                val result = apiClient.sendChatCompletion(
+                    baseUrl = _baseUrl.value,
+                    apiKey = _apiKey.value,
+                    modelName = _modelName.value,
+                    messages = conversationJson
+                )
+
+                when (result) {
+                    is AIResponseResult.Error -> {
                         _messages.value = _messages.value + ChatMessage(
                             role = MessageRole.SYSTEM_INFO,
                             content = "❌ ${result.message}"
                         )
                         break
                     }
-                    is GroqResult.TextResult -> {
+                    is AIResponseResult.TextResult -> {
                         val assistantReply = if (result.text.isBlank()) "Готово." else result.text
                         _messages.value = _messages.value + ChatMessage(
                             role = MessageRole.ASSISTANT,
                             content = assistantReply
                         )
-                        val assistantJson = JSONObject().apply {
+                        conversationJson.put(JSONObject().apply {
                             put("role", "assistant")
                             put("content", assistantReply)
-                        }
-                        conversationJson.put(assistantJson)
+                        })
                         break
                     }
-                    is GroqResult.ToolCallsResult -> {
-                        // Append assistant tool-calls message to history
+                    is AIResponseResult.ToolCallsResult -> {
                         conversationJson.put(result.assistantMessageJson)
 
-                        // Execute each tool sequentially
                         for (call in result.toolCalls) {
                             _currentStatus.value = "Выполняю: ${call.name}..."
 
-                            // Show in UI that tool is triggered
                             _messages.value = _messages.value + ChatMessage(
                                 role = MessageRole.TOOL_CALL,
                                 content = "Запуск инструмента: ${call.name}",
@@ -188,24 +215,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 toolArgs = call.arguments
                             )
 
-                            // Execute native code
                             val toolOutput = ToolDispatcher.execute(call.name, call.arguments)
 
-                            // Show tool result in UI
                             _messages.value = _messages.value + ChatMessage(
                                 role = MessageRole.TOOL_RESULT,
                                 content = toolOutput,
                                 toolName = call.name
                             )
 
-                            // Append tool response to model context
-                            val toolResponseJson = JSONObject().apply {
+                            conversationJson.put(JSONObject().apply {
                                 put("role", "tool")
                                 put("tool_call_id", call.id)
                                 put("name", call.name)
                                 put("content", toolOutput)
-                            }
-                            conversationJson.put(toolResponseJson)
+                            })
                         }
 
                         _currentStatus.value = "Обрабатываю результат выполнения..."

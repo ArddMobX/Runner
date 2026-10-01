@@ -83,6 +83,7 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val currentStatus by viewModel.currentStatus.collectAsState()
+    val activeModel by viewModel.modelName.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -113,7 +114,7 @@ fun ChatScreen(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "Llama 3.3 70B",
+                                    text = activeModel.ifBlank { "AI Model" },
                                     color = PrimaryBlue,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium

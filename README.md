@@ -1,6 +1,6 @@
 # Runner — Автономный Android ИИ-агент
 
-> Мобильный ИИ-агент на Kotlin + Jetpack Compose с поддержкой Tool Calling (Groq API, модель `llama-3.3-70b-versatile`).
+> Мобильный автономный ИИ-агент на Kotlin + Jetpack Compose с поддержкой Tool Calling и подключением любого OpenAI-совместимого провайдера (OpenRouter, Groq, DeepSeek, OpenAI и др.).
 
 ---
 
@@ -13,13 +13,24 @@
 
 ---
 
+## 🌐 Универсальный OpenAI-совместимый API
+
+Приложение не привязано к конкретной модели или вендору. В настройках можно указать:
+* **Base URL** (например, `https://openrouter.ai/api/v1`, `https://api.deepseek.com`, `https://api.groq.com/openai/v1`, `https://api.openai.com/v1` или локальный Ollama / vLLM).
+* **API Key** соответствующего сервиса.
+* **Название модели** (например, `deepseek-chat`, `meta-llama/llama-3.3-70b-instruct`, `gpt-4o-mini`, `llama-3.3-70b-versatile`).
+
+Доступны быстрые пресеты в один клик: **Groq**, **OpenRouter**, **DeepSeek**, **OpenAI**.
+
+---
+
 ## 📲 Как скачать APK без Android Studio
 
-APK автоматически собирается через **GitHub Actions**:
+APK автоматически собирается в облаке через **GitHub Actions**:
 1. Перейдите во вкладку [Actions](https://github.com/ArddMobX/Runner/actions).
 2. Нажмите на последний завершённый запуск сборки.
 3. Внизу в блоке **Artifacts** скачайте **`Runner-Debug-APK`**.
-4. Или перейдите в [Releases](https://github.com/ArddMobX/Runner/releases) и скачайте `app-debug.apk`.
+4. Или перейдите во вкладку [Releases](https://github.com/ArddMobX/Runner/releases) и скачайте `app-debug.apk`.
 
 ---
 
@@ -27,9 +38,9 @@ APK автоматически собирается через **GitHub Actions*
 
 1. Установите APK на смартфон (Android 8.0+).
 2. Откройте экран **Настройки** (шестерёнка в правом верхнем углу):
-   * Укажите ваш бесплатный ключ от **Groq** (`gsk_...` с [console.groq.com](https://console.groq.com)).
-   * Нажмите **«Выдать разрешение в настройках»** и предоставьте приложению право `MANAGE_EXTERNAL_STORAGE` (Доступ ко всем файлам).
+   * Выберите провайдера пресетом или введите Base URL, модель и API ключ.
+   * Нажмите **«Выдать разрешение в настройках»** и включите тумблер `MANAGE_EXTERNAL_STORAGE` (*Доступ ко всем файлам*).
 3. Вернитесь в чат и дайте любую задачу, например:
    * *«Сделай сводку по папке Download»*
    * *«Сложи все документы из Загрузок в папку Документы»*
-   * *«Распакуй архив с документами»*
+   * *«Распакуй zip архив с документами»*

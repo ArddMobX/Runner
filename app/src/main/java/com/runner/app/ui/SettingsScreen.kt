@@ -8,6 +8,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +27,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -73,6 +77,19 @@ import com.runner.app.ui.theme.TextPrimary
 import com.runner.app.ui.theme.TextSecondary
 import com.runner.app.ui.theme.TextTertiary
 
+data class ProviderPreset(
+    val title: String,
+    val baseUrl: String,
+    val defaultModel: String
+)
+
+val PROVIDER_PRESETS = listOf(
+    ProviderPreset("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
+    ProviderPreset("OpenRouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct"),
+    ProviderPreset("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
+    ProviderPreset("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini")
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -80,10 +97,14 @@ fun SettingsScreen(
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val savedBaseUrl by viewModel.baseUrl.collectAsState()
     val savedApiKey by viewModel.apiKey.collectAsState()
+    val savedModelName by viewModel.modelName.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
 
-    var keyInput by remember(savedApiKey) { mutableStateOf(savedApiKey) }
+    var baseUrlInput by remember(savedBaseUrl) { mutableStateOf(savedBaseUrl) }
+    var apiKeyInput by remember(savedApiKey) { mutableStateOf(savedApiKey) }
+    var modelInput by remember(savedModelName) { mutableStateOf(savedModelName) }
     var keyVisible by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -115,7 +136,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Groq API Key Section
+            // Provider & Model Section
             Card(
                 colors = CardDefaults.cardColors(containerColor = DarkSurface),
                 shape = RoundedCornerShape(16.dp),
@@ -124,67 +145,165 @@ fun SettingsScreen(
                     .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Key,
-                            contentDescription = null,
-                            tint = PrimaryBlue,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Groq API Key",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Требуется для работы с моделью llama-3.3-70b-versatile. Ключ хранится локально на устройстве.",
+                        text = "Провайдер ИИ (OpenAI-совместимый)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Поддерживаются любые сервисы с OpenAI-совместимым API и Tool Calling.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Быстрый выбор провайдера:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Preset Chips
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PROVIDER_PRESETS.forEach { preset ->
+                            val isSelected = baseUrlInput == preset.baseUrl
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) PrimaryBlue.copy(alpha = 0.25f) else DarkSurfaceVariant)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) PrimaryBlue else DarkBorder,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable {
+                                        baseUrlInput = preset.baseUrl
+                                        modelInput = preset.defaultModel
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = preset.title,
+                                    color = if (isSelected) PrimaryBlue else TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Base URL Input
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Dns,
+                            contentDescription = null,
+                            tint = PrimaryBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Base URL",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = keyInput,
-                        onValueChange = { keyInput = it },
+                        value = baseUrlInput,
+                        onValueChange = { baseUrlInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("gsk_...", color = TextTertiary) },
+                        placeholder = { Text("https://api.openai.com/v1", color = TextTertiary) },
+                        singleLine = true,
+                        colors = customFieldColors(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Model Name Input
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Memory,
+                            contentDescription = null,
+                            tint = PrimaryBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Название модели (Model ID)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = modelInput,
+                        onValueChange = { modelInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("llama-3.3-70b-versatile, gpt-4o-mini...", color = TextTertiary) },
+                        singleLine = true,
+                        colors = customFieldColors(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // API Key Input
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Key,
+                            contentDescription = null,
+                            tint = PrimaryBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "API Key",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("sk-... или gsk_...", color = TextTertiary) },
                         singleLine = true,
                         visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
                             IconButton(onClick = { keyVisible = !keyVisible }) {
                                 Icon(
                                     imageVector = if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = "Переключить видимость",
+                                    contentDescription = "Видимость",
                                     tint = TextSecondary
                                 )
                             }
                         },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = PrimaryBlue,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedContainerColor = DarkSurfaceVariant,
-                            unfocusedContainerColor = DarkSurfaceVariant,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
+                        colors = customFieldColors(),
                         shape = RoundedCornerShape(12.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
                     Button(
                         onClick = {
-                            viewModel.saveApiKey(keyInput)
-                            Toast.makeText(context, "API ключ сохранён!", Toast.LENGTH_SHORT).show()
+                            viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput)
+                            Toast.makeText(context, "Настройки сохранены!", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Сохранить ключ", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("Сохранить настройки", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -218,7 +337,6 @@ fun SettingsScreen(
                             )
                         }
 
-                        // Status Badge
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -245,7 +363,7 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "Агенту необходимо системное право MANAGE_EXTERNAL_STORAGE для сканирования Download, распаковки архивов и сортировки файлов.",
+                        text = "Право MANAGE_EXTERNAL_STORAGE необходимо агенту для сканирования Download, распаковки архивов и сортировки файлов.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
@@ -253,9 +371,7 @@ fun SettingsScreen(
                     if (!hasStoragePermission) {
                         Spacer(modifier = Modifier.height(14.dp))
                         OutlinedButton(
-                            onClick = {
-                                openStorageSettings(context)
-                            },
+                            onClick = { openStorageSettings(context) },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -264,56 +380,19 @@ fun SettingsScreen(
                     }
                 }
             }
-
-            // Info Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "О модели и параметрах",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    InfoRow(label = "Провайдер", value = "Groq Cloud (LPU)")
-                    InfoRow(label = "Модель", value = "llama-3.3-70b-versatile")
-                    InfoRow(label = "Протокол", value = "OpenAI Function Calling")
-                    InfoRow(label = "Архиватор", value = "Zip4j 2.11.5")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Бесплатный ключ можно получить на сайте console.groq.com",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextTertiary
-                    )
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            fontFamily = FontFamily.Monospace,
-            color = TextPrimary
-        )
-    }
-}
+private fun customFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = PrimaryBlue,
+    unfocusedBorderColor = DarkBorder,
+    focusedContainerColor = DarkSurfaceVariant,
+    unfocusedContainerColor = DarkSurfaceVariant,
+    focusedTextColor = TextPrimary,
+    unfocusedTextColor = TextPrimary
+)
 
 fun openStorageSettings(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
