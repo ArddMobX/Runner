@@ -33,9 +33,47 @@ jobs:
           chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        id: build
+        continue-on-error: true
+        run: |
+          set +e
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit $status
+
+      # Логи GitHub Actions закрыты авторизацией, поэтому при падении выкладываем
+      # выжимку из build.log в отдельную ветку ci-errors. Её читает агент через git fetch.
+      - name: Publish build errors
+        if: steps.build.outcome == 'failure'
+        run: |
+          mkdir -p .ci
+          {
+            echo "# Ошибка сборки"
+            echo
+            echo "- commit: ${GITHUB_SHA}"
+            echo "- ref: ${GITHUB_REF_NAME}"
+            echo "- date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo "## Строки ошибок"
+            echo '```'
+            grep -nE '^e: |What went wrong|^> |^Caused by|Execution failed|FAILURE:|Unresolved reference|error:' build.log | head -150 || true
+            echo '```'
+            echo
+            echo "## Хвост лога"
+            echo '```'
+            tail -120 build.log || true
+            echo '```'
+          } > .ci/last-build-error.txt
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -f .ci/last-build-error.txt
+          git commit -m "ci: лог ошибки сборки [skip ci]" || true
+          git push --force origin HEAD:ci-errors || true
 
       - name: Upload Debug APK Artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Runner-Debug-APK
@@ -43,7 +81,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        if: steps.build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0
@@ -52,3 +90,9 @@ jobs:
           files: app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fail if build failed
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "Сборка упала. Выжимка из лога — в ветке ci-errors, файл .ci/last-build-error.txt"
+          exit 1
