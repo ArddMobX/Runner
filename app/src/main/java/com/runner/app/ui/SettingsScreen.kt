@@ -107,8 +107,12 @@ fun SettingsScreen(
         SettingsRoute.Advanced -> "Дополнительно"
     }
 
-    val goBack = {
-        if (route == SettingsRoute.Root) onBackClick() else route = SettingsRoute.Root
+    val goBack: () -> Unit = {
+        if (route == SettingsRoute.Root) {
+            onBackClick()
+        } else {
+            route = SettingsRoute.Root
+        }
     }
 
     Scaffold(
@@ -427,8 +431,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
                     onValueChange = {
                         viewModel.updateSettings(appSettings.copy(maxSteps = it.roundToInt()))
                     },
-                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..
-                            AppSettings.STEPS_RANGE.last.toFloat(),
+                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..AppSettings.STEPS_RANGE.last.toFloat(),
                     steps = 10,
                     colors = settingSliderColors()
                 )
