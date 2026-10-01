@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.theme.DarkBackground
 import com.runner.app.ui.theme.DarkBorder
 import com.runner.app.ui.theme.DarkSurface
@@ -211,14 +212,17 @@ fun ChatScreen(
                 QuickPromptChip("📊 Сводка Downloads") {
                     inputText = "Сделай сводку по папке Download"
                 }
-                QuickPromptChip("📁 Организовать документы") {
-                    inputText = "Перенеси все документы из папки Download в папку Documents"
+                QuickPromptChip("🔍 Найти PDF") {
+                    inputText = "Найди все PDF файлы в папке Download"
                 }
-                QuickPromptChip("📦 Распаковать архивы") {
-                    inputText = "Найди последний zip архив в Download и распакуй его"
+                QuickPromptChip("💻 Память диска") {
+                    inputText = "Выполни команду 'df -h' и покажи свободное место на диске"
                 }
-                QuickPromptChip("🧹 Навести порядок (all)") {
-                    inputText = "Отсортируй все файлы в папке Download по категориям"
+                QuickPromptChip("📋 Из буфера") {
+                    inputText = "Прочитай текст из буфера обмена и сохрани в файл Documents/note.txt"
+                }
+                QuickPromptChip("📁 Организовать") {
+                    inputText = "Отсортируй файлы в папке Download по категориям"
                 }
             }
 
@@ -314,16 +318,13 @@ private fun MessageItem(msg: ChatMessage) {
             ) {
                 Box(
                     modifier = Modifier
+                        .fillMaxWidth(0.95f)
                         .clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
                         .background(DarkSurface)
                         .border(1.dp, DarkBorder, RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    Text(
-                        text = msg.content,
-                        color = TextPrimary,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    MarkdownView(text = msg.content)
                 }
             }
         }
@@ -392,14 +393,8 @@ private fun MessageItem(msg: ChatMessage) {
                             fontSize = 12.sp
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = msg.content,
-                        color = TextPrimary,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
-                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    MarkdownView(text = msg.content)
                 }
             }
         }

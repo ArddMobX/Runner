@@ -124,13 +124,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             put(
                 "content",
                 """
-                Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам для работы с файлами на устройстве.
-                Инструменты:
-                1. get_folder_summary: вызывай, когда пользователь просит проанализировать папку, узнать, что там лежит, показать тяжелые файлы.
-                2. extract_archive: вызывай, когда нужно распаковать zip-архив.
-                3. organize_downloads: вызывай, когда пользователь просит рассортировать, перенести или навести порядок в Downloads по категориям (documents, apks, archives, images, all).
+                Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам для работы с устройством:
+                1. Работа с файлами: get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
+                2. Поиск и архивы: search_files, create_archive, extract_archive, organize_downloads.
+                3. Буфер обмена: clipboard_read, clipboard_write.
+                4. Оболочка: run_shell_command (выполнение команд sh на устройстве).
 
-                Всегда используй доступные инструменты, когда задача требует взаимодействия с файловой системой.
+                Всегда используй доступные инструменты, когда задача требует взаимодействия с файловой системой, буфером или терминалом.
+                Оформляй ответы в Markdown (жирный текст, списки, блоки кода ``` с указанием языка).
+                Если используешь математические формулы, оформляй их в синтаксисе LaTeX: в блоках '$$ ... $$' или внутри строки '$ ... $'.
                 Отвечай кратко, чётко и вежливо на русском языке.
                 """.trimIndent()
             )
@@ -215,7 +217,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 toolArgs = call.arguments
                             )
 
-                            val toolOutput = ToolDispatcher.execute(call.name, call.arguments)
+                            val toolOutput = ToolDispatcher.execute(call.name, call.arguments, getApplication())
 
                             _messages.value = _messages.value + ChatMessage(
                                 role = MessageRole.TOOL_RESULT,
