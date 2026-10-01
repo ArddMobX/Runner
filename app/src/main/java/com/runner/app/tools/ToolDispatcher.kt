@@ -1338,22 +1338,26 @@ object ToolDispatcher {
         null
     }
 
-    private fun previewForDownloads(category: String): String = try {
-        val downloads = resolveFolder("Download")
-        if (!downloads.exists()) return "Папка Download не найдена"
+    private fun previewForDownloads(category: String): String {
+        return try {
+            val downloads = resolveFolder("Download")
+            if (!downloads.exists()) return "Папка Download не найдена"
 
-        val extensions = when (category.lowercase()) {
-            "documents" -> docExtensions
-            "apks" -> apkExtensions
-            "archives" -> archiveExtensions
-            "images" -> imageExtensions
-            else -> docExtensions + apkExtensions + archiveExtensions + imageExtensions
+            val extensions = when (category.lowercase()) {
+                "documents" -> docExtensions
+                "apks" -> apkExtensions
+                "archives" -> archiveExtensions
+                "images" -> imageExtensions
+                else -> docExtensions + apkExtensions + archiveExtensions + imageExtensions
+            }
+            val files = downloads.listFiles()
+                ?.filter { it.isFile && it.extension.lowercase() in extensions }
+                .orEmpty()
+            val bytes = files.sumOf { it.length() }
+            "К перемещению: ${files.size} файлов · ${formatFileSize(bytes)}"
+        } catch (e: Exception) {
+            "Не удалось посчитать файлы: ${e.localizedMessage}"
         }
-        val files = downloads.listFiles()?.filter { it.isFile && it.extension.lowercase() in extensions }.orEmpty()
-        val bytes = files.sumOf { it.length() }
-        "К перемещению: ${files.size} файлов · ${formatFileSize(bytes)}"
-    } catch (e: Exception) {
-        "Не удалось посчитать файлы: ${e.localizedMessage}"
     }
 
     private data class PathStats(val fileCount: Int, val totalBytes: Long, val truncated: Boolean)
