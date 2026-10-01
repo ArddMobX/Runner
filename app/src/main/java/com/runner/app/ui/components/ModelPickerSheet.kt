@@ -69,7 +69,6 @@ import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.SurfaceContainer
 import com.runner.app.ui.theme.SurfaceContainerHigh
 import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.SurfaceContainerLowest
 import com.runner.app.ui.theme.SurfaceDark
 import com.runner.app.ui.theme.TextPrimary
 import com.runner.app.ui.theme.TextSecondary

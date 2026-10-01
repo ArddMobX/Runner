@@ -1,13 +1,22 @@
 package com.runner.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,17 +24,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,13 +51,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,6 +67,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,11 +80,14 @@ import com.runner.app.data.AppSettings
 import com.runner.app.data.Provider
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.OutlineSubtle
+import com.runner.app.ui.theme.StatusError
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.SurfaceContainer
 import com.runner.app.ui.theme.SurfaceContainerHigh
 import com.runner.app.ui.theme.SurfaceContainerLow
+import com.runner.app.ui.theme.SurfaceContainerLowest
+import java.net.URI
 import com.runner.app.ui.theme.SurfaceDark
 import com.runner.app.ui.theme.TextPrimary
 import com.runner.app.ui.theme.TextSecondary
@@ -359,6 +377,7 @@ private fun ProvidersList(
 @Composable
 private fun AgentSettings(viewModel: MainViewModel) {
     val appSettings by viewModel.settings.collectAsState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -367,49 +386,31 @@ private fun AgentSettings(viewModel: MainViewModel) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        SettingsGroup("Системный промпт") {
-            Column(modifier = Modifier.padding(14.dp)) {
-                TextField(
-                    value = appSettings.systemPrompt,
-                    onValueChange = { viewModel.updateSettings(appSettings.copy(systemPrompt = it)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = settingFieldColors()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Сбросить к стандартному",
-                    color = AccentPrimary,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { viewModel.resetSystemPrompt() }
-                        .padding(vertical = 4.dp)
-                )
-            }
-        }
+        SystemPromptBlock(
+            prompt = appSettings.systemPrompt,
+            onPromptChange = { viewModel.updateSettings(appSettings.copy(systemPrompt = it)) },
+            onCopy = {
+                copyText(context, appSettings.systemPrompt, "Промпт")
+            },
+            onReset = { viewModel.resetSystemPrompt() }
+        )
 
-        SettingsGroup("Температура") {
+        SettingsGroup {
             Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "%.1f".format(appSettings.temperature),
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontFamily = FontFamily.Monospace
+                SliderHeader(
+                    title = "Температура",
+                    badge = "[%.1f]".format(appSettings.temperature)
                 )
-                Slider(
+                Spacer(modifier = Modifier.height(10.dp))
+                MinimalSlider(
                     value = appSettings.temperature,
                     onValueChange = {
-                        viewModel.updateSettings(
-                            appSettings.copy(temperature = (it * 10).roundToInt() / 10f)
-                        )
+                        viewModel.updateSettings(appSettings.copy(temperature = it))
                     },
                     valueRange = AppSettings.TEMPERATURE_RANGE,
-                    colors = settingSliderColors()
+                    steps = 14
                 )
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Ниже — предсказуемее, выше — креативнее.",
                     color = TextTertiary,
@@ -418,23 +419,23 @@ private fun AgentSettings(viewModel: MainViewModel) {
             }
         }
 
-        SettingsGroup("Лимит шагов агента") {
+        SettingsGroup {
             Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "${appSettings.maxSteps}",
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontFamily = FontFamily.Monospace
+                SliderHeader(
+                    title = "Лимит шагов",
+                    badge = "[${appSettings.maxSteps} steps]"
                 )
-                Slider(
+                Spacer(modifier = Modifier.height(10.dp))
+                MinimalSlider(
                     value = appSettings.maxSteps.toFloat(),
                     onValueChange = {
                         viewModel.updateSettings(appSettings.copy(maxSteps = it.roundToInt()))
                     },
-                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..AppSettings.STEPS_RANGE.last.toFloat(),
-                    steps = 10,
-                    colors = settingSliderColors()
+                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..
+                            AppSettings.STEPS_RANGE.last.toFloat(),
+                    steps = 10
                 )
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Сколько раз модель может вызвать инструменты в одной задаче.",
                     color = TextTertiary,
@@ -444,6 +445,182 @@ private fun AgentSettings(viewModel: MainViewModel) {
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+/**
+ * Системный промпт как терминальный блок: моноширинный шрифт на тёмной плашке,
+ * копирование в углу, свёрнуто до 6 строк с кнопкой разворота.
+ */
+@Composable
+private fun SystemPromptBlock(
+    prompt: String,
+    onPromptChange: (String) -> Unit,
+    onCopy: () -> Unit,
+    onReset: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    SettingsGroup("Системный промпт") {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SurfaceContainerLowest)
+                    .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 4.dp, top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "system",
+                            color = TextTertiary,
+                            fontSize = 10.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = "Копировать промпт",
+                                tint = TextTertiary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+
+                    BasicTextField(
+                        value = prompt,
+                        onValueChange = onPromptChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                        textStyle = TextStyle(
+                            color = TextPrimary,
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        maxLines = if (expanded) Int.MAX_VALUE else 6,
+                        cursorBrush = SolidColor(AccentPrimary)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Row {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (expanded) "Свернуть" else "Показать полностью",
+                        color = AccentPrimary,
+                        fontSize = 12.5.sp
+                    )
+                }
+                TextButton(
+                    onClick = onReset,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(text = "Сбросить", color = TextSecondary, fontSize = 12.5.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SliderHeader(title: String, badge: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = title, color = TextPrimary, fontSize = 14.sp)
+        Text(
+            text = badge,
+            color = AccentPrimary,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+/**
+ * Минималистичный слайдер: трек 2dp и бегунок 14dp вместо громоздкого M3-ползунка.
+ * Тап и протяжка обрабатываются одним жестом, чтобы не конфликтовали.
+ */
+@Composable
+private fun MinimalSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int = 0
+) {
+    val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
+    val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
+    val thumbSize = 14.dp
+
+    fun snap(raw: Float): Float {
+        val clamped = raw.coerceIn(valueRange.start, valueRange.endInclusive)
+        if (steps <= 0) return clamped
+        val step = span / (steps + 1)
+        val snapped = valueRange.start + Math.round((clamped - valueRange.start) / step) * step
+        return snapped.coerceIn(valueRange.start, valueRange.endInclusive)
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(30.dp)
+            .pointerInput(valueRange, steps) {
+                val trackWidth = size.width.toFloat().coerceAtLeast(1f)
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    onValueChange(snap(valueRange.start + (down.position.x / trackWidth) * span))
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        onValueChange(
+                            snap(valueRange.start + (change.position.x / trackWidth) * span)
+                        )
+                        change.consume()
+                    }
+                }
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .clip(CircleShape)
+                .background(SurfaceContainerHighest)
+        )
+
+        Box(
+            modifier = Modifier
+                .width((maxWidth - thumbSize) * fraction + thumbSize / 2)
+                .height(2.dp)
+                .clip(CircleShape)
+                .background(AccentPrimary)
+        )
+
+        Box(
+            modifier = Modifier
+                .offset(x = (maxWidth - thumbSize) * fraction)
+                .size(thumbSize)
+                .clip(CircleShape)
+                .background(AccentPrimary)
+        )
     }
 }
 
@@ -594,6 +771,15 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
 @Composable
 private fun AdvancedSettings(viewModel: MainViewModel) {
     val appSettings by viewModel.settings.collectAsState()
+    val context = LocalContext.current
+    val proxyUrl = appSettings.reverseProxyUrl
+    val isValid = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
+
+    val dotColor = when {
+        proxyUrl.isBlank() -> TextTertiary
+        isValid -> StatusSuccess
+        else -> StatusError
+    }
 
     Column(
         modifier = Modifier
@@ -604,23 +790,73 @@ private fun AdvancedSettings(viewModel: MainViewModel) {
     ) {
         SettingsGroup("Reverse proxy") {
             Column(modifier = Modifier.padding(14.dp)) {
-                TextField(
-                    value = appSettings.reverseProxyUrl,
+                BasicTextField(
+                    value = proxyUrl,
                     onValueChange = {
                         viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text("https://my-proxy.workers.dev/v1", color = TextTertiary, fontSize = 13.sp)
-                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceContainer)
+                        .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
+                    textStyle = TextStyle(color = TextSecondary, fontSize = 13.sp),
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = settingFieldColors()
+                    cursorBrush = SolidColor(AccentPrimary),
+                    decorationBox = { innerTextField ->
+                        Row(
+                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Точка валидности адреса
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (proxyUrl.isEmpty()) {
+                                    Text(
+                                        text = "https://my-proxy.workers.dev/v1",
+                                        color = TextTertiary,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                            IconButton(
+                                onClick = {
+                                    val text = readClipboard(context)
+                                    if (text.isNotBlank()) {
+                                        viewModel.updateSettings(
+                                            appSettings.copy(reverseProxyUrl = text.trim())
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentPaste,
+                                    contentDescription = "Вставить из буфера",
+                                    tint = TextTertiary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
                 )
+
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Если задан, запросы идут через него вместо Base URL провайдера.",
-                    color = TextTertiary,
+                    text = when {
+                        proxyUrl.isBlank() ->
+                            "Если задан, запросы идут через него вместо Base URL провайдера."
+                        isValid -> "Адрес выглядит корректно."
+                        else -> "Нужен полный адрес вида https://host/path"
+                    },
+                    color = if (proxyUrl.isNotBlank() && !isValid) StatusError else TextTertiary,
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp
                 )
@@ -631,23 +867,28 @@ private fun AdvancedSettings(viewModel: MainViewModel) {
     }
 }
 
-@Composable
-private fun settingFieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = SurfaceContainer,
-    unfocusedContainerColor = SurfaceContainer,
-    focusedIndicatorColor = OutlineSubtle,
-    unfocusedIndicatorColor = OutlineSubtle,
-    cursorColor = AccentPrimary,
-    focusedTextColor = TextPrimary,
-    unfocusedTextColor = TextPrimary
-)
+private fun isValidHttpUrl(value: String): Boolean {
+    val trimmed = value.trim()
+    if (trimmed.isBlank()) return false
+    return try {
+        val uri = URI(trimmed)
+        val scheme = uri.scheme?.lowercase()
+        (scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()
+    } catch (e: Exception) {
+        false
+    }
+}
 
-@Composable
-private fun settingSliderColors() = SliderDefaults.colors(
-    thumbColor = AccentPrimary,
-    activeTrackColor = AccentPrimary,
-    inactiveTrackColor = SurfaceContainerHigh
-)
+private fun readClipboard(context: Context): String {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    return manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+}
+
+private fun copyText(context: Context, text: String, label: String) {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    manager.setPrimaryClip(ClipData.newPlainText(label, text))
+    Toast.makeText(context, "$label скопирован в буфер", Toast.LENGTH_SHORT).show()
+}
 
 @Composable
 private fun SettingsGroup(

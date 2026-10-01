@@ -95,6 +95,9 @@ fun AppNavigation(viewModel: MainViewModel) {
                             viewModel.openSession(sessionId)
                             scope.launch { drawerState.close() }
                         },
+                        onRenameSession = { sessionId, title ->
+                            viewModel.renameSession(sessionId, title)
+                        },
                         onDeleteSession = { viewModel.deleteSession(it) },
                         onOpenSettings = {
                             scope.launch { drawerState.close() }

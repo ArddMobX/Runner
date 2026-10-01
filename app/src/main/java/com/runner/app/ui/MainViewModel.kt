@@ -21,7 +21,6 @@ import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.tools.ToolDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -202,6 +201,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val remaining = repository.observeSessions().first()
                 val next = remaining.firstOrNull() ?: repository.createSession()
                 loadSession(next.id)
+            }
+        }
+    }
+
+    fun renameSession(sessionId: String, title: String) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            repository.renameSession(sessionId, clean)
+            if (_currentSessionId.value == sessionId) {
+                _currentSessionTitle.value = clean
             }
         }
     }
