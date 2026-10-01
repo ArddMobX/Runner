@@ -10,6 +10,29 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
+ * Модель провайдера. Название и длина контекста есть не у всех:
+ * OpenRouter отдаёт и то и другое, Groq и Gemini — только id.
+ */
+data class ModelInfo(
+    val id: String,
+    val name: String = "",
+    val contextLength: Int? = null
+) {
+    /** Что показывать в списке: человекочитаемое имя, если оно есть. */
+    val label: String get() = name.ifBlank { id }
+
+    /** Компактный бейдж контекста: «1M», «262K». */
+    val contextBadge: String?
+        get() = contextLength?.let { tokens ->
+            when {
+                tokens >= 1_000_000 -> "${tokens / 1_000_000}M"
+                tokens >= 1_000 -> "${tokens / 1_000}K"
+                else -> null
+            }
+        }
+}
+
+/**
  * Список моделей берётся у самого провайдера: GET {base}/models.
  * Руками ID вводить не нужно — они всё равно протухают.
  */
@@ -24,7 +47,7 @@ object ModelCatalog {
         baseUrl: String,
         apiKey: String,
         reverseProxyUrl: String = ""
-    ): Result<List<String>> = withContext(Dispatchers.IO) {
+    ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         val target = if (reverseProxyUrl.isNotBlank()) reverseProxyUrl.trim() else baseUrl.trim()
         if (target.isBlank()) {
             return@withContext Result.failure(IOException("Base URL не задан"))
@@ -52,16 +75,30 @@ object ModelCatalog {
                 }
 
                 val array = JSONObject(body).optJSONArray("data") ?: JSONArray()
-                val ids = LinkedHashSet<String>()
+                val models = LinkedHashMap<String, ModelInfo>()
+
                 for (index in 0 until array.length()) {
-                    val id = array.optJSONObject(index)?.optString("id").orEmpty()
-                    if (id.isNotBlank()) ids.add(id)
+                    val item = array.optJSONObject(index) ?: continue
+                    val id = item.optString("id")
+                    if (id.isBlank()) continue
+
+                    val name = item.optString("name")
+                    val contextLength = item.optInt("context_length", 0).takeIf { it > 0 }
+                        ?: item.optJSONObject("top_provider")
+                            ?.optInt("context_length", 0)
+                            ?.takeIf { it > 0 }
+
+                    models[id] = ModelInfo(
+                        id = id,
+                        name = name.takeIf { it.isNotBlank() && it != id }.orEmpty(),
+                        contextLength = contextLength
+                    )
                 }
 
-                if (ids.isEmpty()) {
+                if (models.isEmpty()) {
                     Result.failure(IOException("Провайдер вернул пустой список моделей"))
                 } else {
-                    Result.success(ids.sorted())
+                    Result.success(models.values.sortedBy { it.id })
                 }
             }
         } catch (e: IOException) {
@@ -81,9 +118,9 @@ object ModelCatalog {
         } ?: body.take(200)
 
         return when (code) {
-            401, 403 -> "Ключ не подошёл ($code). Проверь API Key провайдера."
+            401, 403 -> "Ключ не подошёл ($code)"
             404 -> "Эндпоинт не найден (404): $endpoint"
-            429 -> "Слишком много запросов (429). Подожди немного."
+            429 -> "Слишком много запросов (429)"
             else -> "Ошибка $code: $details"
         }
     }

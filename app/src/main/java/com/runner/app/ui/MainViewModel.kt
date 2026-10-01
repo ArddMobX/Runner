@@ -10,6 +10,7 @@ import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
 import com.runner.app.data.ChatRepository
 import com.runner.app.data.ModelCatalog
+import com.runner.app.data.ModelInfo
 import com.runner.app.data.OpenAIClient
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
@@ -235,9 +236,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Выбор модели переключает и провайдера — одной операцией. */
     fun selectModel(providerId: String, model: String) {
         val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
-        _providers.value = providerStore.upsert(provider.copy(selectedModel = model))
+        val modelId = model.trim()
+        if (modelId.isBlank()) return
+
+        // ID, введённый вручную, дописываем в список — иначе он потеряется
+        // при следующем обновлении списка.
+        val models = if (provider.models.any { it.id == modelId }) {
+            provider.models
+        } else {
+            provider.models + ModelInfo(id = modelId)
+        }
+
+        _providers.value = providerStore.upsert(
+            provider.copy(models = models, selectedModel = modelId)
+        )
         providerStore.setActiveProviderId(providerId)
         _activeProviderId.value = providerId
+    }
+
+    /** Обновление списка по сохранённым ключу и Base URL провайдера. */
+    fun refreshModels(providerId: String, onResult: (String) -> Unit = {}) {
+        val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
+        fetchModels(providerId, provider.baseUrl, provider.apiKey, onResult)
+    }
+
+    /**
+     * Загрузка списка моделей с явными baseUrl и ключом.
+     * Нужна для авто-подгрузки: пользователь ещё не нажал «Сохранить»,
+     * поэтому проверяем именно тот ключ, который он ввёл.
+     */
+    fun fetchModels(
+        providerId: String,
+        baseUrl: String,
+        apiKey: String,
+        onResult: (String) -> Unit = {}
+    ) {
+        if (baseUrl.isBlank() || apiKey.isBlank()) {
+            onResult("Нужны Base URL и API Key")
+            return
+        }
+
+        _modelsLoadingFor.value = providerId
+        viewModelScope.launch {
+            val result = ModelCatalog.fetchModels(
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                reverseProxyUrl = _settings.value.reverseProxyUrl
+            )
+
+            result.onSuccess { models ->
+                val provider = _providers.value.firstOrNull { it.id == providerId }
+                if (provider != null) {
+                    val selected = provider.selectedModel
+                        .takeIf { current -> models.any { it.id == current } }
+                        ?: models.first().id
+                    _providers.value = providerStore.upsert(
+                        provider.copy(models = models, selectedModel = selected)
+                    )
+                }
+                onResult("Моделей: ${models.size}")
+            }.onFailure { error ->
+                onResult("Не удалось загрузить модели: ${error.localizedMessage}")
+            }
+
+            _modelsLoadingFor.value = null
+        }
     }
 
     fun saveProvider(provider: Provider) {
@@ -247,28 +310,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteProvider(providerId: String) {
         _providers.value = providerStore.remove(providerId)
         _activeProviderId.value = providerStore.activeProviderId()
-    }
-
-    fun refreshModels(providerId: String, onResult: (String) -> Unit = {}) {
-        val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
-        _modelsLoadingFor.value = providerId
-        viewModelScope.launch {
-            val result = ModelCatalog.fetchModels(
-                baseUrl = provider.baseUrl,
-                apiKey = provider.apiKey,
-                reverseProxyUrl = _settings.value.reverseProxyUrl
-            )
-            result.onSuccess { models ->
-                val selected = provider.selectedModel.takeIf { it in models } ?: models.first()
-                _providers.value = providerStore.upsert(
-                    provider.copy(models = models, selectedModel = selected)
-                )
-                onResult("Моделей: ${models.size}")
-            }.onFailure { error ->
-                onResult(error.localizedMessage ?: "Не удалось получить список моделей")
-            }
-            _modelsLoadingFor.value = null
-        }
     }
 
     // --- Настройки ---

@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -33,7 +34,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -84,10 +87,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -97,6 +102,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
+import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.OutlineSubtle
@@ -188,6 +194,7 @@ fun ChatScreen(
                         providerName = provider?.name ?: "Провайдер",
                         modelName = provider?.activeModel.orEmpty().ifBlank { "модель не выбрана" },
                         hasKey = provider?.apiKey?.isNotBlank() == true,
+                        isLoading = modelsLoadingFor != null,
                         onClick = { showModelPicker = true }
                     )
                 },
@@ -314,6 +321,7 @@ private fun ModelChip(
     providerName: String,
     modelName: String,
     hasKey: Boolean,
+    isLoading: Boolean,
     onClick: () -> Unit
 ) {
     Row(
@@ -340,18 +348,30 @@ private fun ModelChip(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                Icon(
-                    imageVector = Icons.Outlined.ArrowDropDown,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp)
-                )
+                if (isLoading) {
+                    Spacer(modifier = Modifier.width(7.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 1.6.dp,
+                        color = AccentPrimary
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowDropDown,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
 }
 
-/** Компактная строка ввода: без рамки, растёт до 6 строк, во время ответа — «Стоп». */
+/**
+ * Нижняя панель: пилюля на surface-container с мягкой границей,
+ * авто-растущее поле до 5 строк и круглая кнопка отправки/остановки.
+ */
 @Composable
 private fun InputBar(
     value: String,
@@ -360,54 +380,118 @@ private fun InputBar(
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
-    Surface(color = SurfaceContainerLowest, modifier = Modifier.fillMaxWidth()) {
-        Row(
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(SurfaceContainer)
+            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(24.dp))
+            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            TextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Задача агенту", color = TextTertiary, fontSize = 14.sp) },
-                maxLines = 6,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                shape = RoundedCornerShape(14.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = SurfaceContainer,
-                    unfocusedContainerColor = SurfaceContainer,
-                    disabledContainerColor = SurfaceContainer,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                    cursorColor = AccentPrimary,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
-                )
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            val canSend = value.isNotBlank() && !isRunning
-            IconButton(
-                onClick = { if (isRunning) onStop() else if (canSend) onSend() },
-                enabled = isRunning || canSend,
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = if (isRunning) Icons.Outlined.Stop else Icons.AutoMirrored.Outlined.Send,
-                    contentDescription = if (isRunning) "Стоп" else "Отправить",
-                    tint = when {
-                        isRunning -> StatusError
-                        canSend -> AccentPrimary
-                        else -> TextTertiary
-                    },
-                    modifier = Modifier.size(21.dp)
-                )
+                .weight(1f)
+                .padding(start = 12.dp, end = 4.dp, top = 11.dp, bottom = 11.dp),
+            textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, lineHeight = 21.sp),
+            maxLines = 5,
+            minLines = 1,
+            cursorBrush = SolidColor(AccentPrimary),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+            decorationBox = { innerTextField ->
+                Box {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = "Задать задачу",
+                            color = TextTertiary,
+                            fontSize = 15.sp,
+                            lineHeight = 21.sp
+                        )
+                    }
+                    innerTextField()
+                }
             }
-        }
+        )
+
+        SendStopButton(
+            isRunning = isRunning,
+            canSend = value.isNotBlank() && !isRunning,
+            onSend = onSend,
+            onStop = onStop
+        )
+    }
+}
+
+/**
+ * Круглая кнопка: пусто — приглушённая и полупрозрачная, есть текст — акцентная
+ * с пружинным увеличением, во время работы — стоп. Тап даёт scale(0.92).
+ */
+@Composable
+private fun SendStopButton(
+    isRunning: Boolean,
+    canSend: Boolean,
+    onSend: () -> Unit,
+    onStop: () -> Unit
+) {
+    val enabled = isRunning || canSend
+
+    val background by animateColorAsState(
+        targetValue = when {
+            isRunning -> StatusError.copy(alpha = 0.16f)
+            canSend -> AccentPrimary
+            else -> SurfaceContainerHigh
+        },
+        animationSpec = MotionTokens.fluidTween(220),
+        label = "send_background"
+    )
+
+    val iconTint by animateColorAsState(
+        targetValue = when {
+            isRunning -> StatusError
+            canSend -> SurfaceDark
+            else -> TextTertiary
+        },
+        animationSpec = MotionTokens.fluidTween(220),
+        label = "send_tint"
+    )
+
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.4f,
+        animationSpec = MotionTokens.fluidTween(220),
+        label = "send_alpha"
+    )
+
+    val buttonScale by animateFloatAsState(
+        targetValue = if (canSend) 1f else 0.94f,
+        animationSpec = MotionTokens.fluidSpring(),
+        label = "send_scale"
+    )
+
+    Box(
+        modifier = Modifier
+            .padding(bottom = 3.dp, end = 3.dp)
+            .size(38.dp)
+            .graphicsLayer {
+                scaleX = buttonScale
+                scaleY = buttonScale
+                alpha = contentAlpha
+            }
+            .clip(CircleShape)
+            .background(background)
+            .bounceClick(scaleDown = 0.92f) {
+                if (isRunning) onStop() else if (canSend) onSend()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (isRunning) RunnerIcons.StopSquare else RunnerIcons.ArrowUp,
+            contentDescription = if (isRunning) "Остановить" else "Отправить",
+            tint = iconTint,
+            modifier = Modifier.size(17.dp)
+        )
     }
 }
 

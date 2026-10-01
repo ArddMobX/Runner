@@ -1,5 +1,9 @@
 package com.runner.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -38,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +51,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -65,6 +73,7 @@ import com.runner.app.ui.theme.SurfaceDark
 import com.runner.app.ui.theme.TextPrimary
 import com.runner.app.ui.theme.TextSecondary
 import com.runner.app.ui.theme.TextTertiary
+import kotlinx.coroutines.delay
 
 /**
  * Редактирование одного провайдера: имя, Base URL, ключ и список моделей,
@@ -81,6 +90,7 @@ fun ProviderEditScreen(
     val activeProviderId by viewModel.activeProviderId.collectAsState()
 
     val provider = providers.firstOrNull { it.id == providerId } ?: return
+    val context = LocalContext.current
 
     var name by remember(providerId) { mutableStateOf(provider.name) }
     var baseUrl by remember(providerId) { mutableStateOf(provider.baseUrl) }
@@ -89,8 +99,21 @@ fun ProviderEditScreen(
     val status = remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
 
+    // Авто-подгрузка моделей: как только пользователь закончил вводить ключ
+    // или Base URL, через 600 мс сами идём в GET /models. Ключ при этом
+    // не сохраняем — только список моделей, ключ уйдёт по кнопке «Сохранить».
+    var autoFetchEnabled by remember(providerId) { mutableStateOf(false) }
+
+    LaunchedEffect(apiKey, baseUrl, autoFetchEnabled) {
+        if (!autoFetchEnabled) return@LaunchedEffect
+        if (apiKey.isBlank() || baseUrl.isBlank()) return@LaunchedEffect
+        delay(600)
+        viewModel.fetchModels(provider.id, baseUrl, apiKey) { status.value = it }
+    }
+
     val isActive = provider.id == activeProviderId
     val isDirty = name != provider.name || baseUrl != provider.baseUrl || apiKey != provider.apiKey
+    val isLoadingModels = loadingFor == provider.id
 
     Column(
         modifier = Modifier
@@ -115,7 +138,10 @@ fun ProviderEditScreen(
                 FieldLabel("Base URL")
                 TextField(
                     value = baseUrl,
-                    onValueChange = { baseUrl = it },
+                    onValueChange = {
+                        baseUrl = it
+                        autoFetchEnabled = true
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         Text("https://api.groq.com/openai/v1", color = TextTertiary, fontSize = 13.sp)
@@ -129,7 +155,10 @@ fun ProviderEditScreen(
                 FieldLabel("API Key")
                 TextField(
                     value = apiKey,
-                    onValueChange = { apiKey = it },
+                    onValueChange = {
+                        apiKey = it
+                        autoFetchEnabled = true
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("sk-...", color = TextTertiary, fontSize = 13.sp) },
                     singleLine = true,
@@ -233,10 +262,13 @@ fun ProviderEditScreen(
                         )
                     }
                     IconButton(
-                        onClick = { viewModel.refreshModels(provider.id) { status.value = it } },
-                        enabled = loadingFor != provider.id
+                        onClick = {
+                            autoFetchEnabled = false
+                            viewModel.fetchModels(provider.id, baseUrl, apiKey) { status.value = it }
+                        },
+                        enabled = !isLoadingModels
                     ) {
-                        if (loadingFor == provider.id) {
+                        if (isLoadingModels) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(17.dp),
                                 strokeWidth = 1.8.dp,
@@ -257,7 +289,12 @@ fun ProviderEditScreen(
 
                 if (provider.models.isEmpty()) {
                     Text(
-                        text = "Список пуст. Нажми обновление — модели придут из GET /models.",
+                        text = if (isLoadingModels) {
+                            "Загружаю список моделей…"
+                        } else {
+                            "Список пуст. Модели подтянутся сами после ввода ключа, " +
+                                    "либо нажми обновление."
+                        },
                         color = TextTertiary,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
@@ -270,27 +307,76 @@ fun ProviderEditScreen(
                             .background(SurfaceContainerLowest, RoundedCornerShape(10.dp))
                     ) {
                         LazyColumn {
-                            items(provider.models, key = { it }) { model ->
-                                val isSelected = model == provider.selectedModel
+                            items(provider.models, key = { it.id }) { model ->
+                                val isSelected = model.id == provider.selectedModel
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            viewModel.selectModel(provider.id, model)
-                                            status.value = "Модель: $model"
+                                            viewModel.selectModel(provider.id, model.id)
+                                            status.value = "Модель: ${model.id}"
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        .padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = model,
-                                        color = if (isSelected) AccentPrimary else TextPrimary,
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = model.label,
+                                            color = if (isSelected) AccentPrimary else TextPrimary,
+                                            fontSize = 12.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (model.name.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(1.dp))
+                                            Text(
+                                                text = model.id,
+                                                color = TextTertiary,
+                                                fontSize = 10.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    model.contextBadge?.let { badge ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(5.dp))
+                                                .background(SurfaceContainerHigh)
+                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = badge,
+                                                color = TextSecondary,
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            copyModelId(context, model.id)
+                                            Toast.makeText(
+                                                context,
+                                                "ID скопирован в буфер",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.ContentCopy,
+                                            contentDescription = "Скопировать ID",
+                                            tint = TextTertiary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+
                                     if (isSelected) {
                                         Icon(
                                             imageVector = Icons.Outlined.Check,
@@ -359,6 +445,11 @@ private fun FieldLabel(text: String) {
         fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(bottom = 6.dp)
     )
+}
+
+private fun copyModelId(context: Context, modelId: String) {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    manager.setPrimaryClip(ClipData.newPlainText("Model ID", modelId))
 }
 
 @Composable

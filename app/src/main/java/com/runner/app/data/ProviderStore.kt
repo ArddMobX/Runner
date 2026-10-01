@@ -13,14 +13,16 @@ data class Provider(
     val name: String,
     val baseUrl: String,
     val apiKey: String = "",
-    val models: List<String> = emptyList(),
+    val models: List<ModelInfo> = emptyList(),
     val selectedModel: String = ""
 ) {
     /** Ключ задан — провайдера можно использовать. */
     val isReady: Boolean get() = apiKey.isNotBlank() && baseUrl.isNotBlank()
 
     /** Модель, которая реально уйдёт в запрос. */
-    val activeModel: String get() = selectedModel.ifBlank { models.firstOrNull().orEmpty() }
+    val activeModel: String get() = selectedModel.ifBlank { models.firstOrNull()?.id.orEmpty() }
+
+    fun modelIds(): List<String> = models.map { it.id }
 }
 
 /**
@@ -119,8 +121,8 @@ class ProviderStore(context: Context) {
                 providers[index] = existing.copy(
                     apiKey = apiKey.orEmpty(),
                     selectedModel = model.ifBlank { existing.selectedModel },
-                    models = if (model.isNotBlank() && model !in existing.models) {
-                        listOf(model) + existing.models
+                    models = if (model.isNotBlank() && existing.models.none { it.id == model }) {
+                        listOf(ModelInfo(id = model)) + existing.models
                     } else {
                         existing.models
                     }
@@ -133,7 +135,7 @@ class ProviderStore(context: Context) {
                         name = "Свой провайдер",
                         baseUrl = baseUrl,
                         apiKey = apiKey.orEmpty(),
-                        models = if (model.isNotBlank()) listOf(model) else emptyList(),
+                        models = if (model.isNotBlank()) listOf(ModelInfo(id = model)) else emptyList(),
                         selectedModel = model
                     )
                 )
@@ -150,7 +152,20 @@ class ProviderStore(context: Context) {
                     put("name", provider.name)
                     put("baseUrl", provider.baseUrl)
                     put("apiKey", provider.apiKey)
-                    put("models", JSONArray(provider.models))
+                    put(
+                        "models",
+                        JSONArray().apply {
+                            provider.models.forEach { model ->
+                                put(
+                                    JSONObject().apply {
+                                        put("id", model.id)
+                                        if (model.name.isNotBlank()) put("name", model.name)
+                                        model.contextLength?.let { put("contextLength", it) }
+                                    }
+                                )
+                            }
+                        }
+                    )
                     put("selectedModel", provider.selectedModel)
                 }
             )
@@ -163,23 +178,41 @@ class ProviderStore(context: Context) {
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val id = item.optString("id")
             if (id.isBlank()) return@mapNotNull null
-            val modelsArray = item.optJSONArray("models")
-            val models = if (modelsArray == null) {
-                emptyList()
-            } else {
-                (0 until modelsArray.length()).mapNotNull { modelsArray.optString(it).ifBlank { null } }
-            }
+
             Provider(
                 id = id,
                 name = item.optString("name").ifBlank { id },
                 baseUrl = item.optString("baseUrl"),
                 apiKey = item.optString("apiKey"),
-                models = models,
+                models = parseModels(item.optJSONArray("models")),
                 selectedModel = item.optString("selectedModel")
             )
         }
     } catch (e: Exception) {
         null
+    }
+
+    /** Поддерживает и старый формат (массив строк), и новый (массив объектов). */
+    private fun parseModels(array: JSONArray?): List<ModelInfo> {
+        if (array == null) return emptyList()
+        val result = LinkedHashMap<String, ModelInfo>()
+        for (index in 0 until array.length()) {
+            val raw = array.opt(index)
+            when (raw) {
+                is String -> if (raw.isNotBlank()) result[raw] = ModelInfo(id = raw)
+                is JSONObject -> {
+                    val id = raw.optString("id")
+                    if (id.isBlank()) continue
+                    result[id] = ModelInfo(
+                        id = id,
+                        name = raw.optString("name"),
+                        contextLength = raw.optInt("contextLength", 0).takeIf { it > 0 }
+                    )
+                }
+                else -> Unit
+            }
+        }
+        return result.values.toList()
     }
 
     companion object {
@@ -200,14 +233,22 @@ class ProviderStore(context: Context) {
                 id = "groq",
                 name = "Groq",
                 baseUrl = "https://api.groq.com/openai/v1",
-                models = listOf("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"),
+                models = listOf(
+                    ModelInfo("openai/gpt-oss-120b"),
+                    ModelInfo("openai/gpt-oss-20b"),
+                    ModelInfo("qwen/qwen3.8-27b")
+                ),
                 selectedModel = "openai/gpt-oss-120b"
             ),
             Provider(
                 id = "gemini",
                 name = "Gemini",
                 baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
-                models = listOf("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash"),
+                models = listOf(
+                    ModelInfo("gemini-3.8-flash"),
+                    ModelInfo("gemini-3.7-flash"),
+                    ModelInfo("gemini-3.5-flash")
+                ),
                 selectedModel = "gemini-3.8-flash"
             ),
             Provider(
@@ -215,9 +256,9 @@ class ProviderStore(context: Context) {
                 name = "OpenRouter",
                 baseUrl = "https://openrouter.ai/api/v1",
                 models = listOf(
-                    "qwen/qwen3.8-27b:free",
-                    "nvidia/nemotron-3.5-lightning:free",
-                    "deepseek/deepseek-v4.1-flash"
+                    ModelInfo("qwen/qwen3.8-27b:free"),
+                    ModelInfo("nvidia/nemotron-3.5-lightning:free"),
+                    ModelInfo("deepseek/deepseek-v4.1-flash")
                 ),
                 selectedModel = "qwen/qwen3.8-27b:free"
             ),
@@ -225,14 +266,18 @@ class ProviderStore(context: Context) {
                 id = "deepseek",
                 name = "DeepSeek",
                 baseUrl = "https://api.deepseek.com",
-                models = listOf("deepseek-flash", "deepseek-v4-pro"),
+                models = listOf(ModelInfo("deepseek-flash"), ModelInfo("deepseek-v4-pro")),
                 selectedModel = "deepseek-flash"
             ),
             Provider(
                 id = "openai",
                 name = "OpenAI",
                 baseUrl = "https://api.openai.com/v1",
-                models = listOf("gpt-5.4-nano", "gpt-6-luna", "gpt-6-astra"),
+                models = listOf(
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-6-luna"),
+                    ModelInfo("gpt-6-astra")
+                ),
                 selectedModel = "gpt-5.4-nano"
             )
         )
