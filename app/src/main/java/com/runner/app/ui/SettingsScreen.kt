@@ -6,59 +6,25 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -66,16 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.runner.app.ui.theme.DarkBackground
-import com.runner.app.ui.theme.DarkBorder
-import com.runner.app.ui.theme.DarkSurface
-import com.runner.app.ui.theme.DarkSurfaceVariant
-import com.runner.app.ui.theme.ErrorRed
-import com.runner.app.ui.theme.PrimaryBlue
-import com.runner.app.ui.theme.SecondaryMint
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
+import com.runner.app.ui.theme.*
 
 data class ProviderPreset(
     val title: String,
@@ -110,62 +67,62 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Настройки", style = MaterialTheme.typography.titleLarge) },
+                title = {
+                    Text(
+                        text = "Настройки",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.bounceClick { onBackClick() }
+                    ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "Назад",
-                            tint = TextPrimary
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBackground,
+                    containerColor = SurfaceDark,
                     titleContentColor = TextPrimary
                 )
             )
         },
-        containerColor = DarkBackground
+        containerColor = SurfaceDark
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            // Provider & Model Section
-            Card(
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            // Group 1: API Configuration
+            PreferenceGroup(title = "ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ") {
+                // Provider Presets
+                Column(modifier = Modifier.padding(14.dp)) {
                     Text(
-                        text = "Провайдер ИИ (OpenAI-совместимый)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Поддерживаются любые сервисы с OpenAI-совместимым API и Tool Calling.",
+                        text = "Шаблоны провайдеров",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary
                     )
-
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Быстрый выбор провайдера:",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = "Быстрое переключение конфигурации в один клик",
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Preset Chips
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -174,222 +131,263 @@ fun SettingsScreen(
                     ) {
                         PROVIDER_PRESETS.forEach { preset ->
                             val isSelected = baseUrlInput == preset.baseUrl
-                            Box(
+                            Surface(
+                                color = if (isSelected) SurfaceContainerHighest else SurfaceContainer,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) AccentPrimary.copy(alpha = 0.5f) else OutlineSubtle
+                                ),
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isSelected) PrimaryBlue.copy(alpha = 0.25f) else DarkSurfaceVariant)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) PrimaryBlue else DarkBorder,
-                                        RoundedCornerShape(10.dp)
-                                    )
-                                    .clickable {
+                                    .bounceClick {
                                         baseUrlInput = preset.baseUrl
                                         modelInput = preset.defaultModel
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
                             ) {
                                 Text(
                                     text = preset.title,
-                                    color = if (isSelected) PrimaryBlue else TextPrimary,
+                                    color = if (isSelected) AccentPrimary else TextPrimary,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
 
-                    // Base URL Input
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Dns,
-                            contentDescription = null,
-                            tint = PrimaryBlue,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Base URL",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
+                // Base URL
+                PreferenceInputRow(
+                    label = "Base URL",
+                    description = "Эндпоинт OpenAI-совместимого сервиса"
+                ) {
                     OutlinedTextField(
                         value = baseUrlInput,
                         onValueChange = { baseUrlInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("https://api.openai.com/v1", color = TextTertiary) },
+                        placeholder = { Text("https://api.openai.com/v1", color = TextTertiary, fontSize = 13.sp) },
                         singleLine = true,
-                        colors = customFieldColors(),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = preferenceFieldColors(),
+                        shape = RoundedCornerShape(10.dp)
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
 
-                    // Model Name Input
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Memory,
-                            contentDescription = null,
-                            tint = PrimaryBlue,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Название модели (Model ID)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
+                // Model ID
+                PreferenceInputRow(
+                    label = "Идентификатор модели",
+                    description = "Название модели для передачи в запросе (model ID)"
+                ) {
                     OutlinedTextField(
                         value = modelInput,
                         onValueChange = { modelInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("llama-3.3-70b-versatile, gpt-4o-mini...", color = TextTertiary) },
+                        placeholder = { Text("llama-3.3-70b-versatile, gpt-4o-mini...", color = TextTertiary, fontSize = 13.sp) },
                         singleLine = true,
-                        colors = customFieldColors(),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = preferenceFieldColors(),
+                        shape = RoundedCornerShape(10.dp)
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
 
-                    // API Key Input
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Key,
-                            contentDescription = null,
-                            tint = PrimaryBlue,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "API Key",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
+                // API Key
+                PreferenceInputRow(
+                    label = "API Key",
+                    description = "Секретный ключ для авторизации (хранится локально)"
+                ) {
                     OutlinedTextField(
                         value = apiKeyInput,
                         onValueChange = { apiKeyInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("sk-... или gsk_...", color = TextTertiary) },
+                        placeholder = { Text("sk-... или gsk_...", color = TextTertiary, fontSize = 13.sp) },
                         singleLine = true,
                         visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
                             IconButton(onClick = { keyVisible = !keyVisible }) {
                                 Icon(
-                                    imageVector = if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    imageVector = if (keyVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                                     contentDescription = "Видимость",
-                                    tint = TextSecondary
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         },
-                        colors = customFieldColors(),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = preferenceFieldColors(),
+                        shape = RoundedCornerShape(10.dp)
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+
+                // Save button
+                Box(modifier = Modifier.padding(14.dp)) {
                     Button(
                         onClick = {
                             viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput)
-                            Toast.makeText(context, "Настройки сохранены!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .bounceClick {
+                                viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput)
+                                Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
+                            },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentPrimary),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Сохранить настройки", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "Сохранить параметры",
+                            color = SurfaceDark,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
                     }
                 }
             }
 
-            // Storage Permission Section
-            Card(
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = null,
-                                tint = if (hasStoragePermission) SecondaryMint else ErrorRed,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Доступ к файлам",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (hasStoragePermission) SecondaryMint.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = if (hasStoragePermission) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = if (hasStoragePermission) SecondaryMint else ErrorRed,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (hasStoragePermission) "Разрешено" else "Запрещено",
-                                    color = if (hasStoragePermission) SecondaryMint else ErrorRed,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Право MANAGE_EXTERNAL_STORAGE необходимо агенту для сканирования Download, распаковки архивов и сортировки файлов.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+            // Group 2: System Permissions
+            PreferenceGroup(title = "СИСТЕМНЫЕ ДОСТУПЫ") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { openStorageSettings(context) }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.FolderShared,
+                        contentDescription = null,
+                        tint = if (hasStoragePermission) StatusSuccess else TextSecondary,
+                        modifier = Modifier.size(22.dp)
                     )
 
-                    if (!hasStoragePermission) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        OutlinedButton(
-                            onClick = { openStorageSettings(context) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("Выдать разрешение в настройках", color = PrimaryBlue)
-                        }
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Управление файлами",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Право MANAGE_EXTERNAL_STORAGE для анализа и сортировки",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
                     }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Switch(
+                        checked = hasStoragePermission,
+                        onCheckedChange = { openStorageSettings(context) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = SurfaceDark,
+                            checkedTrackColor = AccentPrimary,
+                            uncheckedThumbColor = TextTertiary,
+                            uncheckedTrackColor = SurfaceContainerHigh
+                        )
+                    )
                 }
             }
+
+            // Group 3: About
+            PreferenceGroup(title = "О ПРИЛОЖЕНИИ") {
+                PreferenceStaticRow(label = "Архитектура", value = "Kotlin + Jetpack Compose")
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                PreferenceStaticRow(label = "Протокол", value = "OpenAI Tool Calling")
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                PreferenceStaticRow(label = "Архиватор", value = "Zip4j 2.11.5")
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                PreferenceStaticRow(label = "Версия", value = "1.1.0")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun customFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = PrimaryBlue,
-    unfocusedBorderColor = DarkBorder,
-    focusedContainerColor = DarkSurfaceVariant,
-    unfocusedContainerColor = DarkSurfaceVariant,
+private fun PreferenceGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextTertiary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 10.dp, bottom = 6.dp)
+        )
+        Card(
+            colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
+            border = BorderStroke(1.dp, OutlineSubtle),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PreferenceInputRow(
+    label: String,
+    description: String,
+    inputContent: @Composable () -> Unit
+) {
+    Column(modifier = Modifier.padding(14.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = TextPrimary
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        inputContent()
+    }
+}
+
+@Composable
+private fun PreferenceStaticRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            fontFamily = FontFamily.Monospace,
+            color = TextPrimary
+        )
+    }
+}
+
+@Composable
+private fun preferenceFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = AccentPrimary,
+    unfocusedBorderColor = OutlineSubtle,
+    focusedContainerColor = SurfaceContainer,
+    unfocusedContainerColor = SurfaceContainer,
     focusedTextColor = TextPrimary,
     unfocusedTextColor = TextPrimary
 )

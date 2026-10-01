@@ -1,26 +1,16 @@
 package com.runner.app.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -28,52 +18,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.MarkdownView
-import com.runner.app.ui.theme.DarkBackground
-import com.runner.app.ui.theme.DarkBorder
-import com.runner.app.ui.theme.DarkSurface
-import com.runner.app.ui.theme.DarkSurfaceVariant
-import com.runner.app.ui.theme.ErrorRed
-import com.runner.app.ui.theme.PrimaryBlue
-import com.runner.app.ui.theme.PrimaryBlueVariant
-import com.runner.app.ui.theme.SecondaryMint
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
-import com.runner.app.ui.theme.ToolAmber
+import com.runner.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,7 +51,7 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // Auto-scroll on new message
+    // Fluid auto-scroll on new message
     LaunchedEffect(messages.size, currentStatus) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -105,53 +67,65 @@ fun ChatScreen(
                             Text(
                                 text = "Runner",
                                 style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(PrimaryBlue.copy(alpha = 0.2f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .background(SurfaceContainerHigh)
+                                    .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = activeModel.ifBlank { "AI Model" },
-                                    color = PrimaryBlue,
+                                    text = activeModel.ifBlank { "OpenAI Compatible" },
+                                    color = TextSecondary,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                         Text(
                             text = "Автономный мобильный агент",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
+                            color = TextTertiary
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.clearChat() }) {
+                    IconButton(
+                        onClick = { viewModel.clearChat() },
+                        modifier = Modifier.bounceClick { viewModel.clearChat() }
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.DeleteSweep,
+                            imageVector = Icons.Outlined.DeleteSweep,
                             contentDescription = "Очистить чат",
-                            tint = TextSecondary
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    IconButton(onClick = onOpenSettings) {
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.bounceClick { onOpenSettings() }
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Settings,
+                            imageVector = Icons.Outlined.Settings,
                             contentDescription = "Настройки",
-                            tint = TextPrimary
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBackground,
+                    containerColor = SurfaceDark,
                     titleContentColor = TextPrimary
                 )
             )
         },
-        containerColor = DarkBackground
+        containerColor = SurfaceDark
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -160,48 +134,66 @@ fun ChatScreen(
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            // Loading status bar
+            // Live Status Bar (Neutral, sleek progress)
             AnimatedVisibility(
                 visible = isLoading,
-                enter = fadeIn(),
-                exit = fadeOut()
+                enter = expandVertically(animationSpec = MotionTokens.fluidSpring()) + fadeIn(MotionTokens.fluidTween(300)),
+                exit = shrinkVertically(animationSpec = MotionTokens.fluidSpring()) + fadeOut(MotionTokens.fluidTween(300))
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(DarkSurface)
+                Surface(
+                    color = SurfaceContainerLowest,
+                    border = BorderStroke(0.5.dp, OutlineSubtle),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = PrimaryBlue,
-                        trackColor = DarkSurfaceVariant
-                    )
-                    currentStatus?.let { status ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(13.dp),
+                            strokeWidth = 1.8.dp,
+                            color = AccentPrimary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = status,
-                            color = ToolAmber,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            text = currentStatus ?: "Обработка...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
 
-            // Message List
+            // Message List with fluid spring entrance
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(messages, key = { it.id }) { msg ->
-                    MessageItem(msg)
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        visible = true
+                    }
+
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = fadeIn(animationSpec = MotionTokens.fluidTween(400)) +
+                                slideInVertically(animationSpec = MotionTokens.fluidSpring()) { 28 }
+                    ) {
+                        MessageItem(msg)
+                    }
                 }
             }
 
-            // Suggestion Chips
+            // Quick Action Chips (Lucide / Material Symbols, 34dp height, fluid bounce)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -209,27 +201,46 @@ fun ChatScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                QuickPromptChip("📊 Сводка Downloads") {
+                QuickActionChip(
+                    icon = Icons.Outlined.FolderOpen,
+                    label = "Сводка Downloads"
+                ) {
                     inputText = "Сделай сводку по папке Download"
                 }
-                QuickPromptChip("🔍 Найти PDF") {
-                    inputText = "Найди все PDF файлы в папке Download"
+
+                QuickActionChip(
+                    icon = Icons.Outlined.Search,
+                    label = "Поиск файлов"
+                ) {
+                    inputText = "Найди файлы с расширением pdf в папке Download"
                 }
-                QuickPromptChip("💻 Память диска") {
-                    inputText = "Выполни команду 'df -h' и покажи свободное место на диске"
+
+                QuickActionChip(
+                    icon = Icons.Outlined.Terminal,
+                    label = "Память диска"
+                ) {
+                    inputText = "Выполни команду 'df -h' и покажи свободное место"
                 }
-                QuickPromptChip("📋 Из буфера") {
-                    inputText = "Прочитай текст из буфера обмена и сохрани в файл Documents/note.txt"
+
+                QuickActionChip(
+                    icon = Icons.Outlined.ContentPaste,
+                    label = "Буфер обмена"
+                ) {
+                    inputText = "Прочитай текст из буфера обмена и сохрани в Documents/note.txt"
                 }
-                QuickPromptChip("📁 Организовать") {
+
+                QuickActionChip(
+                    icon = Icons.Outlined.FolderZip,
+                    label = "Сортировка"
+                ) {
                     inputText = "Отсортируй файлы в папке Download по категориям"
                 }
             }
 
-            // Bottom Input Bar
+            // Input Bar (Neutral M3 Dark surface container)
             Surface(
-                color = DarkSurface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                color = SurfaceContainerLowest,
+                border = BorderStroke(1.dp, OutlineSubtle),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -250,36 +261,46 @@ fun ChatScreen(
                             )
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = PrimaryBlue,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedContainerColor = DarkSurfaceVariant,
-                            unfocusedContainerColor = DarkSurfaceVariant,
+                            focusedBorderColor = AccentPrimary,
+                            unfocusedBorderColor = OutlineSubtle,
+                            focusedContainerColor = SurfaceContainerLow,
+                            unfocusedContainerColor = SurfaceContainerLow,
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary
                         ),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(22.dp),
                         maxLines = 4
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
+                    val canSend = inputText.isNotBlank() && !isLoading
                     IconButton(
                         onClick = {
-                            val textToSend = inputText
-                            inputText = ""
-                            viewModel.sendMessage(textToSend)
+                            if (canSend) {
+                                val textToSend = inputText
+                                inputText = ""
+                                viewModel.sendMessage(textToSend)
+                            }
                         },
-                        enabled = inputText.isNotBlank() && !isLoading,
+                        enabled = canSend,
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
-                            .background(if (inputText.isNotBlank() && !isLoading) PrimaryBlue else DarkSurfaceVariant)
+                            .background(if (canSend) AccentPrimary else SurfaceContainerHigh)
+                            .bounceClick {
+                                if (canSend) {
+                                    val textToSend = inputText
+                                    inputText = ""
+                                    viewModel.sendMessage(textToSend)
+                                }
+                            }
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            imageVector = Icons.AutoMirrored.Outlined.Send,
                             contentDescription = "Отправить",
-                            tint = if (inputText.isNotBlank() && !isLoading) Color.White else TextTertiary,
-                            modifier = Modifier.size(20.dp)
+                            tint = if (canSend) SurfaceDark else TextTertiary,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -298,13 +319,14 @@ private fun MessageItem(msg: ChatMessage) {
             ) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp))
-                        .background(PrimaryBlueVariant)
+                        .fillMaxWidth(0.85f)
+                        .clip(RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp))
+                        .background(SurfaceContainerHigh)
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = msg.content,
-                        color = Color.White,
+                        color = TextPrimary,
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
@@ -319,9 +341,9 @@ private fun MessageItem(msg: ChatMessage) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.95f)
-                        .clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
-                        .background(DarkSurface)
-                        .border(1.dp, DarkBorder, RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
+                        .clip(RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
+                        .background(SurfaceContainerLow)
+                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     MarkdownView(text = msg.content)
@@ -329,97 +351,158 @@ private fun MessageItem(msg: ChatMessage) {
             }
         }
 
-        MessageRole.TOOL_CALL -> {
-            // Card indicating a tool was invoked
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(ToolAmber.copy(alpha = 0.10f))
-                    .border(1.dp, ToolAmber.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                    .padding(10.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Build,
-                        contentDescription = null,
-                        tint = ToolAmber,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "⚙️ Вызов тула: ${msg.toolName}",
-                            color = ToolAmber,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        if (!msg.toolArgs.isNullOrBlank() && msg.toolArgs != "{}") {
-                            Text(
-                                text = "Параметры: ${msg.toolArgs}",
-                                color = TextSecondary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        MessageRole.TOOL_RESULT -> {
-            // Card displaying output of tool execution
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(SecondaryMint.copy(alpha = 0.08f))
-                    .border(1.dp, SecondaryMint.copy(alpha = 0.30f), RoundedCornerShape(10.dp))
-                    .padding(12.dp)
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = SecondaryMint,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Результат выполнения (${msg.toolName ?: "tool"})",
-                            color = SecondaryMint,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    MarkdownView(text = msg.content)
-                }
-            }
+        MessageRole.TOOL_EXECUTION -> {
+            ToolAccordion(msg = msg)
         }
 
         MessageRole.SYSTEM_INFO -> {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(DarkSurfaceVariant)
-                    .border(1.dp, ErrorRed.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                    .padding(12.dp)
+            InlineNoticeBanner(text = msg.content, isError = msg.isError)
+        }
+    }
+}
+
+/**
+ * Neat neutral accordion/collapsible spoiler for tool execution.
+ * One-line action summary + collapsible technical details.
+ */
+@Composable
+private fun ToolAccordion(msg: ChatMessage) {
+    var expanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionTokens.fluidSpring(),
+        label = "chevron_rot"
+    )
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
+        border = BorderStroke(1.dp, OutlineSubtle),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = MotionTokens.fluidSpring())
+            .bounceClick(scaleDown = 0.985f) {
+                if (!msg.isRunning) expanded = !expanded
+            }
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = null,
-                        tint = ErrorRed,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (msg.isRunning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = AccentPrimary
+                        )
+                    } else if (msg.isError) {
+                        Icon(
+                            imageVector = Icons.Outlined.ErrorOutline,
+                            contentDescription = null,
+                            tint = StatusError,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle,
+                            contentDescription = null,
+                            tint = StatusSuccess,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
                     Text(
                         text = msg.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
                         color = TextPrimary,
-                        fontSize = 13.sp
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (!msg.isRunning && (msg.toolArgs != null || msg.toolOutput != null)) {
+                    Icon(
+                        imageVector = Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                        tint = TextTertiary,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer { rotationZ = rotation }
+                    )
+                }
+            }
+
+            // Hidden technical details with smooth spring appearance
+            if (expanded && (msg.toolArgs != null || msg.toolOutput != null)) {
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (!msg.toolArgs.isNullOrBlank() && msg.toolArgs != "{}") {
+                    Text(
+                        text = "Параметры:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = msg.toolArgs,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = TextTertiary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                if (!msg.toolOutput.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Результат:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary
+                        )
+
+                        IconButton(
+                            onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Tool Output", msg.toolOutput))
+                                Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = "Копировать",
+                                tint = TextTertiary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = msg.toolOutput,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = TextTertiary
                     )
                 }
             }
@@ -427,21 +510,73 @@ private fun MessageItem(msg: ChatMessage) {
     }
 }
 
+/**
+ * Compact inline notice banner (for warnings, rate limits, info) - avoids huge colorful cards.
+ */
 @Composable
-private fun QuickPromptChip(text: String, onClick: () -> Unit) {
-    Box(
+private fun InlineNoticeBanner(text: String, isError: Boolean) {
+    val borderColor = if (isError) StatusError.copy(alpha = 0.25f) else OutlineSubtle
+    val iconColor = if (isError) StatusError else TextSecondary
+
+    Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(DarkSurface)
-            .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(SurfaceContainerLow)
+            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        Icon(
+            imageVector = if (isError) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
+            contentDescription = null,
+            tint = iconColor,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = text,
-            color = TextSecondary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
+            style = MaterialTheme.typography.bodySmall,
+            color = TextPrimary,
+            lineHeight = 16.sp
         )
+    }
+}
+
+/**
+ * Clean 34dp height Action Chip with outlined vector icon and physical press response.
+ */
+@Composable
+private fun QuickActionChip(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = SurfaceContainerHigh,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, OutlineSubtle),
+        modifier = Modifier
+            .height(34.dp)
+            .bounceClick { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = TextPrimary,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }

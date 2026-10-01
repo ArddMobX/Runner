@@ -2,17 +2,40 @@ package com.runner.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val DarkBackground = Color(0xFF101216)
-val DarkSurface = Color(0xFF181B20)
-val DarkSurfaceVariant = Color(0xFF242831)
-val DarkBorder = Color(0xFF323846)
+// Material 3 Dark Neutral Surface Palette
+val SurfaceDark = Color(0xFF121214)
+val SurfaceContainerLowest = Color(0xFF0C0C0E)
+val SurfaceContainerLow = Color(0xFF18181B)
+val SurfaceContainer = Color(0xFF1E1E22)
+val SurfaceContainerHigh = Color(0xFF26262B)
+val SurfaceContainerHighest = Color(0xFF303036)
 
-val PrimaryBlue = Color(0xFF5B93FF)
-val PrimaryBlueVariant = Color(0xFF3D72E5)
-val SecondaryMint = Color(0xFF38D39F)
-val ToolAmber = Color(0xFFFFB300)
-val ErrorRed = Color(0xFFFF5252)
+// Subtle separator borders (8% and 14% white opacity)
+val OutlineSubtle = Color(0xFFFFFFFF).copy(alpha = 0.08f)
+val OutlineHover = Color(0xFFFFFFFF).copy(alpha = 0.14f)
 
-val TextPrimary = Color(0xFFF1F3F7)
-val TextSecondary = Color(0xFF9AA2B1)
-val TextTertiary = Color(0xFF6B7280)
+// Accents - refined, muted, native feel
+val AccentPrimary = Color(0xFF90CAF9)
+val AccentPrimarySubtle = Color(0xFF90CAF9).copy(alpha = 0.14f)
+val AccentSecondary = Color(0xFF80CBC4)
+
+// Status colors - muted, non-screaming
+val StatusSuccess = Color(0xFF81C784)
+val StatusWarning = Color(0xFFFFB74D)
+val StatusError = Color(0xFFE57373)
+
+// Text hierarchy
+val TextPrimary = Color(0xFFEDEDEF)
+val TextSecondary = Color(0xFFA0A0A6)
+val TextTertiary = Color(0xFF666670)
+
+// Backward compatibility aliases
+val DarkBackground = SurfaceDark
+val DarkSurface = SurfaceContainerLow
+val DarkSurfaceVariant = SurfaceContainer
+val DarkBorder = OutlineSubtle
+val PrimaryBlue = AccentPrimary
+val PrimaryBlueVariant = Color(0xFF2A384A)
+val SecondaryMint = AccentSecondary
+val ToolAmber = StatusWarning
+val ErrorRed = StatusError

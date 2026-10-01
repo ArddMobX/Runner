@@ -21,8 +21,7 @@ import java.util.UUID
 enum class MessageRole {
     USER,
     ASSISTANT,
-    TOOL_CALL,
-    TOOL_RESULT,
+    TOOL_EXECUTION,
     SYSTEM_INFO
 }
 
@@ -32,6 +31,9 @@ data class ChatMessage(
     val content: String,
     val toolName: String? = null,
     val toolArgs: String? = null,
+    val toolOutput: String? = null,
+    val isRunning: Boolean = false,
+    val isError: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -82,7 +84,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = listOf(
             ChatMessage(
                 role = MessageRole.ASSISTANT,
-                content = "Привет! Я твой автономный агент Runner. Могу просканировать папку Download, распаковать любой ZIP или навести порядок в файлах по типам.\n\nПоддерживаю любого OpenAI-совместимого провайдера (Groq, OpenRouter, DeepSeek, OpenAI). Чем помочь?"
+                content = "Привет! Я Runner — мобильный агент для Android. Могу исследовать файлы, распаковывать архивы, читать и создавать документы или выполнять команды терминала. Чем помочь?"
             )
         )
     }
@@ -147,7 +149,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_apiKey.value.isBlank()) {
             _messages.value = _messages.value + ChatMessage(
                 role = MessageRole.SYSTEM_INFO,
-                content = "⚠️ API ключ не задан. Перейдите во вкладку 'Настройки' в правом верхнем углу и укажите ключ провайдера."
+                content = "API ключ не задан. Перейдите во вкладку «Настройки» и укажите ключ провайдера.",
+                isError = true
             )
             return
         }
@@ -156,7 +159,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_hasStoragePermission.value) {
             _messages.value = _messages.value + ChatMessage(
                 role = MessageRole.SYSTEM_INFO,
-                content = "⚠️ Нет доступа ко всем файлам (MANAGE_EXTERNAL_STORAGE). Предоставьте разрешение в 'Настройках'."
+                content = "Нет доступа к управлению файлами (MANAGE_EXTERNAL_STORAGE). Предоставьте разрешение в «Настройках».",
+                isError = true
             )
             return
         }
@@ -170,7 +174,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isLoading.value = true
             val activeModel = _modelName.value.ifBlank { "моделью" }
-            _currentStatus.value = "Связываюсь с $activeModel..."
+            _currentStatus.value = "Запрос к $activeModel..."
 
             val maxSteps = 5
             var step = 0
@@ -188,7 +192,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     is AIResponseResult.Error -> {
                         _messages.value = _messages.value + ChatMessage(
                             role = MessageRole.SYSTEM_INFO,
-                            content = "❌ ${result.message}"
+                            content = result.message,
+                            isError = true
                         )
                         break
                     }
@@ -208,22 +213,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         conversationJson.put(result.assistantMessageJson)
 
                         for (call in result.toolCalls) {
-                            _currentStatus.value = "Выполняю: ${call.name}..."
+                            val actionTitle = formatToolActionTitle(call.name, call.arguments)
+                            _currentStatus.value = actionTitle
 
+                            val msgId = UUID.randomUUID().toString()
                             _messages.value = _messages.value + ChatMessage(
-                                role = MessageRole.TOOL_CALL,
-                                content = "Запуск инструмента: ${call.name}",
+                                id = msgId,
+                                role = MessageRole.TOOL_EXECUTION,
+                                content = actionTitle,
                                 toolName = call.name,
-                                toolArgs = call.arguments
+                                toolArgs = call.arguments,
+                                isRunning = true
                             )
 
                             val toolOutput = ToolDispatcher.execute(call.name, call.arguments, getApplication())
+                            val isErr = toolOutput.startsWith("Ошибка") || toolOutput.startsWith("Не удалось") || toolOutput.contains("Exception", ignoreCase = true)
 
-                            _messages.value = _messages.value + ChatMessage(
-                                role = MessageRole.TOOL_RESULT,
-                                content = toolOutput,
-                                toolName = call.name
-                            )
+                            _messages.value = _messages.value.map { msg ->
+                                if (msg.id == msgId) {
+                                    msg.copy(
+                                        toolOutput = toolOutput,
+                                        isRunning = false,
+                                        isError = isErr
+                                    )
+                                } else msg
+                            }
 
                             conversationJson.put(JSONObject().apply {
                                 put("role", "tool")
@@ -233,7 +247,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             })
                         }
 
-                        _currentStatus.value = "Обрабатываю результат выполнения..."
+                        _currentStatus.value = "Обработка результата..."
                     }
                 }
             }
@@ -248,8 +262,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = listOf(
             ChatMessage(
                 role = MessageRole.ASSISTANT,
-                content = "Чат очищен. Готов к новым задачам!"
+                content = "История диалога очищена. Готов к новым задачам."
             )
         )
+    }
+
+    private fun formatToolActionTitle(toolName: String, argsJson: String): String {
+        val args = try {
+            if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+
+        return when (toolName) {
+            "get_folder_summary" -> {
+                val p = args.optString("path", "").ifBlank { "Download" }
+                "Анализ папки '$p'"
+            }
+            "search_files" -> {
+                val q = args.optString("query", "").trim()
+                val ext = args.optString("extension", "").trim()
+                when {
+                    q.isNotBlank() && ext.isNotBlank() -> "Поиск '$q' (*.$ext)"
+                    q.isNotBlank() -> "Поиск '$q'"
+                    ext.isNotBlank() -> "Поиск *.$ext файлов"
+                    else -> "Поиск файлов"
+                }
+            }
+            "read_file" -> {
+                val p = args.optString("path", "").substringAfterLast('/')
+                "Чтение файла '$p'"
+            }
+            "write_file" -> {
+                val p = args.optString("path", "").substringAfterLast('/')
+                "Запись в '$p'"
+            }
+            "delete_file" -> {
+                val p = args.optString("path", "").substringAfterLast('/')
+                "Удаление '$p'"
+            }
+            "create_dir" -> {
+                val p = args.optString("path", "").substringAfterLast('/')
+                "Создание папки '$p'"
+            }
+            "move_file" -> {
+                val s = args.optString("source_path", "").substringAfterLast('/')
+                "Перемещение '$s'"
+            }
+            "copy_file" -> {
+                val s = args.optString("source_path", "").substringAfterLast('/')
+                "Копирование '$s'"
+            }
+            "create_archive" -> "Создание ZIP-архива"
+            "extract_archive" -> {
+                val p = args.optString("zip_path", "").substringAfterLast('/')
+                "Распаковка архива '$p'"
+            }
+            "organize_downloads" -> {
+                val cat = args.optString("category", "all")
+                "Сортировка '$cat' в Download"
+            }
+            "clipboard_read" -> "Чтение буфера обмена"
+            "clipboard_write" -> "Копирование в буфер обмена"
+            "run_shell_command" -> {
+                val cmd = args.optString("command", "").take(28)
+                "Команда '$cmd...'"
+            }
+            else -> toolName
+        }
     }
 }

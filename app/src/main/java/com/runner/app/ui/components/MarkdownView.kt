@@ -14,9 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Functions
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Functions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -74,9 +74,9 @@ fun MarkdownView(
 @Composable
 private fun HeaderElement(element: MarkdownElement.Header) {
     val (style, topPadding) = when (element.level) {
-        1 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 20.sp) to 10.dp
-        2 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp) to 8.dp
-        else -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp) to 6.dp
+        1 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 19.sp) to 8.dp
+        2 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp) to 6.dp
+        else -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp) to 4.dp
     }
     Text(
         text = renderInlineMarkdown(element.content),
@@ -92,8 +92,8 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
     var copied by remember { mutableStateOf(false) }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-        border = BorderStroke(1.dp, DarkBorder),
+        colors = CardDefaults.cardColors(containerColor = SurfaceContainerHigh),
+        border = BorderStroke(1.dp, OutlineSubtle),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -102,17 +102,17 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(DarkBorder.copy(alpha = 0.5f))
+                    .background(SurfaceContainerLowest.copy(alpha = 0.5f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = element.language.ifBlank { "code" }.lowercase(),
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,
-                    color = PrimaryBlue
+                    color = AccentPrimary
                 )
 
                 Row(
@@ -126,13 +126,20 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                             copied = true
                             Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
                         },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier
+                            .size(26.dp)
+                            .bounceClick {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Code", element.code))
+                                copied = true
+                                Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
+                            }
                     ) {
                         Icon(
-                            imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                            imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
                             contentDescription = "Копировать",
-                            tint = if (copied) SecondaryMint else TextSecondary,
-                            modifier = Modifier.size(16.dp)
+                            tint = if (copied) StatusSuccess else TextSecondary,
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
@@ -148,8 +155,8 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                 Text(
                     text = element.code,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
                     color = TextPrimary
                 )
             }
@@ -160,8 +167,8 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
 @Composable
 private fun MathBlockElement(element: MarkdownElement.MathBlock) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant.copy(alpha = 0.7f)),
-        border = BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.35f)),
+        colors = CardDefaults.cardColors(containerColor = SurfaceContainerHigh),
+        border = BorderStroke(1.dp, OutlineSubtle),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -170,17 +177,17 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.Functions,
+                    imageVector = Icons.Outlined.Functions,
                     contentDescription = "LaTeX Formula",
-                    tint = SecondaryMint,
-                    modifier = Modifier.size(16.dp)
+                    tint = AccentSecondary,
+                    modifier = Modifier.size(15.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "LaTeX Formula",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SecondaryMint
+                    color = AccentSecondary
                 )
             }
 
@@ -216,14 +223,14 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
                         <style>
                           body {
                             background-color: transparent;
-                            color: #F1F3F7;
+                            color: #EDEDEF;
                             margin: 0;
                             padding: 6px;
                             display: flex;
                             justify-content: center;
-                            font-size: 17px;
+                            font-size: 16px;
                           }
-                          .katex { color: #F1F3F7; }
+                          .katex { color: #EDEDEF; }
                         </style>
                         </head>
                         <body>
@@ -252,14 +259,14 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
 @Composable
 private fun BulletElement(element: MarkdownElement.BulletItem) {
     Row(
-        modifier = Modifier.padding(start = 6.dp, top = 2.dp, bottom = 2.dp),
+        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
         Text(
             text = "•",
-            color = PrimaryBlue,
+            color = AccentPrimary,
             fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
+            fontSize = 15.sp,
             modifier = Modifier.padding(end = 8.dp)
         )
         Text(
@@ -273,14 +280,14 @@ private fun BulletElement(element: MarkdownElement.BulletItem) {
 @Composable
 private fun NumberedElement(element: MarkdownElement.NumberedItem) {
     Row(
-        modifier = Modifier.padding(start = 6.dp, top = 2.dp, bottom = 2.dp),
+        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
         Text(
             text = "${element.number}.",
-            color = PrimaryBlue,
+            color = AccentPrimary,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             modifier = Modifier.padding(end = 8.dp)
         )
         Text(
@@ -297,9 +304,9 @@ private fun BlockquoteElement(element: MarkdownElement.Blockquote) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .background(DarkSurfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+            .background(SurfaceContainerHigh.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
             .border(
-                BorderStroke(2.dp, PrimaryBlue),
+                BorderStroke(2.dp, AccentPrimary.copy(alpha = 0.6f)),
                 RoundedCornerShape(4.dp)
             )
             .padding(10.dp)
@@ -324,7 +331,7 @@ private fun ParagraphElement(element: MarkdownElement.Paragraph) {
 }
 
 /**
- * Parses raw text into high-level Markdown elements (Headers, Code blocks, Math blocks, Lists, Paragraphs).
+ * Parses raw text into high-level Markdown elements.
  */
 fun parseMarkdown(rawText: String): List<MarkdownElement> {
     val lines = rawText.lines()
@@ -438,7 +445,6 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
         val matches = regex.findAll(text)
 
         for (match in matches) {
-            // Append preceding plain text
             if (match.range.first > cursor) {
                 append(text.substring(cursor, match.range.first))
             }
@@ -465,9 +471,9 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     pushStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
-                            background = DarkBorder,
-                            color = PrimaryBlue,
-                            fontSize = 13.sp
+                            background = SurfaceContainerHighest,
+                            color = AccentPrimary,
+                            fontSize = 12.sp
                         )
                     )
                     append(" ${token.substring(1, token.length - 1)} ")
@@ -487,7 +493,7 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     pushStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
-                            color = SecondaryMint,
+                            color = AccentSecondary,
                             fontWeight = FontWeight.Medium
                         )
                     )
@@ -500,7 +506,7 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     val linkText = token.substringAfter("[").substringBefore("]")
                     pushStyle(
                         SpanStyle(
-                            color = PrimaryBlue,
+                            color = AccentPrimary,
                             textDecoration = TextDecoration.Underline
                         )
                     )
@@ -520,9 +526,6 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
     }
 }
 
-/**
- * Simple LaTeX-to-Unicode beautifier for inline formulas (e.g. \alpha -> α, \pm -> ±, ^2 -> ², etc.).
- */
 private fun formatInlineMath(latex: String): String {
     return latex
         .replace("\\alpha", "α")

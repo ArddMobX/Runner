@@ -16,8 +16,9 @@ import androidx.compose.ui.Modifier
 import com.runner.app.ui.ChatScreen
 import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
-import com.runner.app.ui.theme.DarkBackground
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerTheme
+import com.runner.app.ui.theme.SurfaceDark
 
 enum class Screen {
     CHAT,
@@ -34,7 +35,7 @@ class MainActivity : ComponentActivity() {
             RunnerTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = DarkBackground
+                    color = SurfaceDark
                 ) {
                     AppNavigation(viewModel = viewModel)
                 }
@@ -53,7 +54,11 @@ class MainActivity : ComponentActivity() {
 fun AppNavigation(viewModel: MainViewModel) {
     var currentScreen by remember { mutableStateOf(Screen.CHAT) }
 
-    Crossfade(targetState = currentScreen, label = "screen_transition") { screen ->
+    Crossfade(
+        targetState = currentScreen,
+        animationSpec = MotionTokens.fluidTween(380),
+        label = "screen_transition"
+    ) { screen ->
         when (screen) {
             Screen.CHAT -> {
                 ChatScreen(
