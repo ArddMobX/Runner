@@ -3,16 +3,17 @@ package com.runner.app.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // Material 3 Dark Neutral Surface Palette
-val SurfaceDark = Color(0xFF121214)
-val SurfaceContainerLowest = Color(0xFF0C0C0E)
-val SurfaceContainerLow = Color(0xFF18181B)
-val SurfaceContainer = Color(0xFF1E1E22)
-val SurfaceContainerHigh = Color(0xFF26262B)
-val SurfaceContainerHighest = Color(0xFF303036)
+val SurfaceDark = Color(0xFF0A0A0C)
+val SurfaceContainerLowest = Color(0xFF060608)
+val SurfaceContainerLow = Color(0xFF161618)
+val SurfaceContainer = Color(0xFF1A1A1E)
+val SurfaceContainerHigh = Color(0xFF222227)
+val SurfaceContainerHighest = Color(0xFF2A2A30)
 
-// Subtle separator borders (8% and 14% white opacity)
+// Subtle separator borders (8%, 14%, 20% white opacity)
 val OutlineSubtle = Color(0xFFFFFFFF).copy(alpha = 0.08f)
 val OutlineHover = Color(0xFFFFFFFF).copy(alpha = 0.14f)
+val OutlineFocus = Color(0xFFFFFFFF).copy(alpha = 0.20f)
 
 // Accents - refined, muted, native feel
 val AccentPrimary = Color(0xFF90CAF9)

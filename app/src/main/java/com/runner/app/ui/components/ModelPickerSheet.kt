@@ -245,7 +245,8 @@ fun ModelPickerSheet(
                 onValueChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
                 placeholder = { Text("Поиск модели", color = TextTertiary, fontSize = 13.sp) },
                 leadingIcon = {
                     Icon(
@@ -421,7 +422,9 @@ private fun ManualIdEntry(
         TextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
             placeholder = {
                 Text("meta-llama/llama-3.3-70b-instruct", color = TextTertiary, fontSize = 13.sp)
             },

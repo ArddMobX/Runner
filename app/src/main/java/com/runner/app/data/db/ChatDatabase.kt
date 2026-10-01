@@ -59,11 +59,27 @@ data class MessageEntity(
 @Dao
 interface ChatDao {
 
-    @Query("SELECT * FROM sessions ORDER BY updatedAt DESC")
+    @Query("""
+        SELECT s.* FROM sessions s
+        WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
+        ORDER BY s.updatedAt DESC
+    """)
     fun observeSessions(): Flow<List<SessionEntity>>
 
-    @Query("SELECT * FROM sessions WHERE title LIKE '%' || :query || '%' ORDER BY updatedAt DESC")
+    @Query("""
+        SELECT s.* FROM sessions s
+        WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
+          AND s.title LIKE '%' || :query || '%'
+        ORDER BY s.updatedAt DESC
+    """)
     fun searchSessions(query: String): Flow<List<SessionEntity>>
+
+    @Query("""
+        SELECT s.* FROM sessions s
+        WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) = 0
+        ORDER BY s.updatedAt DESC LIMIT 1
+    """)
+    suspend fun getRecentEmptySession(): SessionEntity?
 
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     suspend fun loadMessages(sessionId: String): List<MessageEntity>

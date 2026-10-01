@@ -89,6 +89,7 @@ import com.runner.app.ui.theme.SurfaceContainerHighest
 import com.runner.app.ui.theme.SurfaceContainerLow
 import com.runner.app.ui.theme.SurfaceContainerLowest
 import java.net.URI
+import java.util.Locale
 import com.runner.app.ui.theme.SurfaceDark
 import com.runner.app.ui.theme.TextPrimary
 import com.runner.app.ui.theme.TextSecondary
@@ -102,8 +103,6 @@ private sealed interface SettingsRoute {
     data class ProviderEdit(val providerId: String) : SettingsRoute
     data object Agent : SettingsRoute
     data object Access : SettingsRoute
-    data object Appearance : SettingsRoute
-    data object Advanced : SettingsRoute
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -122,8 +121,6 @@ fun SettingsScreen(
         is SettingsRoute.ProviderEdit -> "Провайдер"
         SettingsRoute.Agent -> "Агент"
         SettingsRoute.Access -> "Доступы"
-        SettingsRoute.Appearance -> "Внешний вид"
-        SettingsRoute.Advanced -> "Дополнительно"
     }
 
     val goBack: () -> Unit = {
@@ -187,10 +184,6 @@ fun SettingsScreen(
                 SettingsRoute.Agent -> AgentSettings(viewModel)
 
                 SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings)
-
-                SettingsRoute.Appearance -> AppearanceSettings(viewModel)
-
-                SettingsRoute.Advanced -> AdvancedSettings(viewModel)
             }
         }
     }
@@ -205,13 +198,22 @@ private fun SettingsRoot(
     val activeProvider by viewModel.activeProvider.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
+    val context = LocalContext.current
+
+    val proxyUrl = appSettings.reverseProxyUrl
+    val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
+    val dotColor = when {
+        proxyUrl.isBlank() -> TextTertiary
+        isValidProxy -> StatusSuccess
+        else -> StatusError
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         SettingsGroup("Провайдеры") {
             SettingsRow(
@@ -236,7 +238,7 @@ private fun SettingsRoot(
             )
             SettingsDivider()
             SettingsRow(
-                label = "Температура и лимит шагов",
+                label = "Температура и шаги",
                 value = "${appSettings.temperature} · ${appSettings.maxSteps} шагов",
                 onClick = { onNavigate(SettingsRoute.Agent) }
             )
@@ -251,27 +253,153 @@ private fun SettingsRoot(
             )
         }
 
-        SettingsGroup("Внешний вид") {
-            SettingsRow(
-                label = "Масштаб текста",
-                value = "${(appSettings.textScale * 100).roundToInt()}%",
-                onClick = { onNavigate(SettingsRoute.Appearance) }
-            )
+        SettingsGroup("Интерфейс") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Масштаб текста",
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppSettings.TEXT_SCALES.forEach { scale ->
+                        val isSelected = scale == appSettings.textScale
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) SurfaceContainerHigh else SurfaceContainer)
+                                .border(
+                                    BorderStroke(1.dp, if (isSelected) AccentPrimary else OutlineSubtle),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable {
+                                    viewModel.updateSettings(appSettings.copy(textScale = scale))
+                                }
+                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = "${(scale * 100).roundToInt()}%",
+                                color = if (isSelected) AccentPrimary else TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
             SettingsDivider()
-            SettingsRow(
-                label = "Детали вызовов инструментов",
-                value = if (appSettings.showToolDetails) "показывать" else "скрывать",
-                onClick = { onNavigate(SettingsRoute.Appearance) }
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Детали вызовов инструментов",
+                        color = TextPrimary,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Показывать аргументы и вывод тулов",
+                        color = TextTertiary,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.showToolDetails,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(showToolDetails = it))
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SurfaceDark,
+                        checkedTrackColor = AccentPrimary,
+                        uncheckedThumbColor = TextTertiary,
+                        uncheckedTrackColor = SurfaceContainerHigh
+                    )
+                )
+            }
         }
 
-        SettingsGroup("Дополнительно") {
-            SettingsRow(
-                label = "Прокси для запросов",
-                value = appSettings.reverseProxyUrl.ifBlank { "не задан" },
-                mono = appSettings.reverseProxyUrl.isNotBlank(),
-                onClick = { onNavigate(SettingsRoute.Advanced) }
-            )
+        SettingsGroup("Сеть и прокси") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Reverse proxy",
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                BasicTextField(
+                    value = proxyUrl,
+                    onValueChange = {
+                        viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceContainer)
+                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
+                    textStyle = TextStyle(color = TextSecondary, fontSize = 13.sp),
+                    singleLine = true,
+                    cursorBrush = SolidColor(AccentPrimary),
+                    decorationBox = { innerTextField ->
+                        Row(
+                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (proxyUrl.isEmpty()) {
+                                    Text(
+                                        text = "https://my-proxy.workers.dev/v1",
+                                        color = TextTertiary,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                            IconButton(
+                                onClick = {
+                                    val text = readClipboard(context)
+                                    if (text.isNotBlank()) {
+                                        viewModel.updateSettings(
+                                            appSettings.copy(reverseProxyUrl = text.trim())
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentPaste,
+                                    contentDescription = "Вставить из буфера",
+                                    tint = TextTertiary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = when {
+                        proxyUrl.isBlank() -> "Если задан, запросы идут через него вместо Base URL."
+                        isValidProxy -> "Адрес корректен."
+                        else -> "Нужен полный адрес вида https://host/path"
+                    },
+                    color = if (proxyUrl.isNotBlank() && !isValidProxy) StatusError else TextTertiary,
+                    fontSize = 11.5.sp
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -304,18 +432,12 @@ private fun ProvidersList(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = provider.name,
-                                color = TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            if (provider.id == activeProviderId) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "активен", color = AccentPrimary, fontSize = 11.sp)
-                            }
-                        }
+                        Text(
+                            text = provider.name,
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = provider.activeModel.ifBlank { "модель не выбрана" },
@@ -327,16 +449,36 @@ private fun ProvidersList(
                         )
                     }
 
-                    Icon(
-                        imageVector = if (provider.apiKey.isNotBlank()) {
-                            Icons.Outlined.CheckCircle
-                        } else {
-                            Icons.Outlined.ErrorOutline
-                        },
-                        contentDescription = null,
-                        tint = if (provider.apiKey.isNotBlank()) StatusSuccess else TextTertiary,
-                        modifier = Modifier.size(15.dp)
-                    )
+                    if (provider.id == activeProviderId) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(StatusSuccess.copy(alpha = 0.12f))
+                                .border(BorderStroke(1.dp, StatusSuccess.copy(alpha = 0.25f)), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "Активен",
+                                color = StatusSuccess,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    } else if (provider.apiKey.isBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(SurfaceContainerHighest)
+                                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "Не настроен",
+                                color = TextTertiary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
@@ -400,7 +542,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
             Column(modifier = Modifier.padding(14.dp)) {
                 SliderHeader(
                     title = "Температура",
-                    badge = "[%.1f]".format(appSettings.temperature)
+                    badge = String.format(Locale.US, "%.1f", appSettings.temperature)
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 MinimalSlider(
@@ -424,7 +566,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
             Column(modifier = Modifier.padding(14.dp)) {
                 SliderHeader(
                     title = "Лимит шагов",
-                    badge = "[${appSettings.maxSteps} steps]"
+                    badge = "${appSettings.maxSteps}"
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 MinimalSlider(
@@ -469,7 +611,7 @@ private fun SystemPromptBlock(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(SurfaceContainerLowest)
-                    .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                    .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
             ) {
                 Column {
                     Row(
@@ -544,18 +686,28 @@ private fun SliderHeader(title: String, badge: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = title, color = TextPrimary, fontSize = 14.sp)
-        Text(
-            text = badge,
-            color = AccentPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace
-        )
+        Text(text = title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(SurfaceContainerHighest)
+                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = badge,
+                color = AccentPrimary,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
 /**
- * Минималистичный слайдер: трек 2dp и бегунок 14dp вместо громоздкого M3-ползунка.
+ * Минималистичный слайдер: трек 2dp и бегунок 12dp вместо громоздкого M3-ползунка.
  * Тап и протяжка обрабатываются одним жестом, чтобы не конфликтовали.
  */
 @Composable
@@ -567,7 +719,7 @@ private fun MinimalSlider(
 ) {
     val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
     val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
-    val thumbSize = 14.dp
+    val thumbSize = 12.dp
 
     fun snap(raw: Float): Float {
         val clamped = raw.coerceIn(valueRange.start, valueRange.endInclusive)
@@ -695,203 +847,6 @@ private fun AccessSettings(
 }
 
 @Composable
-private fun AppearanceSettings(viewModel: MainViewModel) {
-    val appSettings by viewModel.settings.collectAsState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        SettingsGroup("Масштаб текста") {
-            Row(
-                modifier = Modifier.padding(14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                AppSettings.TEXT_SCALES.forEach { scale ->
-                    val isSelected = scale == appSettings.textScale
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) SurfaceContainerHigh else SurfaceContainer)
-                            .clickable {
-                                viewModel.updateSettings(appSettings.copy(textScale = scale))
-                            }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "${(scale * 100).roundToInt()}%",
-                            color = if (isSelected) AccentPrimary else TextPrimary,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
-        }
-
-        SettingsGroup {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Детали вызовов инструментов",
-                        color = TextPrimary,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = "Аргументы и полный вывод инструмента",
-                        color = TextTertiary,
-                        fontSize = 11.5.sp
-                    )
-                }
-                Switch(
-                    checked = appSettings.showToolDetails,
-                    onCheckedChange = {
-                        viewModel.updateSettings(appSettings.copy(showToolDetails = it))
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = SurfaceDark,
-                        checkedTrackColor = AccentPrimary,
-                        uncheckedThumbColor = TextTertiary,
-                        uncheckedTrackColor = SurfaceContainerHigh
-                    )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-    }
-}
-
-@Composable
-private fun AdvancedSettings(viewModel: MainViewModel) {
-    val appSettings by viewModel.settings.collectAsState()
-    val context = LocalContext.current
-    val proxyUrl = appSettings.reverseProxyUrl
-    val isValid = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
-
-    val dotColor = when {
-        proxyUrl.isBlank() -> TextTertiary
-        isValid -> StatusSuccess
-        else -> StatusError
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        SettingsGroup("Reverse proxy") {
-            Column(modifier = Modifier.padding(14.dp)) {
-                BasicTextField(
-                    value = proxyUrl,
-                    onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceContainer)
-                        .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
-                    textStyle = TextStyle(color = TextSecondary, fontSize = 13.sp),
-                    singleLine = true,
-                    cursorBrush = SolidColor(AccentPrimary),
-                    decorationBox = { innerTextField ->
-                        Row(
-                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Точка валидности адреса
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(dotColor)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Box(modifier = Modifier.weight(1f)) {
-                                if (proxyUrl.isEmpty()) {
-                                    Text(
-                                        text = "https://my-proxy.workers.dev/v1",
-                                        color = TextTertiary,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                                innerTextField()
-                            }
-                            IconButton(
-                                onClick = {
-                                    val text = readClipboard(context)
-                                    if (text.isNotBlank()) {
-                                        viewModel.updateSettings(
-                                            appSettings.copy(reverseProxyUrl = text.trim())
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ContentPaste,
-                                    contentDescription = "Вставить из буфера",
-                                    tint = TextTertiary,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                        }
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = when {
-                        proxyUrl.isBlank() ->
-                            "Если задан, запросы идут через него вместо Base URL провайдера."
-                        isValid -> "Адрес выглядит корректно."
-                        else -> "Нужен полный адрес вида https://host/path"
-                    },
-                    color = if (proxyUrl.isNotBlank() && !isValid) StatusError else TextTertiary,
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-    }
-}
-
-private fun isValidHttpUrl(value: String): Boolean {
-    val trimmed = value.trim()
-    if (trimmed.isBlank()) return false
-    return try {
-        val uri = URI(trimmed)
-        val scheme = uri.scheme?.lowercase()
-        (scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()
-    } catch (e: Exception) {
-        false
-    }
-}
-
-private fun readClipboard(context: Context): String {
-    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    return manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-}
-
-private fun copyText(context: Context, text: String, label: String) {
-    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    manager.setPrimaryClip(ClipData.newPlainText(label, text))
-    Toast.makeText(context, "$label скопирован в буфер", Toast.LENGTH_SHORT).show()
-}
-
-@Composable
 private fun SettingsGroup(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
@@ -908,7 +863,7 @@ private fun SettingsGroup(
         }
         Card(
             colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
-            border = BorderStroke(0.5.dp, OutlineSubtle),
+            border = BorderStroke(1.dp, OutlineSubtle),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {

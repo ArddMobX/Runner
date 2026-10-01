@@ -22,6 +22,8 @@ class ChatRepository(private val dao: ChatDao) {
         dao.updateContext(sessionId, contextJson)
     }
 
+    suspend fun getRecentEmptySession(): SessionEntity? = dao.getRecentEmptySession()
+
     suspend fun createSession(title: String = NEW_CHAT_TITLE): SessionEntity {
         val now = System.currentTimeMillis()
         val session = SessionEntity(

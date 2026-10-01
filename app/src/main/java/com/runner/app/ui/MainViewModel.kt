@@ -155,8 +155,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         checkStoragePermission()
         viewModelScope.launch {
-            val existing = repository.observeSessions().first()
-            val session = existing.firstOrNull() ?: repository.createSession()
+            val empty = repository.getRecentEmptySession()
+            val session = empty ?: repository.observeSessions().first().firstOrNull() ?: repository.createSession()
             loadSession(session.id)
         }
     }
@@ -189,7 +189,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startNewChat() {
         if (_isRunning.value) return
         viewModelScope.launch {
-            val session = repository.createSession()
+            // Если в текущем чате ещё нет пользовательских сообщений — не создаём дубликат
+            if (_messages.value.none { it.role != MessageRole.SYSTEM_INFO }) {
+                return@launch
+            }
+            val emptySession = repository.getRecentEmptySession()
+            val session = emptySession ?: repository.createSession()
             loadSession(session.id)
         }
     }

@@ -129,7 +129,8 @@ fun AppDrawerContent(
             onValueChange = onQueryChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
             placeholder = { Text("Поиск по чатам", color = TextTertiary, fontSize = 13.sp) },
             leadingIcon = {
                 Icon(
@@ -299,7 +300,7 @@ private fun NewChatButton(onClick: () -> Unit) {
     }
 }
 
-/** Строка истории: акцентная черта слева у активного, действия — по долгому нажатию. */
+/** Строка истории: скруглённый pill-фон у активного, действия — по долгому нажатию. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionRow(
@@ -311,35 +312,31 @@ private fun SessionRow(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    Box {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 2.dp)
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
                 .background(
-                    if (isCurrent) AccentPrimary.copy(alpha = 0.07f) else Color.Transparent
+                    if (isCurrent) Color(0x0FFFFFFF) // rgba(255, 255, 255, 0.06)
+                    else Color.Transparent
                 )
                 .combinedClickable(
                     onClick = onOpen,
                     onLongClick = { menuExpanded = true }
                 )
-                .padding(end = 16.dp, top = 11.dp, bottom = 11.dp),
+                .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Акцентная черта текущего чата
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .height(18.dp)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(if (isCurrent) AccentPrimary else Color.Transparent)
-            )
-
-            Spacer(modifier = Modifier.width(18.dp))
-
             Text(
                 text = session.title.ifBlank { "Без названия" },
                 color = if (isCurrent) TextPrimary else TextSecondary,
                 fontSize = 13.5.sp,
+                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

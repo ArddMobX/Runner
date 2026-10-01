@@ -455,7 +455,7 @@ private fun copyModelId(context: Context, modelId: String) {
 private fun SettingsCard(content: @Composable () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
-        border = BorderStroke(0.5.dp, OutlineSubtle),
+        border = BorderStroke(1.dp, OutlineSubtle),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {

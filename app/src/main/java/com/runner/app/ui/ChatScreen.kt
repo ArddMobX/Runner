@@ -36,10 +36,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -80,9 +82,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -308,7 +312,53 @@ fun ChatScreen(
     }
 }
 
-/** Кликабельный чип модели в шапке — открывает выбор модели. */
+/** Человекочитаемое имя модели: отсекает префиксы models/, вендоров и технические суффиксы. */
+fun formatModelName(raw: String): String {
+    if (raw.isBlank() || raw == "модель не выбрана") return "Выбрать модель"
+    var name = raw.trim()
+    if (name.startsWith("models/")) {
+        name = name.removePrefix("models/")
+    }
+    if (name.contains('/')) {
+        name = name.substringAfter('/')
+    }
+    name = name.removeSuffix(":free")
+    name = name.removeSuffix("-instruct")
+    name = name.removeSuffix("-versatile")
+    name = name.removeSuffix("-preview")
+    name = name.removeSuffix("-latest")
+
+    val parts = name.split('-', '_')
+    val formatted = parts.map { part ->
+        when (part.lowercase()) {
+            "gpt" -> "GPT"
+            "llama" -> "Llama"
+            "gemini" -> "Gemini"
+            "claude" -> "Claude"
+            "deepseek" -> "DeepSeek"
+            "qwen" -> "Qwen"
+            "mistral" -> "Mistral"
+            "flash" -> "Flash"
+            "lite" -> "Lite"
+            "pro" -> "Pro"
+            "mini" -> "Mini"
+            "oss" -> "OSS"
+            else -> {
+                if (part.matches(Regex("^[0-9]+[bB]$"))) {
+                    part.uppercase()
+                } else if (part.matches(Regex("^[0-9]+o$"))) {
+                    part
+                } else {
+                    part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+            }
+        }
+    }.joinToString(" ")
+
+    return formatted.ifBlank { raw }
+}
+
+/** Компактный чип-селектор модели в шапке: иконка + форматированное имя + шеврон. */
 @Composable
 private fun ModelChip(
     providerName: String,
@@ -317,53 +367,53 @@ private fun ModelChip(
     isLoading: Boolean,
     onClick: () -> Unit
 ) {
+    val cleanModel = remember(modelName) { formatModelName(modelName) }
+
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .clickable { onClick() }
-            .padding(vertical = 4.dp, horizontal = 2.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(SurfaceContainerLow)
+            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f, fill = false)) {
-            Text(
-                text = providerName,
-                color = TextTertiary,
-                fontSize = 10.5.sp,
-                maxLines = 1
+        Icon(
+            imageVector = Icons.Outlined.AutoAwesome,
+            contentDescription = null,
+            tint = if (hasKey) AccentPrimary else StatusWarning,
+            modifier = Modifier.size(15.dp)
+        )
+        Spacer(modifier = Modifier.width(7.dp))
+        Text(
+            text = cleanModel,
+            color = if (hasKey) TextPrimary else StatusWarning,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 1.6.dp,
+                color = AccentPrimary
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = modelName,
-                    color = if (hasKey) TextPrimary else StatusWarning,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                if (isLoading) {
-                    Spacer(modifier = Modifier.width(7.dp))
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(13.dp),
-                        strokeWidth = 1.6.dp,
-                        color = AccentPrimary
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.ArrowDropDown,
-                        contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.KeyboardArrowDown,
+                contentDescription = "Выбрать модель",
+                tint = TextTertiary,
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
 }
 
 /**
- * Нижняя панель: пилюля на surface-container с мягкой границей,
- * авто-растущее поле до 5 строк и круглая кнопка отправки/остановки.
+ * Нижняя панель: динамическая подсветка контура при фокусе и вводе,
+ * поддержка ImeAction.Send с клавиатуры и гарантированная обработка отправки.
  */
 @Composable
 private fun InputBar(
@@ -373,13 +423,27 @@ private fun InputBar(
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    val canSend = value.isNotBlank() && !isRunning
+    val isActive = isFocused || value.isNotBlank()
+
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isRunning -> StatusError.copy(alpha = 0.4f)
+            isActive -> AccentPrimary.copy(alpha = 0.45f)
+            else -> OutlineSubtle
+        },
+        animationSpec = MotionTokens.fluidTween(200),
+        label = "input_border"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(SurfaceContainer)
-            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(24.dp))
+            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(24.dp))
             .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.Bottom
     ) {
@@ -388,12 +452,20 @@ private fun InputBar(
             onValueChange = onValueChange,
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 12.dp, end = 4.dp, top = 11.dp, bottom = 11.dp),
+                .padding(start = 14.dp, end = 6.dp, top = 11.dp, bottom = 11.dp)
+                .onFocusChanged { isFocused = it.isFocused },
             textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, lineHeight = 21.sp),
             maxLines = 5,
             minLines = 1,
             cursorBrush = SolidColor(AccentPrimary),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+            keyboardOptions = KeyboardOptions(
+                imeAction = if (canSend) ImeAction.Send else ImeAction.Default
+            ),
+            keyboardActions = KeyboardActions(
+                onSend = {
+                    if (canSend) onSend()
+                }
+            ),
             decorationBox = { innerTextField ->
                 Box {
                     if (value.isEmpty()) {
@@ -411,7 +483,7 @@ private fun InputBar(
 
         SendStopButton(
             isRunning = isRunning,
-            canSend = value.isNotBlank() && !isRunning,
+            canSend = canSend,
             onSend = onSend,
             onStop = onStop
         )
@@ -419,8 +491,8 @@ private fun InputBar(
 }
 
 /**
- * Круглая кнопка: пусто — приглушённая и полупрозрачная, есть текст — акцентная
- * с пружинным увеличением, во время работы — стоп. Тап даёт scale(0.92).
+ * Круглая кнопка: плавно загорается акцентным синим при вводе текста,
+ * пульсирует в стоп во время выполнения, корректно вызывает onSend/onStop.
  */
 @Composable
 private fun SendStopButton(
@@ -433,9 +505,9 @@ private fun SendStopButton(
 
     val background by animateColorAsState(
         targetValue = when {
-            isRunning -> StatusError.copy(alpha = 0.16f)
+            isRunning -> StatusError.copy(alpha = 0.18f)
             canSend -> AccentPrimary
-            else -> SurfaceContainerHigh
+            else -> SurfaceContainerHigh.copy(alpha = 0.6f)
         },
         animationSpec = MotionTokens.fluidTween(220),
         label = "send_background"
@@ -451,14 +523,8 @@ private fun SendStopButton(
         label = "send_tint"
     )
 
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0.4f,
-        animationSpec = MotionTokens.fluidTween(220),
-        label = "send_alpha"
-    )
-
     val buttonScale by animateFloatAsState(
-        targetValue = if (canSend) 1f else 0.94f,
+        targetValue = if (canSend || isRunning) 1f else 0.92f,
         animationSpec = MotionTokens.fluidSpring(),
         label = "send_scale"
     )
@@ -470,12 +536,15 @@ private fun SendStopButton(
             .graphicsLayer {
                 scaleX = buttonScale
                 scaleY = buttonScale
-                alpha = contentAlpha
             }
             .clip(CircleShape)
             .background(background)
-            .bounceClick(scaleDown = 0.92f) {
-                if (isRunning) onStop() else if (canSend) onSend()
+            .bounceClick(enabled = enabled, scaleDown = 0.90f) {
+                if (isRunning) {
+                    onStop()
+                } else if (canSend) {
+                    onSend()
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -483,68 +552,116 @@ private fun SendStopButton(
             imageVector = if (isRunning) RunnerIcons.StopSquare else RunnerIcons.ArrowUp,
             contentDescription = if (isRunning) "Остановить" else "Отправить",
             tint = iconTint,
-            modifier = Modifier.size(17.dp)
+            modifier = Modifier.size(18.dp)
         )
     }
 }
 
-/** Быстрые действия показываются только в пустом чате. */
+/**
+ * Компактный экран пустого чата с аккуратной сеткой 2×2 быстрых действий.
+ */
 @Composable
 private fun EmptyChatState(
     modifier: Modifier = Modifier,
     onSuggestion: (String) -> Unit
 ) {
     val suggestions = listOf(
-        Icons.Outlined.Storage to ("Сводка по памяти" to "Сделай сводку по памяти устройства"),
-        Icons.Outlined.FolderOpen to ("Что в Download" to "Покажи сводку по папке Download"),
-        Icons.Outlined.WarningAmber to ("Найти мусор" to "Найди временные и мусорные файлы"),
-        Icons.Outlined.Info to ("Свободное место" to "Сколько свободного места на устройстве?")
+        Triple(Icons.Outlined.Storage, "Сводка памяти", "Сделай сводку по памяти устройства"),
+        Triple(Icons.Outlined.FolderOpen, "Папка Download", "Покажи сводку по папке Download"),
+        Triple(Icons.Outlined.WarningAmber, "Найти мусор", "Найди временные и мусорные файлы"),
+        Triple(Icons.Outlined.Info, "Свободное место", "Сколько свободного места на устройстве?")
     )
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .padding(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Text(
             text = "Runner",
             color = TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Medium
+            fontSize = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.5).sp
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "Агент работает с файлами, архивами, буфером обмена и терминалом прямо на телефоне.",
+            text = "Агент для работы с файлами, памятью и терминалом прямо на телефоне.",
             color = TextSecondary,
             fontSize = 13.5.sp,
             lineHeight = 20.sp
         )
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        suggestions.forEach { (icon, pair) ->
-            val (label, prompt) = pair
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SurfaceContainerLow)
-                    .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(12.dp))
-                    .clickable { onSuggestion(prompt) }
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(17.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(text = label, color = TextPrimary, fontSize = 13.5.sp)
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SuggestionCard(
+                modifier = Modifier.weight(1f),
+                icon = suggestions[0].first,
+                title = suggestions[0].second,
+                onClick = { onSuggestion(suggestions[0].third) }
+            )
+            SuggestionCard(
+                modifier = Modifier.weight(1f),
+                icon = suggestions[1].first,
+                title = suggestions[1].second,
+                onClick = { onSuggestion(suggestions[1].third) }
+            )
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SuggestionCard(
+                modifier = Modifier.weight(1f),
+                icon = suggestions[2].first,
+                title = suggestions[2].second,
+                onClick = { onSuggestion(suggestions[2].third) }
+            )
+            SuggestionCard(
+                modifier = Modifier.weight(1f),
+                icon = suggestions[3].first,
+                title = suggestions[3].second,
+                onClick = { onSuggestion(suggestions[3].third) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SuggestionCard(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceContainerLow)
+            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(12.dp))
+            .bounceClick(onClick = onClick)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = AccentPrimary,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = title,
+            color = TextPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 18.sp,
+            maxLines = 2
+        )
     }
 }
 
@@ -810,7 +927,7 @@ private fun NoticeBanner(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(SurfaceContainerLow)
-            .border(BorderStroke(0.5.dp, accent.copy(alpha = 0.3f)), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, accent.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.Top) {
@@ -855,7 +972,7 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(SurfaceContainerLow)
-            .border(BorderStroke(0.5.dp, StatusWarning.copy(alpha = 0.3f)), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, StatusWarning.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -932,7 +1049,7 @@ private fun ConfirmationBottomSheet(
             Surface(
                 color = SurfaceContainerLowest,
                 shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(0.5.dp, OutlineSubtle),
+                border = BorderStroke(1.dp, OutlineSubtle),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
@@ -949,7 +1066,7 @@ private fun ConfirmationBottomSheet(
                 Surface(
                     color = SurfaceContainerHigh.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(0.5.dp, OutlineSubtle),
+                    border = BorderStroke(1.dp, OutlineSubtle),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
@@ -991,7 +1108,7 @@ private fun ConfirmationBottomSheet(
                         containerColor = SurfaceContainer,
                         contentColor = TextPrimary
                     ),
-                    border = BorderStroke(0.5.dp, OutlineSubtle),
+                    border = BorderStroke(1.dp, OutlineSubtle),
                     shape = RoundedCornerShape(11.dp)
                 ) {
                     Text("Отклонить", fontSize = 14.sp)

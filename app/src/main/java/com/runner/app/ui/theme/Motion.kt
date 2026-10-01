@@ -32,14 +32,18 @@ object MotionTokens {
 
 /**
  * Adds an iOS-style physical press bounce effect (scales down to 0.965 on press, spring returns on release).
+ * Uses rememberUpdatedState to ensure the latest onClick and enabled values are always invoked.
  */
 fun Modifier.bounceClick(
+    enabled: Boolean = true,
     scaleDown: Float = 0.965f,
     onClick: () -> Unit
 ): Modifier = composed {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentEnabled by rememberUpdatedState(enabled)
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) scaleDown else 1f,
+        targetValue = if (isPressed && currentEnabled) scaleDown else 1f,
         animationSpec = MotionTokens.fluidSpring(),
         label = "bounce_scale"
     )
@@ -49,14 +53,20 @@ fun Modifier.bounceClick(
             scaleX = scale
             scaleY = scale
         }
-        .pointerInput(Unit) {
+        .pointerInput(currentEnabled) {
+            if (!currentEnabled) return@pointerInput
             detectTapGestures(
                 onPress = {
                     isPressed = true
                     tryAwaitRelease()
                     isPressed = false
                 },
-                onTap = { onClick() }
+                onTap = {
+                    if (currentEnabled) {
+                        currentOnClick()
+                    }
+                }
             )
         }
 }
+
