@@ -1,86 +1,131 @@
 package com.runner.app.ui
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.runner.app.ui.theme.*
+import com.runner.app.data.AppSettings
+import com.runner.app.data.Provider
+import com.runner.app.ui.theme.AccentPrimary
+import com.runner.app.ui.theme.OutlineSubtle
+import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.theme.StatusWarning
+import com.runner.app.ui.theme.SurfaceContainer
+import com.runner.app.ui.theme.SurfaceContainerHigh
+import com.runner.app.ui.theme.SurfaceContainerLow
+import com.runner.app.ui.theme.SurfaceDark
+import com.runner.app.ui.theme.TextPrimary
+import com.runner.app.ui.theme.TextSecondary
+import com.runner.app.ui.theme.TextTertiary
+import com.runner.app.ui.theme.bounceClick
+import kotlin.math.roundToInt
 
-data class ProviderPreset(
-    val title: String,
-    val baseUrl: String,
-    val defaultModel: String
-)
-
-val PROVIDER_PRESETS = listOf(
-    ProviderPreset("OpenRouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct"),
-    ProviderPreset("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
-    ProviderPreset("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-    ProviderPreset("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini")
-)
+private sealed interface SettingsRoute {
+    data object Root : SettingsRoute
+    data object Providers : SettingsRoute
+    data class ProviderEdit(val providerId: String) : SettingsRoute
+    data object Agent : SettingsRoute
+    data object Access : SettingsRoute
+    data object Appearance : SettingsRoute
+    data object Advanced : SettingsRoute
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onOpenStorageSettings: () -> Unit
 ) {
-    val context = LocalContext.current
-    val savedBaseUrl by viewModel.baseUrl.collectAsState()
-    val savedApiKey by viewModel.apiKey.collectAsState()
-    val savedModelName by viewModel.modelName.collectAsState()
-    val savedReverseProxyUrl by viewModel.reverseProxyUrl.collectAsState()
-    val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
+    var route by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Root) }
+    BackHandler(enabled = route != SettingsRoute.Root) { route = SettingsRoute.Root }
 
-    var baseUrlInput by remember(savedBaseUrl) { mutableStateOf(savedBaseUrl) }
-    var apiKeyInput by remember(savedApiKey) { mutableStateOf(savedApiKey) }
-    var modelInput by remember(savedModelName) { mutableStateOf(savedModelName) }
-    var reverseProxyInput by remember(savedReverseProxyUrl) { mutableStateOf(savedReverseProxyUrl) }
-    var keyVisible by remember { mutableStateOf(false) }
+    val title = when (route) {
+        SettingsRoute.Root -> "Настройки"
+        SettingsRoute.Providers -> "Провайдеры"
+        is SettingsRoute.ProviderEdit -> "Провайдер"
+        SettingsRoute.Agent -> "Агент"
+        SettingsRoute.Access -> "Доступы"
+        SettingsRoute.Appearance -> "Внешний вид"
+        SettingsRoute.Advanced -> "Дополнительно"
+    }
+
+    val goBack = {
+        if (route == SettingsRoute.Root) onBackClick() else route = SettingsRoute.Root
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Настройки",
+                        text = title,
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = TextPrimary
                     )
                 },
                 navigationIcon = {
                     IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.bounceClick { onBackClick() }
+                        onClick = goBack,
+                        modifier = Modifier.bounceClick { goBack() }
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
@@ -102,255 +147,524 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp)
+                .navigationBarsPadding()
+                .imePadding()
         ) {
-            // Group 1: API Configuration
-            PreferenceGroup(title = "ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ") {
-                // Provider Presets
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "Шаблоны провайдеров",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Быстрое переключение конфигурации в один клик",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
+            when (val current = route) {
+                SettingsRoute.Root -> SettingsRoot(viewModel) { route = it }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                SettingsRoute.Providers -> ProvidersList(viewModel) { route = SettingsRoute.ProviderEdit(it) }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PROVIDER_PRESETS.forEach { preset ->
-                            val isSelected = baseUrlInput == preset.baseUrl
-                            Surface(
-                                color = if (isSelected) SurfaceContainerHighest else SurfaceContainer,
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isSelected) AccentPrimary.copy(alpha = 0.5f) else OutlineSubtle
-                                ),
-                                modifier = Modifier
-                                    .bounceClick {
-                                        baseUrlInput = preset.baseUrl
-                                        modelInput = preset.defaultModel
-                                    }
-                            ) {
-                                Text(
-                                    text = preset.title,
-                                    color = if (isSelected) AccentPrimary else TextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
+                is SettingsRoute.ProviderEdit -> ProviderEditScreen(
+                    viewModel = viewModel,
+                    providerId = current.providerId,
+                    onDeleted = { route = SettingsRoute.Providers }
+                )
 
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                SettingsRoute.Agent -> AgentSettings(viewModel)
 
-                // Base URL
-                PreferenceInputRow(
-                    label = "Base URL",
-                    description = "Эндпоинт OpenAI-совместимого сервиса"
-                ) {
-                    OutlinedTextField(
-                        value = baseUrlInput,
-                        onValueChange = { baseUrlInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("https://api.openai.com/v1", color = TextTertiary, fontSize = 13.sp) },
-                        singleLine = true,
-                        colors = preferenceFieldColors(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
+                SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings)
 
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                SettingsRoute.Appearance -> AppearanceSettings(viewModel)
 
-                // Reverse Proxy URL
-                PreferenceInputRow(
-                    label = "Кастомный прокси / Reverse Proxy URL",
-                    description = "Роутинг через Cloudflare Workers или свой сервер для обхода блокировок (опционально)"
-                ) {
-                    OutlinedTextField(
-                        value = reverseProxyInput,
-                        onValueChange = { reverseProxyInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("https://my-proxy.workers.dev/v1", color = TextTertiary, fontSize = 13.sp) },
-                        singleLine = true,
-                        colors = preferenceFieldColors(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
-
-                // Model ID
-                PreferenceInputRow(
-                    label = "Идентификатор модели",
-                    description = "Название модели для передачи в запросе (model ID)"
-                ) {
-                    OutlinedTextField(
-                        value = modelInput,
-                        onValueChange = { modelInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("meta-llama/llama-3.3-70b-instruct, deepseek-chat...", color = TextTertiary, fontSize = 13.sp) },
-                        singleLine = true,
-                        colors = preferenceFieldColors(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
-
-                // API Key
-                PreferenceInputRow(
-                    label = "API Key",
-                    description = "Секретный ключ для авторизации (хранится локально)"
-                ) {
-                    OutlinedTextField(
-                        value = apiKeyInput,
-                        onValueChange = { apiKeyInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("sk-or-v1-... или sk-...", color = TextTertiary, fontSize = 13.sp) },
-                        singleLine = true,
-                        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { keyVisible = !keyVisible }) {
-                                Icon(
-                                    imageVector = if (keyVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                    contentDescription = "Видимость",
-                                    tint = TextSecondary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        colors = preferenceFieldColors(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
-
-                // Save button
-                Box(modifier = Modifier.padding(14.dp)) {
-                    Button(
-                        onClick = {
-                            viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput, reverseProxyInput)
-                            Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .bounceClick {
-                                viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput, reverseProxyInput)
-                                Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
-                            },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentPrimary),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = "Сохранить параметры",
-                            color = SurfaceDark,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        )
-                    }
-                }
+                SettingsRoute.Advanced -> AdvancedSettings(viewModel)
             }
-
-            // Group 2: System Permissions
-            PreferenceGroup(title = "СИСТЕМНЫЕ ДОСТУПЫ") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { openStorageSettings(context) }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.FolderShared,
-                        contentDescription = null,
-                        tint = if (hasStoragePermission) StatusSuccess else TextSecondary,
-                        modifier = Modifier.size(22.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Управление файлами",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Право MANAGE_EXTERNAL_STORAGE для анализа и сортировки",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Switch(
-                        checked = hasStoragePermission,
-                        onCheckedChange = { openStorageSettings(context) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = SurfaceDark,
-                            checkedTrackColor = AccentPrimary,
-                            uncheckedThumbColor = TextTertiary,
-                            uncheckedTrackColor = SurfaceContainerHigh
-                        )
-                    )
-                }
-            }
-
-            // Group 3: About
-            PreferenceGroup(title = "О ПРИЛОЖЕНИИ") {
-                PreferenceStaticRow(label = "Архитектура", value = "Kotlin + Jetpack Compose")
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
-                PreferenceStaticRow(label = "Протокол", value = "OpenAI Tool Calling")
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
-                PreferenceStaticRow(label = "Архиватор", value = "Zip4j 2.11.5")
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
-                PreferenceStaticRow(label = "Версия", value = "1.1.0")
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun PreferenceGroup(
-    title: String,
+private fun SettingsRoot(
+    viewModel: MainViewModel,
+    onNavigate: (SettingsRoute) -> Unit
+) {
+    val providers by viewModel.providers.collectAsState()
+    val activeProvider by viewModel.activeProvider.collectAsState()
+    val appSettings by viewModel.settings.collectAsState()
+    val hasStorage by viewModel.hasStoragePermission.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        SettingsGroup("Провайдеры") {
+            SettingsRow(
+                label = "Провайдеры и ключи",
+                value = "${providers.size} · активен ${activeProvider?.name ?: "—"}",
+                onClick = { onNavigate(SettingsRoute.Providers) }
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Модель",
+                value = activeProvider?.activeModel.orEmpty().ifBlank { "не выбрана" },
+                mono = true,
+                onClick = { onNavigate(SettingsRoute.Providers) }
+            )
+        }
+
+        SettingsGroup("Агент") {
+            SettingsRow(
+                label = "Системный промпт",
+                value = "${appSettings.systemPrompt.length} символов",
+                onClick = { onNavigate(SettingsRoute.Agent) }
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Температура и лимит шагов",
+                value = "${appSettings.temperature} · ${appSettings.maxSteps} шагов",
+                onClick = { onNavigate(SettingsRoute.Agent) }
+            )
+        }
+
+        SettingsGroup("Доступы") {
+            SettingsRow(
+                label = "Доступ ко всем файлам",
+                value = if (hasStorage) "выдан" else "не выдан",
+                valueColor = if (hasStorage) StatusSuccess else StatusWarning,
+                onClick = { onNavigate(SettingsRoute.Access) }
+            )
+        }
+
+        SettingsGroup("Внешний вид") {
+            SettingsRow(
+                label = "Масштаб текста",
+                value = "${(appSettings.textScale * 100).roundToInt()}%",
+                onClick = { onNavigate(SettingsRoute.Appearance) }
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Детали вызовов инструментов",
+                value = if (appSettings.showToolDetails) "показывать" else "скрывать",
+                onClick = { onNavigate(SettingsRoute.Appearance) }
+            )
+        }
+
+        SettingsGroup("Дополнительно") {
+            SettingsRow(
+                label = "Прокси для запросов",
+                value = appSettings.reverseProxyUrl.ifBlank { "не задан" },
+                mono = appSettings.reverseProxyUrl.isNotBlank(),
+                onClick = { onNavigate(SettingsRoute.Advanced) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun ProvidersList(
+    viewModel: MainViewModel,
+    onEdit: (String) -> Unit
+) {
+    val providers by viewModel.providers.collectAsState()
+    val activeProviderId by viewModel.activeProviderId.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        SettingsGroup {
+            providers.forEachIndexed { index, provider ->
+                if (index > 0) SettingsDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onEdit(provider.id) }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = provider.name,
+                                color = TextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (provider.id == activeProviderId) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "активен", color = AccentPrimary, fontSize = 11.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = provider.activeModel.ifBlank { "модель не выбрана" },
+                            color = TextTertiary,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Icon(
+                        imageVector = if (provider.apiKey.isNotBlank()) {
+                            Icons.Outlined.CheckCircle
+                        } else {
+                            Icons.Outlined.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = if (provider.apiKey.isNotBlank()) StatusSuccess else TextTertiary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    val id = "custom_${System.currentTimeMillis()}"
+                    viewModel.saveProvider(
+                        Provider(id = id, name = "Новый провайдер", baseUrl = "")
+                    )
+                    onEdit(id)
+                }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = null,
+                tint = AccentPrimary,
+                modifier = Modifier.size(17.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = "Добавить провайдера", color = AccentPrimary, fontSize = 13.5.sp)
+        }
+    }
+}
+
+@Composable
+private fun AgentSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        SettingsGroup("Системный промпт") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                TextField(
+                    value = appSettings.systemPrompt,
+                    onValueChange = { viewModel.updateSettings(appSettings.copy(systemPrompt = it)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = settingFieldColors()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Сбросить к стандартному",
+                    color = AccentPrimary,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { viewModel.resetSystemPrompt() }
+                        .padding(vertical = 4.dp)
+                )
+            }
+        }
+
+        SettingsGroup("Температура") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "%.1f".format(appSettings.temperature),
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Slider(
+                    value = appSettings.temperature,
+                    onValueChange = {
+                        viewModel.updateSettings(
+                            appSettings.copy(temperature = (it * 10).roundToInt() / 10f)
+                        )
+                    },
+                    valueRange = AppSettings.TEMPERATURE_RANGE,
+                    colors = settingSliderColors()
+                )
+                Text(
+                    text = "Ниже — предсказуемее, выше — креативнее.",
+                    color = TextTertiary,
+                    fontSize = 11.5.sp
+                )
+            }
+        }
+
+        SettingsGroup("Лимит шагов агента") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "${appSettings.maxSteps}",
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Slider(
+                    value = appSettings.maxSteps.toFloat(),
+                    onValueChange = {
+                        viewModel.updateSettings(appSettings.copy(maxSteps = it.roundToInt()))
+                    },
+                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..
+                            AppSettings.STEPS_RANGE.last.toFloat(),
+                    steps = 10,
+                    colors = settingSliderColors()
+                )
+                Text(
+                    text = "Сколько раз модель может вызвать инструменты в одной задаче.",
+                    color = TextTertiary,
+                    fontSize = 11.5.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun AccessSettings(
+    viewModel: MainViewModel,
+    onOpenStorageSettings: () -> Unit
+) {
+    val hasStorage by viewModel.hasStoragePermission.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        SettingsGroup {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasStorage) {
+                            Icons.Outlined.CheckCircle
+                        } else {
+                            Icons.Outlined.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = if (hasStorage) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (hasStorage) "Доступ выдан" else "Доступ не выдан",
+                        color = TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Нужен, чтобы агент читал и раскладывал файлы. Тумблер сам право не даёт — " +
+                            "включи «Доступ ко всем файлам» на системном экране.",
+                    color = TextSecondary,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        onOpenStorageSettings()
+                        viewModel.checkStoragePermission()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentPrimary,
+                        contentColor = SurfaceDark
+                    )
+                ) {
+                    Text(
+                        text = "Открыть системные настройки",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun AppearanceSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        SettingsGroup("Масштаб текста") {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AppSettings.TEXT_SCALES.forEach { scale ->
+                    val isSelected = scale == appSettings.textScale
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) SurfaceContainerHigh else SurfaceContainer)
+                            .clickable {
+                                viewModel.updateSettings(appSettings.copy(textScale = scale))
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "${(scale * 100).roundToInt()}%",
+                            color = if (isSelected) AccentPrimary else TextPrimary,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        SettingsGroup {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Детали вызовов инструментов",
+                        color = TextPrimary,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Аргументы и полный вывод инструмента",
+                        color = TextTertiary,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.showToolDetails,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(showToolDetails = it))
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SurfaceDark,
+                        checkedTrackColor = AccentPrimary,
+                        uncheckedThumbColor = TextTertiary,
+                        uncheckedTrackColor = SurfaceContainerHigh
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun AdvancedSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        SettingsGroup("Reverse proxy") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                TextField(
+                    value = appSettings.reverseProxyUrl,
+                    onValueChange = {
+                        viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text("https://my-proxy.workers.dev/v1", color = TextTertiary, fontSize = 13.sp)
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = settingFieldColors()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Если задан, запросы идут через него вместо Base URL провайдера.",
+                    color = TextTertiary,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun settingFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = SurfaceContainer,
+    unfocusedContainerColor = SurfaceContainer,
+    focusedIndicatorColor = OutlineSubtle,
+    unfocusedIndicatorColor = OutlineSubtle,
+    cursorColor = AccentPrimary,
+    focusedTextColor = TextPrimary,
+    unfocusedTextColor = TextPrimary
+)
+
+@Composable
+private fun settingSliderColors() = SliderDefaults.colors(
+    thumbColor = AccentPrimary,
+    activeTrackColor = AccentPrimary,
+    inactiveTrackColor = SurfaceContainerHigh
+)
+
+@Composable
+private fun SettingsGroup(
+    title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelSmall,
-            color = TextTertiary,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 10.dp, bottom = 6.dp)
-        )
+        if (title != null) {
+            Text(
+                text = title,
+                color = TextTertiary,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+        }
         Card(
             colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
-            border = BorderStroke(1.dp, OutlineSubtle),
-            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(0.5.dp, OutlineSubtle),
+            shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             content()
@@ -359,74 +673,42 @@ private fun PreferenceGroup(
 }
 
 @Composable
-private fun PreferenceInputRow(
+private fun SettingsRow(
     label: String,
-    description: String,
-    inputContent: @Composable () -> Unit
+    value: String,
+    onClick: () -> Unit,
+    mono: Boolean = false,
+    valueColor: Color = TextSecondary
 ) {
-    Column(modifier = Modifier.padding(14.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = TextPrimary
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        inputContent()
-    }
-}
-
-@Composable
-private fun PreferenceStaticRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            fontFamily = FontFamily.Monospace,
-            color = TextPrimary
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, color = TextPrimary, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value,
+                color = valueColor,
+                fontSize = 11.5.sp,
+                fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            contentDescription = null,
+            tint = TextTertiary,
+            modifier = Modifier.size(17.dp)
         )
     }
 }
 
 @Composable
-private fun preferenceFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = AccentPrimary,
-    unfocusedBorderColor = OutlineSubtle,
-    focusedContainerColor = SurfaceContainer,
-    unfocusedContainerColor = SurfaceContainer,
-    focusedTextColor = TextPrimary,
-    unfocusedTextColor = TextPrimary
-)
-
-fun openStorageSettings(context: Context) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        try {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-            context.startActivity(intent)
-        }
-    } else {
-        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-            data = Uri.parse("package:${context.packageName}")
-        }
-        context.startActivity(intent)
-    }
+private fun SettingsDivider() {
+    HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
 }

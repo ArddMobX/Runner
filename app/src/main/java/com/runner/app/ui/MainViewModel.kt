@@ -1,25 +1,40 @@
 package com.runner.app.ui
 
 import android.app.Application
-import android.content.Context
 import android.os.Build
 import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runner.app.data.AIResponseResult
+import com.runner.app.data.AppSettings
+import com.runner.app.data.ChatRepository
+import com.runner.app.data.ModelCatalog
 import com.runner.app.data.OpenAIClient
+import com.runner.app.data.Provider
+import com.runner.app.data.ProviderStore
+import com.runner.app.data.SettingsStore
+import com.runner.app.data.ToolCall
+import com.runner.app.data.db.ChatDatabase
+import com.runner.app.data.db.MessageEntity
+import com.runner.app.data.db.SessionEntity
 import com.runner.app.tools.ToolDispatcher
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import kotlin.coroutines.resume
 
 enum class MessageRole {
     USER,
@@ -28,12 +43,20 @@ enum class MessageRole {
     SYSTEM_INFO
 }
 
+/** Что предложить пользователю прямо в баннере. */
+enum class MessageAction {
+    OPEN_SETTINGS,
+    OPEN_MODELS,
+    GRANT_STORAGE
+}
+
 data class ConfirmationRequest(
     val id: String = UUID.randomUUID().toString(),
     val toolName: String,
     val title: String,
     val details: String,
     val warning: String,
+    val preview: String = "",
     val onDecision: (Boolean) -> Unit
 )
 
@@ -44,42 +67,79 @@ data class ChatMessage(
     val toolName: String? = null,
     val toolArgs: String? = null,
     val toolOutput: String? = null,
+    /** Короткая сводка результата: «143 файла», «2.4 ГБ». */
+    val toolSummary: String? = null,
     val isRunning: Boolean = false,
     val isError: Boolean = false,
     val isDeclined: Boolean = false,
+    val action: MessageAction? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val prefs = application.getSharedPreferences("runner_prefs", Context.MODE_PRIVATE)
+    private val providerStore = ProviderStore(application)
+    private val settingsStore = SettingsStore(application)
+    private val repository = ChatRepository(ChatDatabase.get(application).chatDao())
     private val apiClient = OpenAIClient()
 
-    // Default provider without IP discrimination (OpenRouter)
-    private val defaultBaseUrl = "https://openrouter.ai/api/v1"
-    private val defaultModel = "meta-llama/llama-3.3-70b-instruct"
+    // --- Провайдеры ---
 
-    private val _baseUrl = MutableStateFlow(
-        prefs.getString("api_base_url", defaultBaseUrl) ?: defaultBaseUrl
-    )
-    val baseUrl: StateFlow<String> = _baseUrl.asStateFlow()
+    private val _providers = MutableStateFlow(providerStore.loadProviders())
+    val providers: StateFlow<List<Provider>> = _providers.asStateFlow()
 
-    private val _apiKey = MutableStateFlow(
-        prefs.getString("api_key", null)
-            ?: prefs.getString("groq_api_key", "")
-            ?: ""
-    )
-    val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+    private val _activeProviderId = MutableStateFlow(providerStore.activeProviderId())
+    val activeProviderId: StateFlow<String> = _activeProviderId.asStateFlow()
 
-    private val _modelName = MutableStateFlow(
-        prefs.getString("api_model_name", defaultModel) ?: defaultModel
-    )
-    val modelName: StateFlow<String> = _modelName.asStateFlow()
+    val activeProvider: StateFlow<Provider?> =
+        combine(_providers, _activeProviderId) { list, id ->
+            list.firstOrNull { it.id == id } ?: list.firstOrNull()
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            _providers.value.firstOrNull { it.id == _activeProviderId.value }
+                ?: _providers.value.firstOrNull()
+        )
 
-    private val _reverseProxyUrl = MutableStateFlow(
-        prefs.getString("api_reverse_proxy_url", "") ?: ""
-    )
-    val reverseProxyUrl: StateFlow<String> = _reverseProxyUrl.asStateFlow()
+    /** id провайдера, для которого сейчас тянется список моделей. */
+    private val _modelsLoadingFor = MutableStateFlow<String?>(null)
+    val modelsLoadingFor: StateFlow<String?> = _modelsLoadingFor.asStateFlow()
+
+    // --- Настройки ---
+
+    private val _settings = MutableStateFlow(settingsStore.load())
+    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+
+    // --- История чатов ---
+
+    private val _sessionsQuery = MutableStateFlow("")
+    val sessionsQuery: StateFlow<String> = _sessionsQuery.asStateFlow()
+
+    val sessions: StateFlow<List<SessionEntity>> = _sessionsQuery
+        .flatMapLatest { query -> repository.observeSessions(query) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+    val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+
+    private val _currentSessionTitle = MutableStateFlow("")
+    val currentSessionTitle: StateFlow<String> = _currentSessionTitle.asStateFlow()
+
+    // --- Диалог ---
+
+    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+
+    /** Текст, который модель печатает прямо сейчас. */
+    private val _streamingText = MutableStateFlow("")
+    val streamingText: StateFlow<String> = _streamingText.asStateFlow()
+
+    private val _isRunning = MutableStateFlow(false)
+    val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+
+    private val _currentStatus = MutableStateFlow<String?>(null)
+    val currentStatus: StateFlow<String?> = _currentStatus.asStateFlow()
 
     private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
     val pendingConfirmation: StateFlow<ConfirmationRequest?> = _pendingConfirmation.asStateFlow()
@@ -87,28 +147,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
 
-    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-    val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+    private var conversationJson = JSONArray()
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
-
-    private val _currentStatus = MutableStateFlow<String?>(null)
-    val currentStatus: StateFlow<String?> = _currentStatus.asStateFlow()
-
-    private val conversationJson = JSONArray()
+    @Volatile
+    private var stopRequested = false
 
     init {
         checkStoragePermission()
-        resetConversationContext()
-
-        _messages.value = listOf(
-            ChatMessage(
-                role = MessageRole.ASSISTANT,
-                content = "Привет! Я Runner — мобильный агент для Android. Могу исследовать файлы, распаковывать архивы, читать и создавать документы или выполнять команды терминала. Чем помочь?"
-            )
-        )
+        viewModelScope.launch {
+            val existing = repository.observeSessions().first()
+            val session = existing.firstOrNull() ?: repository.createSession()
+            loadSession(session.id)
+        }
     }
+
+    // --- Доступы ---
 
     fun checkStoragePermission() {
         val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -122,29 +175,114 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _hasStoragePermission.value = granted
     }
 
-    fun saveSettings(
-        newBaseUrl: String,
-        newApiKey: String,
-        newModelName: String,
-        newReverseProxyUrl: String = ""
-    ) {
-        val bUrl = newBaseUrl.trim()
-        val key = newApiKey.trim()
-        val model = newModelName.trim()
-        val proxy = newReverseProxyUrl.trim()
+    // --- Сессии ---
 
-        prefs.edit()
-            .putString("api_base_url", bUrl)
-            .putString("api_key", key)
-            .putString("api_model_name", model)
-            .putString("api_reverse_proxy_url", proxy)
-            .apply()
-
-        _baseUrl.value = bUrl
-        _apiKey.value = key
-        _modelName.value = model
-        _reverseProxyUrl.value = proxy
+    fun setSessionsQuery(query: String) {
+        _sessionsQuery.value = query
     }
+
+    fun openSession(sessionId: String) {
+        if (_isRunning.value) return
+        viewModelScope.launch { loadSession(sessionId) }
+    }
+
+    fun startNewChat() {
+        if (_isRunning.value) return
+        viewModelScope.launch {
+            val session = repository.createSession()
+            loadSession(session.id)
+        }
+    }
+
+    fun deleteSession(sessionId: String) {
+        viewModelScope.launch {
+            repository.deleteSession(sessionId)
+            if (_currentSessionId.value == sessionId) {
+                val remaining = repository.observeSessions().first()
+                val next = remaining.firstOrNull() ?: repository.createSession()
+                loadSession(next.id)
+            }
+        }
+    }
+
+    private suspend fun loadSession(sessionId: String) {
+        val session = repository.getSession(sessionId) ?: return
+        _currentSessionId.value = session.id
+        _currentSessionTitle.value = session.title
+        _streamingText.value = ""
+        _currentStatus.value = null
+
+        conversationJson = if (session.contextJson.isBlank()) {
+            freshContext()
+        } else {
+            try {
+                JSONArray(session.contextJson)
+            } catch (e: Exception) {
+                freshContext()
+            }
+        }
+
+        _messages.value = repository.loadMessages(session.id).map { it.toChatMessage() }
+    }
+
+    // --- Провайдеры и модели ---
+
+    fun selectProvider(providerId: String) {
+        providerStore.setActiveProviderId(providerId)
+        _activeProviderId.value = providerId
+    }
+
+    /** Выбор модели переключает и провайдера — одной операцией. */
+    fun selectModel(providerId: String, model: String) {
+        val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
+        _providers.value = providerStore.upsert(provider.copy(selectedModel = model))
+        providerStore.setActiveProviderId(providerId)
+        _activeProviderId.value = providerId
+    }
+
+    fun saveProvider(provider: Provider) {
+        _providers.value = providerStore.upsert(provider)
+    }
+
+    fun deleteProvider(providerId: String) {
+        _providers.value = providerStore.remove(providerId)
+        _activeProviderId.value = providerStore.activeProviderId()
+    }
+
+    fun refreshModels(providerId: String, onResult: (String) -> Unit = {}) {
+        val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
+        _modelsLoadingFor.value = providerId
+        viewModelScope.launch {
+            val result = ModelCatalog.fetchModels(
+                baseUrl = provider.baseUrl,
+                apiKey = provider.apiKey,
+                reverseProxyUrl = _settings.value.reverseProxyUrl
+            )
+            result.onSuccess { models ->
+                val selected = provider.selectedModel.takeIf { it in models } ?: models.first()
+                _providers.value = providerStore.upsert(
+                    provider.copy(models = models, selectedModel = selected)
+                )
+                onResult("Моделей: ${models.size}")
+            }.onFailure { error ->
+                onResult(error.localizedMessage ?: "Не удалось получить список моделей")
+            }
+            _modelsLoadingFor.value = null
+        }
+    }
+
+    // --- Настройки ---
+
+    fun updateSettings(newSettings: AppSettings) {
+        _settings.value = newSettings
+        settingsStore.save(newSettings)
+    }
+
+    fun resetSystemPrompt() {
+        updateSettings(_settings.value.copy(systemPrompt = AppSettings.DEFAULT_SYSTEM_PROMPT))
+    }
+
+    // --- Агент ---
 
     fun resolveConfirmation(confirmed: Boolean) {
         val current = _pendingConfirmation.value
@@ -152,265 +290,350 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         current?.onDecision?.invoke(confirmed)
     }
 
-    private fun resetConversationContext() {
-        while (conversationJson.length() > 0) {
-            conversationJson.remove(0)
-        }
-        val systemPrompt = JSONObject().apply {
-            put("role", "system")
-            put(
-                "content",
-                """
-                Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам для работы с устройством:
-                1. Аналитика памяти и поиск: get_storage_summary, find_largest_files, find_junk_files, search_files.
-                2. Работа с файлами: get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
-                3. Архивы: create_archive, extract_archive, organize_downloads.
-                4. Буфер обмена и система: clipboard_read, clipboard_write, run_shell_command.
-
-                ПРАВИЛА И ПРИОРИТЕТЫ:
-                - Всегда используй специализированные локальные агрегаторы (get_storage_summary, find_largest_files, find_junk_files) для анализа файлов и памяти устройства. Никогда не пытайся перечислять сотни файлов поштучно.
-                - Вывод инструментов защищен лимитом (до 35 элементов / 3.5 КБ). Уточняй запросы при необходимости.
-                - Деструктивные операции (удаление, перемещение, запись, сортировка, shell) запрашивают подтверждение пользователя (Human-in-the-Loop). Если пользователь отклонил операцию — прими это вежливо и предложи альтернативу или остановись.
-                - Оформляй ответы в Markdown (жирный текст, списки, блоки кода ``` с указанием языка).
-                - Если используешь математические формулы, оформляй их в синтаксисе LaTeX: в блоках '$$ ... $$' или внутри строки '$ ... $'.
-                - Отвечай кратко, чётко и вежливо на русском языке.
-                """.trimIndent()
-            )
-        }
-        conversationJson.put(systemPrompt)
+    fun stopGeneration() {
+        stopRequested = true
+        apiClient.cancelActive()
+        _currentStatus.value = "Останавливаю"
     }
 
     fun sendMessage(prompt: String) {
-        val userText = prompt.trim()
-        if (userText.isEmpty()) return
+        val text = prompt.trim()
+        if (text.isEmpty() || _isRunning.value) return
 
-        if (_apiKey.value.isBlank()) {
-            _messages.value = _messages.value + ChatMessage(
-                role = MessageRole.SYSTEM_INFO,
-                content = "API ключ не задан. Перейдите во вкладку «Настройки» и укажите ключ провайдера.",
-                isError = true
+        val provider = activeProvider.value
+        if (provider == null || provider.apiKey.isBlank()) {
+            appendSystemInfo(
+                "Ключ провайдера не задан — модель не ответит. Укажи API Key в настройках.",
+                MessageAction.OPEN_SETTINGS
+            )
+            return
+        }
+
+        val model = provider.activeModel
+        if (model.isBlank()) {
+            appendSystemInfo(
+                "У провайдера ${provider.name} не выбрана модель.",
+                MessageAction.OPEN_MODELS
             )
             return
         }
 
         checkStoragePermission()
         if (!_hasStoragePermission.value) {
-            _messages.value = _messages.value + ChatMessage(
-                role = MessageRole.SYSTEM_INFO,
-                content = "Нет доступа к управлению файлами (MANAGE_EXTERNAL_STORAGE). Предоставьте разрешение в «Настройках».",
-                isError = true
+            appendSystemInfo(
+                "Нет доступа ко всем файлам: инструменты работы с файлами не сработают.",
+                MessageAction.GRANT_STORAGE
             )
+        }
+
+        val sessionId = _currentSessionId.value
+        if (sessionId == null) {
+            viewModelScope.launch {
+                val session = repository.createSession()
+                loadSession(session.id)
+                sendMessage(text)
+            }
             return
         }
 
-        _messages.value = _messages.value + ChatMessage(role = MessageRole.USER, content = userText)
-        conversationJson.put(JSONObject().apply {
-            put("role", "user")
-            put("content", userText)
-        })
+        stopRequested = false
+        val userMessageId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
+
+        _messages.value = _messages.value + ChatMessage(
+            id = userMessageId,
+            role = MessageRole.USER,
+            content = text,
+            timestamp = now
+        )
+        _isRunning.value = true
+        _streamingText.value = ""
 
         viewModelScope.launch {
-            _isLoading.value = true
-            val activeModel = _modelName.value.ifBlank { "моделью" }
-            _currentStatus.value = "Запрос к $activeModel..."
-
-            val maxSteps = 5
-            var step = 0
-
-            while (step < maxSteps) {
-                step++
-                if (step > 1) {
-                    // Inter-step throttling delay (750ms) to avoid rate limits
-                    delay(750)
-                }
-
-                val result = apiClient.sendChatCompletion(
-                    baseUrl = _baseUrl.value,
-                    apiKey = _apiKey.value,
-                    modelName = _modelName.value,
-                    messages = conversationJson,
-                    reverseProxyUrl = _reverseProxyUrl.value
+            try {
+                repository.saveMessage(
+                    MessageEntity(
+                        id = userMessageId,
+                        sessionId = sessionId,
+                        role = MessageRole.USER.name,
+                        content = text,
+                        createdAt = now
+                    )
                 )
-
-                when (result) {
-                    is AIResponseResult.Error -> {
-                        _messages.value = _messages.value + ChatMessage(
-                            role = MessageRole.SYSTEM_INFO,
-                            content = result.message,
-                            isError = true
-                        )
-                        break
-                    }
-                    is AIResponseResult.TextResult -> {
-                        val assistantReply = if (result.text.isBlank()) "Готово." else result.text
-                        _messages.value = _messages.value + ChatMessage(
-                            role = MessageRole.ASSISTANT,
-                            content = assistantReply
-                        )
-                        conversationJson.put(JSONObject().apply {
-                            put("role", "assistant")
-                            put("content", assistantReply)
-                        })
-                        break
-                    }
-                    is AIResponseResult.ToolCallsResult -> {
-                        conversationJson.put(result.assistantMessageJson)
-
-                        for (call in result.toolCalls) {
-                            val actionTitle = formatToolActionTitle(call.name, call.arguments)
-                            _currentStatus.value = actionTitle
-
-                            val msgId = UUID.randomUUID().toString()
-                            _messages.value = _messages.value + ChatMessage(
-                                id = msgId,
-                                role = MessageRole.TOOL_EXECUTION,
-                                content = actionTitle,
-                                toolName = call.name,
-                                toolArgs = call.arguments,
-                                isRunning = true
-                            )
-
-                            val isCritical = ToolDispatcher.isCriticalOperation(call.name)
-                            var wasDeclined = false
-
-                            val toolOutput = if (isCritical) {
-                                _currentStatus.value = "Ожидание подтверждения..."
-                                val criticalInfo = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
-                                val confirmed = suspendCancellableCoroutine<Boolean> { cont ->
-                                    _pendingConfirmation.value = ConfirmationRequest(
-                                        toolName = call.name,
-                                        title = criticalInfo.title,
-                                        details = criticalInfo.details,
-                                        warning = criticalInfo.warning,
-                                        onDecision = { decision ->
-                                            if (cont.isActive) {
-                                                cont.resume(decision)
-                                            }
-                                        }
-                                    )
-                                }
-
-                                if (confirmed) {
-                                    _currentStatus.value = actionTitle
-                                    ToolDispatcher.execute(call.name, call.arguments, getApplication())
-                                } else {
-                                    wasDeclined = true
-                                    "Пользователь отклонил операцию. Предложи альтернативный вариант или остановись."
-                                }
-                            } else {
-                                ToolDispatcher.execute(call.name, call.arguments, getApplication())
-                            }
-
-                            val isErr = if (wasDeclined) false else (toolOutput.startsWith("Ошибка") || toolOutput.startsWith("Не удалось") || toolOutput.contains("Exception", ignoreCase = true))
-
-                            _messages.value = _messages.value.map { msg ->
-                                if (msg.id == msgId) {
-                                    msg.copy(
-                                        content = if (wasDeclined) "$actionTitle (Отклонено)" else actionTitle,
-                                        toolOutput = toolOutput,
-                                        isRunning = false,
-                                        isError = isErr,
-                                        isDeclined = wasDeclined
-                                    )
-                                } else msg
-                            }
-
-                            conversationJson.put(JSONObject().apply {
-                                put("role", "tool")
-                                put("tool_call_id", call.id)
-                                put("name", call.name)
-                                put("content", toolOutput)
-                            })
-                        }
-
-                        _currentStatus.value = "Обработка результата..."
-                    }
+                if (isFirstUserMessage) {
+                    val title = text.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    repository.renameSession(sessionId, title)
+                    _currentSessionTitle.value = title
                 }
-            }
 
-            _isLoading.value = false
-            _currentStatus.value = null
+                conversationJson.put(
+                    JSONObject().apply {
+                        put("role", "user")
+                        put("content", text)
+                    }
+                )
+                persistContext(sessionId)
+
+                runAgentLoop(sessionId, provider, model)
+            } finally {
+                _isRunning.value = false
+                _currentStatus.value = null
+                _streamingText.value = ""
+                apiClient.cancelActive()
+            }
         }
     }
 
-    fun clearChat() {
-        resetConversationContext()
-        _messages.value = listOf(
-            ChatMessage(
-                role = MessageRole.ASSISTANT,
-                content = "История диалога очищена. Готов к новым задачам."
+    private suspend fun runAgentLoop(sessionId: String, provider: Provider, model: String) {
+        val currentSettings = _settings.value
+        var step = 0
+
+        while (step < currentSettings.maxSteps && !stopRequested) {
+            step++
+            _currentStatus.value = "Шаг $step · $model"
+
+            val result = apiClient.sendChatCompletion(
+                baseUrl = provider.baseUrl,
+                apiKey = provider.apiKey,
+                modelName = model,
+                messages = conversationJson,
+                reverseProxyUrl = currentSettings.reverseProxyUrl,
+                temperature = currentSettings.temperature.toDouble(),
+                streaming = true,
+                listener = object : OpenAIClient.StreamListener {
+                    override fun onTextDelta(delta: String) {
+                        _streamingText.value = _streamingText.value + delta
+                    }
+
+                    override fun onToolCallStarted(name: String) {
+                        _currentStatus.value = ToolDispatcher.actionTitle(name, "{}")
+                    }
+
+                    override fun onRetry(message: String, delayMillis: Long) {
+                        _currentStatus.value = "Повтор через ${delayMillis / 1000} с · $message"
+                    }
+                }
+            )
+
+            when (result) {
+                is AIResponseResult.Cancelled -> {
+                    finalizeStreamedText(sessionId, stopped = true)
+                    return
+                }
+
+                is AIResponseResult.Error -> {
+                    finalizeStreamedText(sessionId, stopped = false)
+                    appendSystemInfo(result.message, null)
+                    return
+                }
+
+                is AIResponseResult.TextResult -> {
+                    val reply = result.text.ifBlank { "Готово." }
+                    _streamingText.value = ""
+                    saveAssistantMessage(sessionId, reply)
+                    conversationJson.put(
+                        JSONObject().apply {
+                            put("role", "assistant")
+                            put("content", reply)
+                        }
+                    )
+                    persistContext(sessionId)
+                    return
+                }
+
+                is AIResponseResult.ToolCallsResult -> {
+                    val preText = result.assistantMessageJson.optString("content")
+                    if (preText.isNotBlank()) {
+                        _streamingText.value = ""
+                        saveAssistantMessage(sessionId, preText)
+                    }
+                    conversationJson.put(result.assistantMessageJson)
+                    persistContext(sessionId)
+
+                    for (call in result.toolCalls) {
+                        if (stopRequested) break
+                        executeToolCall(sessionId, call)
+                    }
+                }
+            }
+        }
+
+        if (stopRequested) {
+            finalizeStreamedText(sessionId, stopped = true)
+        } else {
+            appendSystemInfo(
+                "Достигнут лимит шагов (${currentSettings.maxSteps}). Увеличь его в настройках агента.",
+                null
+            )
+        }
+    }
+
+    private suspend fun executeToolCall(sessionId: String, call: ToolCall) {
+        val title = ToolDispatcher.actionTitle(call.name, call.arguments)
+        _currentStatus.value = title
+
+        val messageId = UUID.randomUUID().toString()
+        _messages.value = _messages.value + ChatMessage(
+            id = messageId,
+            role = MessageRole.TOOL_EXECUTION,
+            content = title,
+            toolName = call.name,
+            toolArgs = call.arguments,
+            isRunning = true
+        )
+
+        var declined = false
+        val output = if (ToolDispatcher.isCriticalOperation(call.name)) {
+            _currentStatus.value = "Жду подтверждения"
+            val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+
+            val approved = suspendCancellableCoroutine { continuation ->
+                _pendingConfirmation.value = ConfirmationRequest(
+                    toolName = call.name,
+                    title = info.title,
+                    details = info.details,
+                    warning = info.warning,
+                    preview = info.preview,
+                    onDecision = { decision ->
+                        if (continuation.isActive) continuation.resume(decision)
+                    }
+                )
+            }
+            _pendingConfirmation.value = null
+
+            if (approved && !stopRequested) {
+                _currentStatus.value = title
+                ToolDispatcher.execute(call.name, call.arguments, getApplication())
+            } else {
+                declined = true
+                "Пользователь отклонил операцию. Предложи альтернативу или остановись."
+            }
+        } else {
+            ToolDispatcher.execute(call.name, call.arguments, getApplication())
+        }
+
+        val isError = !declined && (
+                output.startsWith("Ошибка") ||
+                        output.startsWith("Не удалось") ||
+                        output.contains("Exception", ignoreCase = true)
+                )
+        val summary = ToolDispatcher.summarizeResult(output)
+
+        _messages.value = _messages.value.map { message ->
+            if (message.id == messageId) {
+                message.copy(
+                    toolOutput = output,
+                    toolSummary = summary,
+                    isRunning = false,
+                    isError = isError,
+                    isDeclined = declined
+                )
+            } else {
+                message
+            }
+        }
+
+        repository.saveMessage(
+            MessageEntity(
+                id = messageId,
+                sessionId = sessionId,
+                role = MessageRole.TOOL_EXECUTION.name,
+                content = title,
+                toolName = call.name,
+                toolArgs = call.arguments,
+                toolOutput = output,
+                isError = isError,
+                isDeclined = declined,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+
+        conversationJson.put(
+            JSONObject().apply {
+                put("role", "tool")
+                put("tool_call_id", call.id)
+                put("name", call.name)
+                put("content", output)
+            }
+        )
+        persistContext(sessionId)
+    }
+
+    /** Сохраняет текст, который успел накопиться в стриме, если ответ оборвался. */
+    private suspend fun finalizeStreamedText(sessionId: String, stopped: Boolean) {
+        val partial = _streamingText.value.trim()
+        _streamingText.value = ""
+
+        if (partial.isBlank()) {
+            if (stopped) appendSystemInfo("Генерация остановлена.", null)
+            return
+        }
+
+        val text = if (stopped) "$partial\n\n_Остановлено._" else partial
+        saveAssistantMessage(sessionId, text)
+        conversationJson.put(
+            JSONObject().apply {
+                put("role", "assistant")
+                put("content", partial)
+            }
+        )
+        persistContext(sessionId)
+    }
+
+    private suspend fun saveAssistantMessage(sessionId: String, text: String) {
+        val id = UUID.randomUUID().toString()
+        _messages.value = _messages.value + ChatMessage(
+            id = id,
+            role = MessageRole.ASSISTANT,
+            content = text
+        )
+        repository.saveMessage(
+            MessageEntity(
+                id = id,
+                sessionId = sessionId,
+                role = MessageRole.ASSISTANT.name,
+                content = text,
+                createdAt = System.currentTimeMillis()
             )
         )
     }
 
-    private fun formatToolActionTitle(toolName: String, argsJson: String): String {
-        val args = try {
-            if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
-        } catch (e: Exception) {
-            JSONObject()
-        }
-
-        return when (toolName) {
-            "get_storage_summary" -> "Анализ хранилища устройства"
-            "find_largest_files" -> {
-                val lim = args.optInt("limit", 10)
-                "Поиск топ-$lim тяжелых файлов"
-            }
-            "find_junk_files" -> "Поиск мусора и временных файлов"
-            "get_folder_summary" -> {
-                val p = args.optString("path", "").ifBlank { "Download" }
-                "Анализ папки '$p'"
-            }
-            "search_files" -> {
-                val q = args.optString("query", "").trim()
-                val ext = args.optString("extension", "").trim()
-                when {
-                    q.isNotBlank() && ext.isNotBlank() -> "Поиск '$q' (*.$ext)"
-                    q.isNotBlank() -> "Поиск '$q'"
-                    ext.isNotBlank() -> "Поиск *.$ext файлов"
-                    else -> "Поиск файлов"
-                }
-            }
-            "read_file" -> {
-                val p = args.optString("path", "").substringAfterLast('/')
-                "Чтение файла '$p'"
-            }
-            "write_file" -> {
-                val p = args.optString("path", "").substringAfterLast('/')
-                "Запись в '$p'"
-            }
-            "delete_file" -> {
-                val p = args.optString("path", "").substringAfterLast('/')
-                "Удаление '$p'"
-            }
-            "create_dir" -> {
-                val p = args.optString("path", "").substringAfterLast('/')
-                "Создание папки '$p'"
-            }
-            "move_file" -> {
-                val s = args.optString("source_path", "").substringAfterLast('/')
-                "Перемещение '$s'"
-            }
-            "copy_file" -> {
-                val s = args.optString("source_path", "").substringAfterLast('/')
-                "Копирование '$s'"
-            }
-            "create_archive" -> "Создание ZIP-архива"
-            "extract_archive" -> {
-                val p = args.optString("zip_path", "").substringAfterLast('/')
-                "Распаковка архива '$p'"
-            }
-            "organize_downloads" -> {
-                val cat = args.optString("category", "all")
-                "Сортировка '$cat' в Download"
-            }
-            "clipboard_read" -> "Чтение буфера обмена"
-            "clipboard_write" -> "Копирование в буфер обмена"
-            "run_shell_command" -> {
-                val cmd = args.optString("command", "").take(28)
-                "Команда '$cmd...'"
-            }
-            else -> toolName
-        }
+    private suspend fun persistContext(sessionId: String) {
+        repository.updateContext(sessionId, conversationJson.toString())
     }
+
+    private fun freshContext(): JSONArray = JSONArray().apply {
+        put(
+            JSONObject().apply {
+                put("role", "system")
+                put("content", _settings.value.systemPrompt)
+            }
+        )
+    }
+
+    private fun appendSystemInfo(text: String, action: MessageAction?) {
+        _messages.value = _messages.value + ChatMessage(
+            role = MessageRole.SYSTEM_INFO,
+            content = text,
+            isError = action == MessageAction.OPEN_SETTINGS,
+            action = action
+        )
+    }
+
+    private fun MessageEntity.toChatMessage(): ChatMessage = ChatMessage(
+        id = id,
+        role = try {
+            MessageRole.valueOf(role)
+        } catch (e: Exception) {
+            MessageRole.SYSTEM_INFO
+        },
+        content = content,
+        toolName = toolName,
+        toolArgs = toolArgs,
+        toolOutput = toolOutput,
+        isError = isError,
+        isDeclined = isDeclined,
+        timestamp = createdAt
+    )
 }

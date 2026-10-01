@@ -1,0 +1,126 @@
+package com.runner.app.data.db
+
+import android.content.Context
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
+
+/** Сессия чата — одна строка в боковом меню. */
+@Entity(tableName = "sessions")
+data class SessionEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    /**
+     * Полный контекст диалога (JSON-массив сообщений OpenAI).
+     * Хранится как есть, иначе после перезапуска нельзя восстановить
+     * структуру tool_calls и агент теряет связь между шагами.
+     */
+    val contextJson: String = ""
+)
+
+/** Сообщение сессии. role — имя MessageRole, чтобы слой БД не зависел от UI. */
+@Entity(
+    tableName = "messages",
+    foreignKeys = [
+        ForeignKey(
+            entity = SessionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("sessionId")]
+)
+data class MessageEntity(
+    @PrimaryKey val id: String,
+    val sessionId: String,
+    val role: String,
+    val content: String,
+    val toolName: String? = null,
+    val toolArgs: String? = null,
+    val toolOutput: String? = null,
+    val isError: Boolean = false,
+    val isDeclined: Boolean = false,
+    val createdAt: Long
+)
+
+@Dao
+interface ChatDao {
+
+    @Query("SELECT * FROM sessions ORDER BY updatedAt DESC")
+    fun observeSessions(): Flow<List<SessionEntity>>
+
+    @Query("SELECT * FROM sessions WHERE title LIKE '%' || :query || '%' ORDER BY updatedAt DESC")
+    fun searchSessions(query: String): Flow<List<SessionEntity>>
+
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC")
+    suspend fun loadMessages(sessionId: String): List<MessageEntity>
+
+    @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
+    suspend fun getSession(id: String): SessionEntity?
+
+    @Query("UPDATE sessions SET contextJson = :context WHERE id = :id")
+    suspend fun updateContext(id: String, context: String)
+
+    // IGNORE, а не REPLACE: REPLACE удаляет и вставляет строку заново, а это
+    // каскадом снесло бы все сообщения сессии.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSession(session: SessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessage(message: MessageEntity)
+
+    @Query("UPDATE sessions SET title = :title, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateSessionTitle(id: String, title: String, updatedAt: Long)
+
+    @Query("UPDATE sessions SET updatedAt = :updatedAt WHERE id = :id")
+    suspend fun touchSession(id: String, updatedAt: Long)
+
+    @Query("DELETE FROM messages WHERE sessionId = :sessionId")
+    suspend fun deleteMessagesOf(sessionId: String)
+
+    @Query("DELETE FROM sessions WHERE id = :id")
+    suspend fun deleteSession(id: String)
+
+    @Transaction
+    suspend fun deleteSessionCascade(id: String) {
+        deleteMessagesOf(id)
+        deleteSession(id)
+    }
+}
+
+@Database(
+    entities = [SessionEntity::class, MessageEntity::class],
+    version = 1,
+    exportSchema = false
+)
+abstract class ChatDatabase : RoomDatabase() {
+
+    abstract fun chatDao(): ChatDao
+
+    companion object {
+        @Volatile
+        private var instance: ChatDatabase? = null
+
+        fun get(context: Context): ChatDatabase =
+            instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    ChatDatabase::class.java,
+                    "runner_chat.db"
+                ).build().also { instance = it }
+            }
+    }
+}

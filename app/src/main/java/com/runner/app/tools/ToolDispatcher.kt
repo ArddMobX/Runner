@@ -1130,9 +1130,12 @@ object ToolDispatcher {
     data class CriticalActionInfo(
         val title: String,
         val details: String,
-        val warning: String
+        val warning: String,
+        /** Факты о цели операции: размер, количество файлов. Может быть пустым. */
+        val preview: String = ""
     )
 
+    /** Операции, которые меняют данные на устройстве. Всегда требуют подтверждения. */
     fun isCriticalOperation(toolName: String): Boolean {
         return toolName in setOf(
             "delete_file",
@@ -1157,41 +1160,55 @@ object ToolDispatcher {
                 CriticalActionInfo(
                     title = "Удаление данных",
                     details = "Объект: $path${if (recursive) " (рекурсивно, включая вложенные файлы)" else ""}",
-                    warning = "Удаленные файлы невозможно восстановить через корзину."
+                    warning = "Удалённые файлы не попадают в корзину — восстановить не получится.",
+                    preview = previewForPath(path)
                 )
             }
             "write_file" -> {
                 val path = args.optString("path", "").trim()
                 val append = args.optBoolean("append", false)
+                val contentLength = args.optString("content", "").length
                 CriticalActionInfo(
                     title = if (append) "Дозапись в файл" else "Перезапись файла",
                     details = "Файл: $path",
-                    warning = if (append) "Текст будет добавлен в конец существующего файла." else "Содержимое файла будет полностью перезаписано."
+                    warning = if (append) {
+                        "Текст будет добавлен в конец существующего файла."
+                    } else {
+                        "Содержимое файла будет полностью перезаписано."
+                    },
+                    preview = buildString {
+                        append("Объём записи: $contentLength символов")
+                        val existing = existingFileInfo(path)
+                        if (existing != null) append("\nФайл уже существует: $existing")
+                    }
                 )
             }
             "move_file" -> {
                 val src = args.optString("source_path", "").trim()
                 val dest = args.optString("destination_path", "").trim()
                 CriticalActionInfo(
-                    title = "Перемещение файла",
+                    title = "Перемещение",
                     details = "Из: $src\nВ: $dest",
-                    warning = "Файл будет перемещен в новое местоположение."
+                    warning = "Исходный путь перестанет существовать.",
+                    preview = previewForPath(src)
                 )
             }
             "organize_downloads" -> {
-                val cat = args.optString("category", "all")
+                val category = args.optString("category", "all")
                 CriticalActionInfo(
                     title = "Сортировка загрузок",
-                    details = "Категория: $cat (папка Download)",
-                    warning = "Файлы из Download будут перемещены в Documents/Runner, Backups/APKs или Pictures/Runner."
+                    details = "Категория: $category (папка Download)",
+                    warning = "Файлы будут перемещены в Documents/Runner, Backups/APKs или Pictures/Runner.",
+                    preview = previewForDownloads(category)
                 )
             }
             "run_shell_command" -> {
-                val cmd = args.optString("command", "").trim()
+                val command = args.optString("command", "").trim()
                 CriticalActionInfo(
                     title = "Выполнение shell-команды",
-                    details = "Команда: $cmd",
-                    warning = "Команда будет запущена в оболочке sh с правами приложения."
+                    details = command,
+                    warning = "Команда запускается в sh с правами приложения. Проверь её перед запуском.",
+                    preview = "Длина команды: ${command.length} символов"
                 )
             }
             else -> CriticalActionInfo(
@@ -1201,4 +1218,192 @@ object ToolDispatcher {
             )
         }
     }
+
+    /** Человеческое название действия в настоящем времени: «Сканирую Download». */
+    fun actionTitle(toolName: String, argsJson: String): String {
+        val args = try {
+            if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        val shortName = { key: String ->
+            args.optString(key, "").trim().trimEnd('/').substringAfterLast('/')
+        }
+
+        return when (toolName) {
+            "get_storage_summary" -> "Сканирую память устройства"
+            "find_largest_files" -> "Ищу тяжёлые файлы"
+            "find_junk_files" -> "Ищу мусор и временные файлы"
+            "get_folder_summary" -> "Сканирую ${shortName("path").ifBlank { "Download" }}"
+            "search_files" -> {
+                val query = args.optString("query", "").trim()
+                val extension = args.optString("extension", "").trim()
+                when {
+                    query.isNotBlank() -> "Ищу «$query»"
+                    extension.isNotBlank() -> "Ищу *.$extension"
+                    else -> "Ищу файлы"
+                }
+            }
+            "read_file" -> "Читаю ${shortName("path").ifBlank { "файл" }}"
+            "write_file" -> "Пишу ${shortName("path").ifBlank { "файл" }}"
+            "delete_file" -> "Удаляю ${shortName("path").ifBlank { "объект" }}"
+            "create_dir" -> "Создаю папку ${shortName("path").ifBlank { "" }}".trim()
+            "move_file" -> "Перемещаю ${shortName("source_path").ifBlank { "объект" }}"
+            "copy_file" -> "Копирую ${shortName("source_path").ifBlank { "объект" }}"
+            "create_archive" -> "Упаковываю в ZIP"
+            "extract_archive" -> "Распаковываю ${shortName("zip_path").ifBlank { "архив" }}"
+            "organize_downloads" -> "Раскладываю Download по папкам"
+            "clipboard_read" -> "Читаю буфер обмена"
+            "clipboard_write" -> "Пишу в буфер обмена"
+            "run_shell_command" -> "Выполняю команду"
+            else -> toolName
+        }
+    }
+
+    /**
+     * Короткая сводка результата для свёрнутой карточки: «143 файла», «свободно 24.3 GB».
+     * Пустая строка, если ничего осмысленного вытащить не удалось.
+     */
+    fun summarizeResult(output: String): String {
+        if (output.isBlank()) return ""
+        val lines = output.lineSequence().take(10).toList()
+        val flat = lines.joinToString(" ").take(600)
+
+        // Нумерованный список: «1. Download/film.mkv — 2.4 GB»
+        TOP_ENTRY.find(flat)?.let { return "макс. ${it.groupValues[1]}" }
+
+        // «Всего файлов: 143», «Найдено совпадений: 7», «Пустых папок: 3»
+        COUNT_AFTER_LABEL.find(flat)?.let { match ->
+            val noun = match.groupValues[1].lowercase()
+            val value = match.groupValues[2].toIntOrNull() ?: return@let
+            val word = when {
+                noun.startsWith("совпад") -> plural(value, "совпадение", "совпадения", "совпадений")
+                noun.startsWith("подпап") || noun.startsWith("пап") ->
+                    plural(value, "папка", "папки", "папок")
+                noun.startsWith("элемент") -> plural(value, "элемент", "элемента", "элементов")
+                noun.startsWith("запис") -> plural(value, "запись", "записи", "записей")
+                noun.startsWith("модел") -> plural(value, "модель", "модели", "моделей")
+                else -> plural(value, "файл", "файла", "файлов")
+            }
+            return "$value $word"
+        }
+
+        // «143 файла» — число перед словом
+        COUNT_BEFORE_LABEL.find(flat)?.let { return "${it.groupValues[1]} ${it.groupValues[2]}" }
+
+        // «• Свободно: 24.3 GB»
+        FREE_SPACE.find(flat)?.let { return "свободно ${it.groupValues[1]}" }
+
+        // Последний шанс — просто размер, но не из строки-заголовка
+        val body = lines.drop(1).joinToString(" ").take(400)
+        SIZE.find(body)?.let { return it.value }
+
+        return ""
+    }
+
+    /** Русские падежи: 1 файл, 2 файла, 143 файла, 11 файлов. */
+    private fun plural(count: Int, one: String, few: String, many: String): String {
+        val mod100 = count % 100
+        val mod10 = count % 10
+        return when {
+            mod100 in 11..14 -> many
+            mod10 == 1 -> one
+            mod10 in 2..4 -> few
+            else -> many
+        }
+    }
+
+    private fun previewForPath(rawPath: String): String = try {
+        val file = if (File(rawPath.trim()).isAbsolute) File(rawPath.trim()) else resolveFile(rawPath)
+        if (!file.exists()) {
+            "Объект не найден: ${file.absolutePath}"
+        } else if (file.isFile) {
+            "Файл · ${formatFileSize(file.length())}\n${file.absolutePath}"
+        } else {
+            val stats = collectStats(file)
+            buildString {
+                append("Папка · ${stats.fileCount} файлов · ${formatFileSize(stats.totalBytes)}")
+                if (stats.truncated) append(" (подсчёт ограничен)")
+                append("\n${file.absolutePath}")
+            }
+        }
+    } catch (e: Exception) {
+        "Не удалось прочитать цель: ${e.localizedMessage}"
+    }
+
+    private fun existingFileInfo(rawPath: String): String? = try {
+        val file = if (File(rawPath.trim()).isAbsolute) File(rawPath.trim()) else resolveFile(rawPath)
+        if (file.isFile) formatFileSize(file.length()) else null
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun previewForDownloads(category: String): String = try {
+        val downloads = resolveFolder("Download")
+        if (!downloads.exists()) return "Папка Download не найдена"
+
+        val extensions = when (category.lowercase()) {
+            "documents" -> docExtensions
+            "apks" -> apkExtensions
+            "archives" -> archiveExtensions
+            "images" -> imageExtensions
+            else -> docExtensions + apkExtensions + archiveExtensions + imageExtensions
+        }
+        val files = downloads.listFiles()?.filter { it.isFile && it.extension.lowercase() in extensions }.orEmpty()
+        val bytes = files.sumOf { it.length() }
+        "К перемещению: ${files.size} файлов · ${formatFileSize(bytes)}"
+    } catch (e: Exception) {
+        "Не удалось посчитать файлы: ${e.localizedMessage}"
+    }
+
+    private data class PathStats(val fileCount: Int, val totalBytes: Long, val truncated: Boolean)
+
+    /** Обход дерева с ограничением, чтобы превью не подвисало на гигантских папках. */
+    private fun collectStats(root: File, maxEntries: Int = 4000): PathStats {
+        var count = 0
+        var bytes = 0L
+        var truncated = false
+        val stack = ArrayDeque<File>()
+        stack.addLast(root)
+
+        while (stack.isNotEmpty()) {
+            val directory = stack.removeLast()
+            val children = directory.listFiles() ?: continue
+            for (child in children) {
+                if (child.isDirectory) {
+                    stack.addLast(child)
+                } else {
+                    count++
+                    bytes += child.length()
+                    if (count >= maxEntries) {
+                        truncated = true
+                        break
+                    }
+                }
+            }
+            if (truncated) break
+        }
+        return PathStats(count, bytes, truncated)
+    }
+
+    private val TOP_ENTRY = Regex(
+        """\d+\.\s+\S.*?[—–-]\s*([\d.,]+\s?(?:TB|GB|MB|KB|ТБ|ГБ|МБ|КБ|B))"""
+    )
+
+    private val COUNT_AFTER_LABEL = Regex(
+        """(подпапок|папок|папки|папка|совпадений|файлов|файла|файл|элементов|записей|моделей)\s*[:—-]?\s*(\d+)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val COUNT_BEFORE_LABEL = Regex(
+        """(\d[\d\s\u00A0]*)\s*(файлов|файла|файл|папок|папки|записей|элементов|моделей|совпадений)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val FREE_SPACE = Regex(
+        """Свободно\s*[:—-]?\s*([\d.,]+\s?(?:TB|GB|MB|KB|ТБ|ГБ|МБ|КБ|B))""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val SIZE = Regex("""[\d.,]+\s?(?:TB|GB|MB|KB|ТБ|ГБ|МБ|КБ|B)""")
 }

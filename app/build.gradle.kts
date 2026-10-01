@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -71,6 +72,11 @@ dependencies {
 
     // Zip4j for archive operations
     implementation("net.lingala.zip4j:zip4j:2.11.5")
+
+    // Room — история чатов
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // Debugging Compose
     debugImplementation("androidx.compose.ui:ui-tooling")
