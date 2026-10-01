@@ -912,3 +912,26 @@ private fun SettingsRow(
 private fun SettingsDivider() {
     HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
 }
+
+private fun isValidHttpUrl(value: String): Boolean {
+    val trimmed = value.trim()
+    if (trimmed.isBlank()) return false
+    return try {
+        val uri = URI(trimmed)
+        val scheme = uri.scheme?.lowercase()
+        (scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()
+    } catch (e: Exception) {
+        false
+    }
+}
+
+private fun readClipboard(context: Context): String {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    return manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+}
+
+private fun copyText(context: Context, text: String, label: String) {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    manager.setPrimaryClip(ClipData.newPlainText(label, text))
+    Toast.makeText(context, "$label скопирован в буфер", Toast.LENGTH_SHORT).show()
+}
