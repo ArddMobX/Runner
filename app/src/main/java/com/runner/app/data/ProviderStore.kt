@@ -245,11 +245,11 @@ class ProviderStore(context: Context) {
                 name = "Gemini",
                 baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
                 models = listOf(
-                    ModelInfo("gemini-3.8-flash"),
-                    ModelInfo("gemini-3.7-flash"),
-                    ModelInfo("gemini-3.5-flash")
+                    ModelInfo("gemini-2.5-flash"),
+                    ModelInfo("gemini-2.5-flash-lite"),
+                    ModelInfo("gemini-2.5-pro")
                 ),
-                selectedModel = "gemini-3.8-flash"
+                selectedModel = "gemini-2.5-flash"
             ),
             Provider(
                 id = "openrouter",

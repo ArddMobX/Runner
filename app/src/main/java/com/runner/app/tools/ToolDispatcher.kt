@@ -320,6 +320,7 @@ object ToolDispatcher {
         argumentsJson: String,
         context: Context
     ): String = withContext(Dispatchers.IO) {
+        val cleanToolName = toolName.substringAfterLast(":")
         val args = try {
             if (argumentsJson.isBlank()) JSONObject() else JSONObject(argumentsJson)
         } catch (e: Exception) {
@@ -327,7 +328,7 @@ object ToolDispatcher {
         }
 
         val rawOutput = try {
-            when (toolName) {
+            when (cleanToolName) {
                 // Storage aggregators
                 "get_storage_summary" -> getStorageSummary()
                 "find_largest_files" -> {
@@ -430,10 +431,10 @@ object ToolDispatcher {
                     runShellCommand(command, timeout)
                 }
 
-                else -> "Неизвестный инструмент: $toolName"
+                else -> "Неизвестный инструмент: $cleanToolName"
             }
         } catch (e: Exception) {
-            "Ошибка при выполнении $toolName: ${e.message}"
+            "Ошибка при выполнении $cleanToolName: ${e.message}"
         }
 
         truncateOutput(rawOutput)
@@ -1137,7 +1138,8 @@ object ToolDispatcher {
 
     /** Операции, которые меняют данные на устройстве. Всегда требуют подтверждения. */
     fun isCriticalOperation(toolName: String): Boolean {
-        return toolName in setOf(
+        val cleanToolName = toolName.substringAfterLast(":")
+        return cleanToolName in setOf(
             "delete_file",
             "move_file",
             "organize_downloads",
@@ -1147,13 +1149,14 @@ object ToolDispatcher {
     }
 
     fun describeCriticalAction(toolName: String, argsJson: String): CriticalActionInfo {
+        val cleanToolName = toolName.substringAfterLast(":")
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {
             JSONObject()
         }
 
-        return when (toolName) {
+        return when (cleanToolName) {
             "delete_file" -> {
                 val path = args.optString("path", "").trim()
                 val recursive = args.optBoolean("recursive", false)
@@ -1213,7 +1216,7 @@ object ToolDispatcher {
             }
             else -> CriticalActionInfo(
                 title = "Выполнение операции",
-                details = "Инструмент: $toolName",
+                details = "Инструмент: $cleanToolName",
                 warning = "Операция может изменить локальные файлы."
             )
         }
@@ -1221,6 +1224,7 @@ object ToolDispatcher {
 
     /** Человеческое название действия в настоящем времени: «Сканирую Download». */
     fun actionTitle(toolName: String, argsJson: String): String {
+        val cleanToolName = toolName.substringAfterLast(":")
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {
@@ -1230,7 +1234,7 @@ object ToolDispatcher {
             args.optString(key, "").trim().trimEnd('/').substringAfterLast('/')
         }
 
-        return when (toolName) {
+        return when (cleanToolName) {
             "get_storage_summary" -> "Сканирую память устройства"
             "find_largest_files" -> "Ищу тяжёлые файлы"
             "find_junk_files" -> "Ищу мусор и временные файлы"
@@ -1256,7 +1260,7 @@ object ToolDispatcher {
             "clipboard_read" -> "Читаю буфер обмена"
             "clipboard_write" -> "Пишу в буфер обмена"
             "run_shell_command" -> "Выполняю команду"
-            else -> toolName
+            else -> cleanToolName
         }
     }
 
