@@ -47,6 +47,7 @@ fun ChatScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val currentStatus by viewModel.currentStatus.collectAsState()
     val activeModel by viewModel.modelName.collectAsState()
+    val pendingConfirmation by viewModel.pendingConfirmation.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -56,6 +57,14 @@ fun ChatScreen(
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
+    }
+
+    pendingConfirmation?.let { req ->
+        ConfirmationBottomSheet(
+            request = req,
+            onConfirm = { viewModel.resolveConfirmation(true) },
+            onReject = { viewModel.resolveConfirmation(false) }
+        )
     }
 
     Scaffold(
@@ -202,6 +211,27 @@ fun ChatScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 QuickActionChip(
+                    icon = Icons.Outlined.Storage,
+                    label = "Анализ памяти"
+                ) {
+                    inputText = "Сделай сводку по памяти устройства через get_storage_summary"
+                }
+
+                QuickActionChip(
+                    icon = Icons.Outlined.Layers,
+                    label = "Тяжелые файлы"
+                ) {
+                    inputText = "Найди топ самых тяжелых файлов на устройстве"
+                }
+
+                QuickActionChip(
+                    icon = Icons.Outlined.AutoDelete,
+                    label = "Поиск мусора"
+                ) {
+                    inputText = "Найди временные и мусорные файлы для очистки"
+                }
+
+                QuickActionChip(
                     icon = Icons.Outlined.FolderOpen,
                     label = "Сводка Downloads"
                 ) {
@@ -210,23 +240,16 @@ fun ChatScreen(
 
                 QuickActionChip(
                     icon = Icons.Outlined.Search,
-                    label = "Поиск файлов"
+                    label = "Поиск PDF"
                 ) {
                     inputText = "Найди файлы с расширением pdf в папке Download"
-                }
-
-                QuickActionChip(
-                    icon = Icons.Outlined.Terminal,
-                    label = "Память диска"
-                ) {
-                    inputText = "Выполни команду 'df -h' и покажи свободное место"
                 }
 
                 QuickActionChip(
                     icon = Icons.Outlined.ContentPaste,
                     label = "Буфер обмена"
                 ) {
-                    inputText = "Прочитай текст из буфера обмена и сохрани в Documents/note.txt"
+                    inputText = "Прочитай текст из буфера обмена"
                 }
 
                 QuickActionChip(
@@ -401,6 +424,13 @@ private fun ToolAccordion(msg: ChatMessage) {
                             modifier = Modifier.size(14.dp),
                             strokeWidth = 2.dp,
                             color = AccentPrimary
+                        )
+                    } else if (msg.isDeclined) {
+                        Icon(
+                            imageVector = Icons.Outlined.Block,
+                            contentDescription = null,
+                            tint = TextTertiary,
+                            modifier = Modifier.size(16.dp)
                         )
                     } else if (msg.isError) {
                         Icon(
@@ -577,6 +607,180 @@ private fun QuickActionChip(
                 color = TextPrimary,
                 fontWeight = FontWeight.Medium
             )
+        }
+    }
+}
+
+/**
+ * iOS-style Confirmation ModalBottomSheet for destructive and critical operations (HITL).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConfirmationBottomSheet(
+    request: ConfirmationRequest,
+    onConfirm: () -> Unit,
+    onReject: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onReject,
+        sheetState = sheetState,
+        containerColor = SurfaceContainerLow,
+        scrimColor = Color.Black.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(TextTertiary.copy(alpha = 0.4f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header with Security Badge
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceContainerHigh)
+                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Security,
+                        contentDescription = null,
+                        tint = AccentPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = request.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Требуется подтверждение пользователя",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary
+                    )
+                }
+            }
+
+            // Target details monospace box
+            Surface(
+                color = SurfaceContainerLowest,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, OutlineSubtle),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "Параметры операции:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = request.details,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        color = TextPrimary
+                    )
+                }
+            }
+
+            // Warning Notice
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SurfaceContainerHigh.copy(alpha = 0.6f))
+                    .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    tint = StatusWarning,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = request.warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    lineHeight = 16.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Action Buttons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onReject,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .bounceClick { onReject() },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = SurfaceContainer,
+                        contentColor = TextPrimary
+                    ),
+                    border = BorderStroke(1.dp, OutlineSubtle),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "Отклонить",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                }
+
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .bounceClick { onConfirm() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentPrimary,
+                        contentColor = SurfaceDark
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "Разрешить",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
         }
     }
 }

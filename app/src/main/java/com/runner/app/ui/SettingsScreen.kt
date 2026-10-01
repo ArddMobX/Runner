@@ -41,9 +41,9 @@ data class ProviderPreset(
 )
 
 val PROVIDER_PRESETS = listOf(
-    ProviderPreset("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
     ProviderPreset("OpenRouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct"),
     ProviderPreset("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
+    ProviderPreset("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
     ProviderPreset("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini")
 )
 
@@ -57,11 +57,13 @@ fun SettingsScreen(
     val savedBaseUrl by viewModel.baseUrl.collectAsState()
     val savedApiKey by viewModel.apiKey.collectAsState()
     val savedModelName by viewModel.modelName.collectAsState()
+    val savedReverseProxyUrl by viewModel.reverseProxyUrl.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
 
     var baseUrlInput by remember(savedBaseUrl) { mutableStateOf(savedBaseUrl) }
     var apiKeyInput by remember(savedApiKey) { mutableStateOf(savedApiKey) }
     var modelInput by remember(savedModelName) { mutableStateOf(savedModelName) }
+    var reverseProxyInput by remember(savedReverseProxyUrl) { mutableStateOf(savedReverseProxyUrl) }
     var keyVisible by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -176,6 +178,24 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
 
+                // Reverse Proxy URL
+                PreferenceInputRow(
+                    label = "Кастомный прокси / Reverse Proxy URL",
+                    description = "Роутинг через Cloudflare Workers или свой сервер для обхода блокировок (опционально)"
+                ) {
+                    OutlinedTextField(
+                        value = reverseProxyInput,
+                        onValueChange = { reverseProxyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("https://my-proxy.workers.dev/v1", color = TextTertiary, fontSize = 13.sp) },
+                        singleLine = true,
+                        colors = preferenceFieldColors(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+
                 // Model ID
                 PreferenceInputRow(
                     label = "Идентификатор модели",
@@ -185,7 +205,7 @@ fun SettingsScreen(
                         value = modelInput,
                         onValueChange = { modelInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("llama-3.3-70b-versatile, gpt-4o-mini...", color = TextTertiary, fontSize = 13.sp) },
+                        placeholder = { Text("meta-llama/llama-3.3-70b-instruct, deepseek-chat...", color = TextTertiary, fontSize = 13.sp) },
                         singleLine = true,
                         colors = preferenceFieldColors(),
                         shape = RoundedCornerShape(10.dp)
@@ -203,7 +223,7 @@ fun SettingsScreen(
                         value = apiKeyInput,
                         onValueChange = { apiKeyInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("sk-... или gsk_...", color = TextTertiary, fontSize = 13.sp) },
+                        placeholder = { Text("sk-or-v1-... или sk-...", color = TextTertiary, fontSize = 13.sp) },
                         singleLine = true,
                         visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
@@ -227,14 +247,14 @@ fun SettingsScreen(
                 Box(modifier = Modifier.padding(14.dp)) {
                     Button(
                         onClick = {
-                            viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput)
+                            viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput, reverseProxyInput)
                             Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)
                             .bounceClick {
-                                viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput)
+                                viewModel.saveSettings(baseUrlInput, apiKeyInput, modelInput, reverseProxyInput)
                                 Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
                             },
                         colors = ButtonDefaults.buttonColors(containerColor = AccentPrimary),

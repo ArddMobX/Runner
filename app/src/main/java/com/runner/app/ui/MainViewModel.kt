@@ -10,10 +10,13 @@ import androidx.lifecycle.viewModelScope
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.OpenAIClient
 import com.runner.app.tools.ToolDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -25,6 +28,15 @@ enum class MessageRole {
     SYSTEM_INFO
 }
 
+data class ConfirmationRequest(
+    val id: String = UUID.randomUUID().toString(),
+    val toolName: String,
+    val title: String,
+    val details: String,
+    val warning: String,
+    val onDecision: (Boolean) -> Unit
+)
+
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: MessageRole,
@@ -34,6 +46,7 @@ data class ChatMessage(
     val toolOutput: String? = null,
     val isRunning: Boolean = false,
     val isError: Boolean = false,
+    val isDeclined: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -42,9 +55,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("runner_prefs", Context.MODE_PRIVATE)
     private val apiClient = OpenAIClient()
 
-    // Preferences with fallback/migration
-    private val defaultBaseUrl = "https://api.groq.com/openai/v1"
-    private val defaultModel = "llama-3.3-70b-versatile"
+    // Default provider without IP discrimination (OpenRouter)
+    private val defaultBaseUrl = "https://openrouter.ai/api/v1"
+    private val defaultModel = "meta-llama/llama-3.3-70b-instruct"
 
     private val _baseUrl = MutableStateFlow(
         prefs.getString("api_base_url", defaultBaseUrl) ?: defaultBaseUrl
@@ -62,6 +75,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.getString("api_model_name", defaultModel) ?: defaultModel
     )
     val modelName: StateFlow<String> = _modelName.asStateFlow()
+
+    private val _reverseProxyUrl = MutableStateFlow(
+        prefs.getString("api_reverse_proxy_url", "") ?: ""
+    )
+    val reverseProxyUrl: StateFlow<String> = _reverseProxyUrl.asStateFlow()
+
+    private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
+    val pendingConfirmation: StateFlow<ConfirmationRequest?> = _pendingConfirmation.asStateFlow()
 
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
@@ -101,20 +122,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _hasStoragePermission.value = granted
     }
 
-    fun saveSettings(newBaseUrl: String, newApiKey: String, newModelName: String) {
+    fun saveSettings(
+        newBaseUrl: String,
+        newApiKey: String,
+        newModelName: String,
+        newReverseProxyUrl: String = ""
+    ) {
         val bUrl = newBaseUrl.trim()
         val key = newApiKey.trim()
         val model = newModelName.trim()
+        val proxy = newReverseProxyUrl.trim()
 
         prefs.edit()
             .putString("api_base_url", bUrl)
             .putString("api_key", key)
             .putString("api_model_name", model)
+            .putString("api_reverse_proxy_url", proxy)
             .apply()
 
         _baseUrl.value = bUrl
         _apiKey.value = key
         _modelName.value = model
+        _reverseProxyUrl.value = proxy
+    }
+
+    fun resolveConfirmation(confirmed: Boolean) {
+        val current = _pendingConfirmation.value
+        _pendingConfirmation.value = null
+        current?.onDecision?.invoke(confirmed)
     }
 
     private fun resetConversationContext() {
@@ -127,15 +162,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "content",
                 """
                 Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам для работы с устройством:
-                1. Работа с файлами: get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
-                2. Поиск и архивы: search_files, create_archive, extract_archive, organize_downloads.
-                3. Буфер обмена: clipboard_read, clipboard_write.
-                4. Оболочка: run_shell_command (выполнение команд sh на устройстве).
+                1. Аналитика памяти и поиск: get_storage_summary, find_largest_files, find_junk_files, search_files.
+                2. Работа с файлами: get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
+                3. Архивы: create_archive, extract_archive, organize_downloads.
+                4. Буфер обмена и система: clipboard_read, clipboard_write, run_shell_command.
 
-                Всегда используй доступные инструменты, когда задача требует взаимодействия с файловой системой, буфером или терминалом.
-                Оформляй ответы в Markdown (жирный текст, списки, блоки кода ``` с указанием языка).
-                Если используешь математические формулы, оформляй их в синтаксисе LaTeX: в блоках '$$ ... $$' или внутри строки '$ ... $'.
-                Отвечай кратко, чётко и вежливо на русском языке.
+                ПРАВИЛА И ПРИОРИТЕТЫ:
+                - Всегда используй специализированные локальные агрегаторы (get_storage_summary, find_largest_files, find_junk_files) для анализа файлов и памяти устройства. Никогда не пытайся перечислять сотни файлов поштучно.
+                - Вывод инструментов защищен лимитом (до 35 элементов / 3.5 КБ). Уточняй запросы при необходимости.
+                - Деструктивные операции (удаление, перемещение, запись, сортировка, shell) запрашивают подтверждение пользователя (Human-in-the-Loop). Если пользователь отклонил операцию — прими это вежливо и предложи альтернативу или остановись.
+                - Оформляй ответы в Markdown (жирный текст, списки, блоки кода ``` с указанием языка).
+                - Если используешь математические формулы, оформляй их в синтаксисе LaTeX: в блоках '$$ ... $$' или внутри строки '$ ... $'.
+                - Отвечай кратко, чётко и вежливо на русском языке.
                 """.trimIndent()
             )
         }
@@ -181,11 +219,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             while (step < maxSteps) {
                 step++
+                if (step > 1) {
+                    // Inter-step throttling delay (750ms) to avoid rate limits
+                    delay(750)
+                }
+
                 val result = apiClient.sendChatCompletion(
                     baseUrl = _baseUrl.value,
                     apiKey = _apiKey.value,
                     modelName = _modelName.value,
-                    messages = conversationJson
+                    messages = conversationJson,
+                    reverseProxyUrl = _reverseProxyUrl.value
                 )
 
                 when (result) {
@@ -226,15 +270,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 isRunning = true
                             )
 
-                            val toolOutput = ToolDispatcher.execute(call.name, call.arguments, getApplication())
-                            val isErr = toolOutput.startsWith("Ошибка") || toolOutput.startsWith("Не удалось") || toolOutput.contains("Exception", ignoreCase = true)
+                            val isCritical = ToolDispatcher.isCriticalOperation(call.name)
+                            var wasDeclined = false
+
+                            val toolOutput = if (isCritical) {
+                                _currentStatus.value = "Ожидание подтверждения..."
+                                val criticalInfo = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+                                val confirmed = suspendCancellableCoroutine<Boolean> { cont ->
+                                    _pendingConfirmation.value = ConfirmationRequest(
+                                        toolName = call.name,
+                                        title = criticalInfo.title,
+                                        details = criticalInfo.details,
+                                        warning = criticalInfo.warning,
+                                        onDecision = { decision ->
+                                            if (cont.isActive) {
+                                                cont.resume(decision)
+                                            }
+                                        }
+                                    )
+                                }
+
+                                if (confirmed) {
+                                    _currentStatus.value = actionTitle
+                                    ToolDispatcher.execute(call.name, call.arguments, getApplication())
+                                } else {
+                                    wasDeclined = true
+                                    "Пользователь отклонил операцию. Предложи альтернативный вариант или остановись."
+                                }
+                            } else {
+                                ToolDispatcher.execute(call.name, call.arguments, getApplication())
+                            }
+
+                            val isErr = if (wasDeclined) false else (toolOutput.startsWith("Ошибка") || toolOutput.startsWith("Не удалось") || toolOutput.contains("Exception", ignoreCase = true))
 
                             _messages.value = _messages.value.map { msg ->
                                 if (msg.id == msgId) {
                                     msg.copy(
+                                        content = if (wasDeclined) "$actionTitle (Отклонено)" else actionTitle,
                                         toolOutput = toolOutput,
                                         isRunning = false,
-                                        isError = isErr
+                                        isError = isErr,
+                                        isDeclined = wasDeclined
                                     )
                                 } else msg
                             }
@@ -275,6 +351,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         return when (toolName) {
+            "get_storage_summary" -> "Анализ хранилища устройства"
+            "find_largest_files" -> {
+                val lim = args.optInt("limit", 10)
+                "Поиск топ-$lim тяжелых файлов"
+            }
+            "find_junk_files" -> "Поиск мусора и временных файлов"
             "get_folder_summary" -> {
                 val p = args.optString("path", "").ifBlank { "Download" }
                 "Анализ папки '$p'"

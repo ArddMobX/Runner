@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Environment
+import android.os.StatFs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.lingala.zip4j.ZipFile
@@ -21,6 +22,8 @@ object ToolDispatcher {
     private val docExtensions = setOf("pdf", "doc", "docx", "txt", "rtf", "xls", "xlsx", "ppt", "pptx", "epub", "csv", "json", "md")
     private val archiveExtensions = setOf("zip", "rar", "7z", "tar", "gz", "bz2")
     private val apkExtensions = setOf("apk", "xapk", "apks")
+    private val videoExtensions = setOf("mp4", "mkv", "mov", "avi", "3gp", "webm", "flv", "ts")
+    private val junkExtensions = setOf("tmp", "temp", "log", "crdownload", "part", "bak")
 
     /**
      * JSON Schema description of all tools for OpenAI-compatible Tool Calling.
@@ -28,7 +31,37 @@ object ToolDispatcher {
     fun getToolsJson(): JSONArray {
         val tools = JSONArray()
 
-        // 1. get_folder_summary
+        // 1. get_storage_summary
+        tools.put(createToolFunction(
+            name = "get_storage_summary",
+            description = "Возвращает сводку по памяти устройства: общий объем диска, занято, свободно, а также агрегированный вес основных категорий (видео, фото, документы, архивы, кэш и временные файлы). Использовать вместо выкачивания всего списка файлов.",
+            properties = JSONObject()
+        ))
+
+        // 2. find_largest_files
+        tools.put(createToolFunction(
+            name = "find_largest_files",
+            description = "Находит самые тяжелые файлы на устройстве. Возвращает топ-10 (или N) файлов с их путями и размерами без перегрузки контекста модели.",
+            properties = JSONObject().apply {
+                put("limit", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Количество файлов в топе (по умолчанию 10, максимум 30).")
+                })
+                put("min_size_mb", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Минимальный размер файла в мегабайтах (по умолчанию 50 МБ).")
+                })
+            }
+        ))
+
+        // 3. find_junk_files
+        tools.put(createToolFunction(
+            name = "find_junk_files",
+            description = "Ищет временные файлы (*.tmp, *.log, *.crdownload, остатки кэша) и пустые папки на устройстве. Возвращает суммарный объем мусора и список для очистки.",
+            properties = JSONObject()
+        ))
+
+        // 4. get_folder_summary
         tools.put(createToolFunction(
             name = "get_folder_summary",
             description = "Быстро сканирует директорию на устройстве и возвращает сводку: общее количество файлов, сколько картинок, документов, архивов, APK и топ-5 самых тяжелых файлов.",
@@ -293,8 +326,17 @@ object ToolDispatcher {
             JSONObject()
         }
 
-        try {
+        val rawOutput = try {
             when (toolName) {
+                // Storage aggregators
+                "get_storage_summary" -> getStorageSummary()
+                "find_largest_files" -> {
+                    val limit = args.optInt("limit", 10).coerceIn(1, 30)
+                    val minSizeMb = args.optLong("min_size_mb", 50L)
+                    findLargestFiles(limit, minSizeMb)
+                }
+                "find_junk_files" -> findJunkFiles()
+
                 // Folder summary
                 "get_folder_summary" -> {
                     val path = args.optString("path", "").trim()
@@ -393,6 +435,8 @@ object ToolDispatcher {
         } catch (e: Exception) {
             "Ошибка при выполнении $toolName: ${e.message}"
         }
+
+        truncateOutput(rawOutput)
     }
 
     // --- File read/write ---
@@ -895,5 +939,266 @@ object ToolDispatcher {
         val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
         val df = DecimalFormat("#,##0.#")
         return "${df.format(bytes / Math.pow(1024.0, digitGroups.toDouble()))} ${units[digitGroups]}"
+    }
+
+    // --- Storage aggregators ---
+
+    fun getStorageSummary(): String {
+        return try {
+            val extDir = Environment.getExternalStorageDirectory()
+            val stat = StatFs(extDir.path)
+            val blockSize = stat.blockSizeLong
+            val totalBytes = stat.blockCountLong * blockSize
+            val availableBytes = stat.availableBlocksLong * blockSize
+            val usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L)
+
+            var videoBytes = 0L
+            var photoBytes = 0L
+            var docsBytes = 0L
+            var archiveBytes = 0L
+            var junkBytes = 0L
+
+            fun scanCategoryDir(dir: File, maxDepth: Int = 4) {
+                if (!dir.exists() || !dir.isDirectory) return
+                try {
+                    dir.walkTopDown().maxDepth(maxDepth).forEach { file ->
+                        if (file.isFile) {
+                            val len = file.length()
+                            val ext = file.extension.lowercase()
+                            when {
+                                ext in videoExtensions -> videoBytes += len
+                                ext in imageExtensions -> photoBytes += len
+                                ext in docExtensions -> docsBytes += len
+                                ext in archiveExtensions -> archiveBytes += len
+                                ext in junkExtensions -> junkBytes += len
+                            }
+                        }
+                    }
+                } catch (ignored: Exception) {
+                }
+            }
+
+            scanCategoryDir(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
+            scanCategoryDir(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM))
+            scanCategoryDir(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES))
+            scanCategoryDir(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES))
+            scanCategoryDir(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
+
+            val usedPercent = if (totalBytes > 0) ((usedBytes.toDouble() / totalBytes) * 100).toInt() else 0
+
+            buildString {
+                append("Сводка по хранилищу устройства:\n")
+                append("• Всего памяти: ${formatFileSize(totalBytes)}\n")
+                append("• Занято: ${formatFileSize(usedBytes)} ($usedPercent%)\n")
+                append("• Свободно: ${formatFileSize(availableBytes)}\n\n")
+                append("Вес основных категорий в медиа-папках:\n")
+                append("• Фото и изображения: ${formatFileSize(photoBytes)}\n")
+                append("• Видеозаписи: ${formatFileSize(videoBytes)}\n")
+                append("• Документы: ${formatFileSize(docsBytes)}\n")
+                append("• Архивы: ${formatFileSize(archiveBytes)}\n")
+                append("• Временные файлы и кэш: ${formatFileSize(junkBytes)}")
+            }
+        } catch (e: Exception) {
+            "Ошибка при получении сводки хранилища: ${e.localizedMessage}"
+        }
+    }
+
+    fun findLargestFiles(limit: Int = 10, minSizeMb: Long = 50L): String {
+        val root = Environment.getExternalStorageDirectory()
+        val minSizeBytes = minSizeMb * 1024L * 1024L
+        val largeFiles = mutableListOf<File>()
+
+        try {
+            root.walkTopDown()
+                .maxDepth(6)
+                .onEnter { dir ->
+                    val name = dir.name
+                    !name.equals("Android", ignoreCase = true) || dir.parentFile == root
+                }
+                .filter { it.isFile && it.length() >= minSizeBytes }
+                .take(150)
+                .forEach { largeFiles.add(it) }
+        } catch (ignored: Exception) {
+        }
+
+        if (largeFiles.isEmpty()) {
+            return "Файлов размером более $minSizeMb МБ не обнаружено."
+        }
+
+        val sorted = largeFiles.sortedByDescending { it.length() }
+        val displayList = sorted.take(limit.coerceIn(1, 30))
+
+        return buildString {
+            append("Топ самых тяжелых файлов (>${minSizeMb} МБ):\n")
+            displayList.forEachIndexed { i, file ->
+                val rel = file.relativeToOrSelf(root).path
+                append("${i + 1}. $rel — ${formatFileSize(file.length())}\n")
+            }
+            if (sorted.size > displayList.size) {
+                append("\n[Найдено еще ${sorted.size - displayList.size} тяжелых файлов. Увеличьте порог min_size_mb для точной выборки]")
+            }
+        }
+    }
+
+    fun findJunkFiles(): String {
+        val root = Environment.getExternalStorageDirectory()
+        val junkFiles = mutableListOf<File>()
+        val emptyDirs = mutableListOf<File>()
+        var totalJunkBytes = 0L
+
+        val scanFolders = listOf(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+            File(root, "Telegram"),
+            File(root, "WhatsApp")
+        ).filter { it.exists() && it.isDirectory }
+
+        for (dir in scanFolders) {
+            try {
+                dir.walkTopDown().maxDepth(4).forEach { f ->
+                    if (f.isFile) {
+                        val ext = f.extension.lowercase()
+                        if (ext in junkExtensions || f.name.startsWith(".tmp") || f.name.endsWith(".tmp")) {
+                            junkFiles.add(f)
+                            totalJunkBytes += f.length()
+                        }
+                    } else if (f.isDirectory && f != dir) {
+                        val contents = f.list()
+                        if (contents != null && contents.isEmpty()) {
+                            emptyDirs.add(f)
+                        }
+                    }
+                }
+            } catch (ignored: Exception) {
+            }
+        }
+
+        if (junkFiles.isEmpty() && emptyDirs.isEmpty()) {
+            return "Мусорные файлы (.tmp, .log, .crdownload) и пустые папки не обнаружены. Система чиста."
+        }
+
+        return buildString {
+            append("Обнаружено мусорных данных:\n")
+            append("• Временных файлов: ${junkFiles.size} (${formatFileSize(totalJunkBytes)})\n")
+            append("• Пустых папок: ${emptyDirs.size}\n\n")
+            if (junkFiles.isNotEmpty()) {
+                append("Файлы для возможной очистки (первые 20):\n")
+                junkFiles.take(20).forEach {
+                    append("  • ${it.name} (${formatFileSize(it.length())})\n")
+                }
+            }
+            if (emptyDirs.isNotEmpty()) {
+                append("\nПустые папки:\n")
+                emptyDirs.take(10).forEach {
+                    append("  • ${it.name}/\n")
+                }
+            }
+        }
+    }
+
+    // --- Safety Truncation ---
+
+    fun truncateOutput(text: String, maxBytes: Int = 3500, maxLines: Int = 35): String {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        if (bytes.size <= maxBytes) {
+            val lines = text.lines()
+            if (lines.size <= maxLines) {
+                return text
+            }
+            val truncatedLines = lines.take(maxLines).joinToString("\n")
+            return "$truncatedLines\n\n[Вывод сокращен: показано $maxLines из ${lines.size} строк. Для детального просмотра уточни запрос]"
+        }
+
+        var cutIndex = 0
+        var byteCount = 0
+        for (i in text.indices) {
+            val charBytes = text[i].toString().toByteArray(Charsets.UTF_8).size
+            if (byteCount + charBytes > maxBytes - 120) break
+            byteCount += charBytes
+            cutIndex = i + 1
+        }
+
+        val truncatedText = text.substring(0, cutIndex)
+        val lastNewline = truncatedText.lastIndexOf('\n')
+        val cleanCut = if (lastNewline > cutIndex / 2) truncatedText.substring(0, lastNewline) else truncatedText
+
+        return "$cleanCut\n\n[Вывод сокращен: размер превысил лимит ${formatFileSize(maxBytes.toLong())}. Для детального просмотра уточни запрос]"
+    }
+
+    // --- HITL Metadata ---
+
+    data class CriticalActionInfo(
+        val title: String,
+        val details: String,
+        val warning: String
+    )
+
+    fun isCriticalOperation(toolName: String): Boolean {
+        return toolName in setOf(
+            "delete_file",
+            "move_file",
+            "organize_downloads",
+            "run_shell_command",
+            "write_file"
+        )
+    }
+
+    fun describeCriticalAction(toolName: String, argsJson: String): CriticalActionInfo {
+        val args = try {
+            if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+
+        return when (toolName) {
+            "delete_file" -> {
+                val path = args.optString("path", "").trim()
+                val recursive = args.optBoolean("recursive", false)
+                CriticalActionInfo(
+                    title = "Удаление данных",
+                    details = "Объект: $path${if (recursive) " (рекурсивно, включая вложенные файлы)" else ""}",
+                    warning = "Удаленные файлы невозможно восстановить через корзину."
+                )
+            }
+            "write_file" -> {
+                val path = args.optString("path", "").trim()
+                val append = args.optBoolean("append", false)
+                CriticalActionInfo(
+                    title = if (append) "Дозапись в файл" else "Перезапись файла",
+                    details = "Файл: $path",
+                    warning = if (append) "Текст будет добавлен в конец существующего файла." else "Содержимое файла будет полностью перезаписано."
+                )
+            }
+            "move_file" -> {
+                val src = args.optString("source_path", "").trim()
+                val dest = args.optString("destination_path", "").trim()
+                CriticalActionInfo(
+                    title = "Перемещение файла",
+                    details = "Из: $src\nВ: $dest",
+                    warning = "Файл будет перемещен в новое местоположение."
+                )
+            }
+            "organize_downloads" -> {
+                val cat = args.optString("category", "all")
+                CriticalActionInfo(
+                    title = "Сортировка загрузок",
+                    details = "Категория: $cat (папка Download)",
+                    warning = "Файлы из Download будут перемещены в Documents/Runner, Backups/APKs или Pictures/Runner."
+                )
+            }
+            "run_shell_command" -> {
+                val cmd = args.optString("command", "").trim()
+                CriticalActionInfo(
+                    title = "Выполнение shell-команды",
+                    details = "Команда: $cmd",
+                    warning = "Команда будет запущена в оболочке sh с правами приложения."
+                )
+            }
+            else -> CriticalActionInfo(
+                title = "Выполнение операции",
+                details = "Инструмент: $toolName",
+                warning = "Операция может изменить локальные файлы."
+            )
+        }
     }
 }
