@@ -109,7 +109,7 @@ object ToolDispatcher {
         // 3. write_file
         tools.put(createToolFunction(
             name = "write_file",
-            description = "Создает или перезаписывает текстовый файл, либо дописывает в него текст (append). Если родительской папки нет — возвращает ошибку и ничего не создаёт; папку создай заранее тулом create_dir (перед записью проверь папку через list_dir).",
+            description = "Создает или перезаписывает текстовый файл, либо дописывает в него текст (append). Если родительской папки нет, возвращает ошибку и ничего не создаёт; папку создай заранее тулом create_dir (перед записью проверь папку через list_dir).",
             properties = JSONObject().apply {
                 put("path", JSONObject().apply {
                     put("type", "string")
@@ -289,7 +289,7 @@ object ToolDispatcher {
         // 14. run_shell_command
         tools.put(createToolFunction(
             name = "run_shell_command",
-            description = "Выполняет команду оболочки (sh, Android Toybox — только короткие флаги, длинных --флагов нет) и возвращает stdout, stderr и код завершения. Размер папок меряй тулом get_folder_summary, а не du.",
+            description = "Выполняет команду оболочки (sh, Android Toybox: только короткие флаги, длинных --флагов нет) и возвращает stdout, stderr и код завершения. Размер папок меряй тулом get_folder_summary, а не du.",
             properties = JSONObject().apply {
                 put("command", JSONObject().apply {
                     put("type", "string")
@@ -1203,7 +1203,7 @@ object ToolDispatcher {
         return buildString {
             append("Топ самых тяжелых файлов (>${minSizeMb} МБ):\n")
             displayList.forEachIndexed { i, file ->
-                append("${i + 1}. ${file.absolutePath} — ${formatFileSize(file.length())}\n")
+                append("${i + 1}. ${file.absolutePath} - ${formatFileSize(file.length())}\n")
             }
             if (sorted.size > displayList.size) {
                 append("\n[Найдено еще ${sorted.size - displayList.size} тяжелых файлов. Увеличьте порог min_size_mb для точной выборки]")
@@ -1387,7 +1387,7 @@ object ToolDispatcher {
                 CriticalActionInfo(
                     title = "Удаление данных",
                     details = "Объект: $path${if (recursive) " (рекурсивно, включая вложенные файлы)" else ""}",
-                    warning = "Удалённые файлы не попадают в корзину — восстановить не получится.",
+                    warning = "Удалённые файлы не попадают в корзину, восстановить не получится.",
                     preview = previewForPath(path)
                 )
             }
@@ -1434,7 +1434,7 @@ object ToolDispatcher {
                 CriticalActionInfo(
                     title = "Выполнение shell-команды",
                     details = command,
-                    warning = "Команда запускается в sh с правами приложения. Проверь её перед запуском.",
+                    warning = "Команда запускается в sh с правами приложения. Проверьте команду перед запуском.",
                     preview = "Длина команды: ${command.length} символов"
                 )
             }

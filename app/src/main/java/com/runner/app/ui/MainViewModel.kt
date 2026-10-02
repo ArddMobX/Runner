@@ -134,6 +134,19 @@ private fun shouldPlan(text: String): Boolean {
  */
 private val DESTRUCTIVE_PLAN_TOOLS = setOf("delete_file", "write_file", "organize_downloads")
 
+/** Все известные имена тулов — для привязки шагов плана к подтверждениям. */
+private val KNOWN_PLAN_TOOLS = setOf(
+    "list_dir", "get_folder_summary", "read_file", "write_file", "delete_file",
+    "create_dir", "move_file", "copy_file", "search_files", "create_archive",
+    "extract_archive", "organize_downloads", "get_storage_summary",
+    "find_largest_files", "find_junk_files", "clipboard_read", "clipboard_write",
+    "run_shell_command"
+)
+
+/** Имена тулов, упомянутые в шагах плана («1. write_file - ...»). */
+private fun extractPlanTools(steps: List<String>): Set<String> =
+    steps.flatMap { step -> KNOWN_PLAN_TOOLS.filter { tool -> step.contains(tool) } }.toSet()
+
 /**
  * Системный промпт фазы планирования. Формат строгий: слабые модели
  * (Flash Lite и подобные) надёжно держат нумерованный список, а свободный
@@ -143,7 +156,7 @@ private const val PLAN_SYSTEM_PROMPT = """
 Ты планировщик мобильного агента Runner для Android. Разложи задачу пользователя на пошаговый план работы с инструментами.
 Доступные инструменты: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file, search_files, create_archive, extract_archive, organize_downloads, get_storage_summary, find_largest_files, find_junk_files, clipboard_read, clipboard_write, run_shell_command.
 Правила вывода:
-- Выведи ТОЛЬКО нумерованный список шагов, по одному на строку: "1. имя_инструмента — что сделать".
+- Выведи ТОЛЬКО нумерованный список шагов, по одному на строку: "1. имя_инструмента - что сделать".
 - Используй только инструменты из списка выше.
 - Пути указывай абсолютные от корня /storage/emulated/0.
 - Никаких вступлений, пояснений и заключений.
@@ -259,6 +272,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** План шагов, ожидающий решения пользователя (null — нет ожидания). */
     private val _pendingPlan = MutableStateFlow<PlanProposal?>(null)
     val pendingPlan: StateFlow<PlanProposal?> = _pendingPlan.asStateFlow()
+
+    /**
+     * Тулы, покрытые утверждённым планом: после кнопки «Утвердить» (и для
+     * безопасного плана, исполняемого молча) шторки подтверждения по этим
+     * именам не показываются. Сбрасывается при каждом новом сообщении.
+     */
+    private var approvedPlanTools: Set<String>? = null
 
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
@@ -572,7 +592,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val provider = activeProvider.value
         if (provider == null || provider.apiKey.isBlank()) {
             appendSystemInfo(
-                "Ключ провайдера не задан — модель не ответит. Укажи API Key в настройках.",
+                "Ключ провайдера не задан, модель не ответит. Необходимо указать API-ключ в настройках.",
                 MessageAction.OPEN_SETTINGS
             )
             return
@@ -606,6 +626,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         stopRequested = false
+        approvedPlanTools = null
         val userMessageId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
@@ -730,7 +751,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is AIResponseResult.TextResult -> result.text.trim()
             is AIResponseResult.Cancelled -> return null
             is AIResponseResult.Error -> {
-                appendSystemInfo("План не составлен (${result.message}). Работаю без плана.", null)
+                // Ошибка планировщика в чат не выводится: молча переходим к прямому выполнению.
                 return null
             }
             is AIResponseResult.ToolCallsResult -> {
@@ -743,8 +764,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (planText.contains(NO_TOOLS_MARKER)) return null
 
         val steps = parsePlanSteps(planText)
+        // План не распознан: в чат ничего не выводим, исполняемся напрямую.
         if (steps.isEmpty()) {
-            appendSystemInfo("План не распознан. Работаю без плана.", null)
             return null
         }
 
@@ -776,6 +797,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             DESTRUCTIVE_PLAN_TOOLS.any { tool -> step.contains(tool) }
         }
         if (!needsApproval) {
+            approvedPlanTools = extractPlanTools(steps)
             return planNoteText()
         }
 
@@ -793,13 +815,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _pendingPlan.value = null
 
         return if (approved && !stopRequested) {
+            // План утверждён кнопкой: все его шаги предварительно одобрены,
+            // шторки подтверждения по этим тулам больше не показываем.
+            approvedPlanTools = extractPlanTools(steps)
             buildString {
                 append("Утверждённый пользователем план, строго следуй ему по шагам ")
                 append("(не пропускай шаги, не выдумывай свои инструменты):\n")
                 steps.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
             }
         } else {
-            appendSystemInfo("План отклонён. Работаю без плана.", null)
             null
         }
     }
@@ -896,21 +920,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 is AIResponseResult.ToolCallsResult -> {
                     val preText = result.assistantMessageJson.optString("content")
-                    if (preText.isNotBlank()) {
-                        _streamingText.value = ""
-                        saveAssistantMessage(
-                            sessionId = sessionId,
-                            text = preText,
-                            reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
-                            reasoningMs = metrics.reasoningMillis.takeIf { it > 0L }
-                        )
-                    }
+                    // Текст-вывод модели в ленту не публикуем до исполнения тулов:
+                    // итоговый пузырь появляется строго после результата инструментов.
+                    if (preText.isNotBlank()) _streamingText.value = ""
                     conversationJson.put(result.assistantMessageJson)
                     persistContext(sessionId)
 
                     for (call in result.toolCalls) {
                         if (stopRequested) break
                         executeToolCall(sessionId, call)
+                    }
+
+                    if (preText.isNotBlank()) {
+                        saveAssistantMessage(
+                            sessionId = sessionId,
+                            text = preText,
+                            reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
+                            reasoningMs = metrics.reasoningMillis.takeIf { it > 0L }
+                        )
                     }
                 }
             }
@@ -920,7 +947,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             finalizeStreamedText(sessionId, stopped = true)
         } else {
             appendSystemInfo(
-                "Достигнут лимит шагов (${currentSettings.maxSteps}). Увеличь его в настройках агента.",
+                "Достигнут лимит шагов (${currentSettings.maxSteps}). Увеличьте лимит в настройках агента.",
                 null
             )
         }
@@ -972,7 +999,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Режим «Спрашивать каждый шаг» поднимает до подтверждения даже безопасные
         // чтение/поиск. По умолчанию («Только опасные действия») они идут молча.
-        val needConfirm = ToolDispatcher.isCriticalOperation(call.name) || _settings.value.confirmEveryStep
+        // Шаги утверждённого плана уже одобрены кнопкой «Утвердить» — шторку
+        // показываем только для внезапных действий вне плана («Без плана»).
+        val preApproved = approvedPlanTools?.contains(call.name.substringAfterLast(":")) == true
+        val needConfirm = (ToolDispatcher.isCriticalOperation(call.name) || _settings.value.confirmEveryStep) && !preApproved
         val output = if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)

@@ -288,7 +288,13 @@ class OpenAIClient {
                     }
                     attempt++
                     val pause = backoffMillis(attempt)
-                    listener?.onRetry(result.message, pause)
+                    // 429 (лимит запросов): отдельный индикатор ожидания снятия ограничения.
+                    val retryText = if (result.message.contains("429")) {
+                        "Лимит запросов, ожидаю снятия ограничения"
+                    } else {
+                        result.message
+                    }
+                    listener?.onRetry(retryText, pause)
                     delay(pause)
                     continue
                 }
@@ -309,7 +315,7 @@ class OpenAIClient {
                 // Битый JSON от сервера — сырой текст исключения с куском
                 // ответа в чат не тащим, только понятное сообщение.
                 return@withContext AIResponseResult.Error(
-                    "Ответ сервера не распознан (битый JSON). Повтори запрос."
+                    "Ответ сервера не распознан (битый JSON). Повторите запрос."
                 )
             } catch (e: Exception) {
                 return@withContext AIResponseResult.Error(
@@ -741,24 +747,24 @@ class OpenAIClient {
             code == 400 && details != null ->
                 AIResponseResult.Error("Ошибка запроса (400): $details")
             code == 400 ->
-                AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Повтори запрос.")
-            code == 401 -> AIResponseResult.Error("Ошибка авторизации (401). Проверь API ключ провайдера.")
+                AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Повторите запрос.")
+            code == 401 -> AIResponseResult.Error("Ошибка авторизации (401). Проверьте API-ключ провайдера.")
             code == 403 -> AIResponseResult.Error(
                 if (details != null) "Доступ запрещён (403): $details"
-                else "Доступ запрещён (403). Проверь ключ и доступ модели."
+                else "Доступ запрещён (403). Проверьте ключ и доступ модели."
             )
             code == 404 -> AIResponseResult.Error(
                 if (details != null) "Эндпоинт или модель не найдены (404): $details"
-                else "Эндпоинт или модель не найдены (404). Проверь Base URL и модель."
+                else "Эндпоинт или модель не найдены (404). Проверьте Base URL и модель."
             )
             code == 429 -> AIResponseResult.Error(
                 if (details != null) "Лимит запросов (429): $details"
-                else "Лимит запросов (429). Подожди и повтори.",
+                else "Лимит запросов исчерпан (429). Повторите запрос через несколько секунд.",
                 retryable = true
             )
             isThoughtSignatureError -> AIResponseResult.Error("Ошибка API ($code): $details", retryable = true)
             details != null -> AIResponseResult.Error("Ошибка API ($code): $details")
-            else -> AIResponseResult.Error("Ошибка сервера ($code): ответ не распознан, повтори запрос")
+            else -> AIResponseResult.Error("Ошибка сервера ($code): ответ не распознан, повторите запрос")
         }
     }
 
@@ -766,8 +772,9 @@ class OpenAIClient {
     private fun withEmitted(result: AIResponseResult, emitted: Boolean): AIResponseResult =
         if (emitted && result is AIResponseResult.Error) result.copy(retryable = false) else result
 
+    /** Экспоненциальная пауза 3-6-10 с: лимит успевает отпустить, ожидание терпимое. */
     private fun backoffMillis(attempt: Int): Long =
-        (2000L * (1L shl (attempt - 1))).coerceAtMost(10_000L)
+        (3000L * (1L shl (attempt - 1))).coerceAtMost(10_000L)
 
     private fun resolveChatEndpoint(baseUrl: String, reverseProxyUrl: String): String {
         val target = com.runner.app.util.UrlSanitizer.sanitizeBaseUrl(
@@ -913,7 +920,7 @@ class OpenAIClient {
                 isReachable = false,
                 statusCode = null,
                 latencyMs = latencyMs,
-                message = "${providerPrefix}Таймаут ($timeoutSeconds с) — сервер не ответил",
+                message = "${providerPrefix}Таймаут ($timeoutSeconds с), сервер не ответил",
                 targetEndpoint = testEndpoint
             )
         } catch (e: java.net.UnknownHostException) {
@@ -922,7 +929,7 @@ class OpenAIClient {
                 isReachable = false,
                 statusCode = null,
                 latencyMs = 0L,
-                message = "Ошибка DNS — хост не найден (${e.message ?: "недоступен"})",
+                message = "Ошибка DNS: хост не найден (${e.message ?: "недоступен"})",
                 targetEndpoint = testEndpoint
             )
         } catch (e: java.net.ConnectException) {

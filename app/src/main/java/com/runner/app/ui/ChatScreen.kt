@@ -1392,7 +1392,7 @@ private fun StoragePromptSheet(
             }
 
             Text(
-                text = "Без него файловые инструменты не сработают. Право выдаётся только на системном экране — кнопка ниже его откроет.",
+                text = "Без него файловые инструменты не сработают. Право выдаётся только на системном экране, кнопка ниже его откроет.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 19.sp
@@ -1460,7 +1460,7 @@ private fun ConfirmationBottomSheet(
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "Подтверди операцию",
+                    text = "Подтверждение операции",
                     color = MaterialTheme.colorScheme.outline,
                     fontSize = 12.5.sp
                 )

@@ -227,7 +227,7 @@ private fun SettingsRoot(
             val keysCount = providers.count { it.apiKey.isNotBlank() }
             SettingsRow(
                 label = "Провайдеры и ключи",
-                value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "—"}",
+                value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "не выбран"}",
                 onClick = { onNavigate(SettingsRoute.Providers) },
                 icon = Icons.Outlined.VpnKey
             )
@@ -366,7 +366,7 @@ private fun SettingsRoot(
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "Модель сначала составляет план, исполнение — после твоего подтверждения",
+                        text = "Модель сначала составляет план, исполнение - после подтверждения",
                         color = MaterialTheme.colorScheme.outline,
                         fontSize = 11.5.sp
                     )
@@ -856,7 +856,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Ниже — предсказуемее, выше — креативнее.",
+                    text = "Ниже - предсказуемее, выше - креативнее.",
                     color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.5.sp
                 )
@@ -993,7 +993,7 @@ private fun UserInstructionsField(
                 decorationBox = { innerTextField ->
                     if (instructions.isEmpty()) {
                         Text(
-                            text = "Задай стиль общения, язык или дополнительные правила поведения агента...",
+                            text = "Задайте стиль общения, язык или дополнительные правила поведения агента...",
                             color = MaterialTheme.colorScheme.outline,
                             fontSize = 13.sp,
                             lineHeight = 19.sp
@@ -1395,8 +1395,8 @@ private fun AccessSettings(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Нужен, чтобы агент читал и раскладывал файлы. Тумблер сам право не даёт — " +
-                            "включи «Доступ ко всем файлам» на системном экране.",
+                    text = "Нужен, чтобы агент читал и раскладывал файлы. Тумблер сам право не даёт, " +
+                            "включите «Доступ ко всем файлам» на системном экране.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp
@@ -1605,7 +1605,7 @@ private fun ConnectionStatusWidget(
                 )
                 if (!isTesting && result == null) {
                     Text(
-                        text = "Нажми, чтобы запустить тест пинга",
+                        text = "Нажмите, чтобы запустить тест пинга",
                         color = MaterialTheme.colorScheme.outline,
                         fontSize = 11.sp
                     )

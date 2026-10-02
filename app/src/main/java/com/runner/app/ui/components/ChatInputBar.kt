@@ -78,8 +78,8 @@ fun rememberChatInputState(initialText: String = ""): ChatInputState =
  * Полностью изолированный компонент панели ввода сообщений.
  *
  * 1. Локальный стейт ввода (не триггерит ререндер списка сообщений и родительского экрана).
- * 2. Стабильный KeyboardOptions (ImeAction.Send не пересоздаётся на каждый символ,
- *    что устраняет рестарты IME-сессии Android и лаги ввода).
+ * 2. Многострочный ввод: Enter переносит строку (до 5 строк со скроллом),
+ *    отправка — только кнопкой-стрелкой справа, imeAction = None.
  * 3. Мгновенная синхронная обработка символов без дебаунсов, замеров и блокировок UI.
  */
 @Composable
@@ -138,11 +138,9 @@ fun ChatInputBar(
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
                 autoCorrect = true,
-                imeAction = ImeAction.Send
+                imeAction = ImeAction.None
             ),
-            keyboardActions = KeyboardActions(
-                onSend = { handleSend() }
-            ),
+            keyboardActions = KeyboardActions.Default,
             decorationBox = { innerTextField ->
                 Box {
                     if (rawText.isEmpty()) {

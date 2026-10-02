@@ -309,7 +309,7 @@ fun ModelPickerSheet(
                         .padding(20.dp)
                 ) {
                     Text(
-                        text = "У провайдера ${provider.name} не задан ключ — список моделей не запросить.",
+                        text = "У провайдера ${provider.name} не задан ключ, список моделей недоступен.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
