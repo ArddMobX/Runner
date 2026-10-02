@@ -78,8 +78,9 @@ fun AppNavigation(viewModel: MainViewModel) {
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val sessionsQuery by viewModel.sessionsQuery.collectAsState()
     val drawerProvider by viewModel.activeProvider.collectAsState()
-    val drawerFooter = if (drawerProvider != null && drawerProvider.apiKey.isNotBlank()) {
-        "${drawerProvider.name} · ${drawerProvider.activeModel.ifBlank { "модель не выбрана" }}"
+    val provider = drawerProvider
+    val drawerFooter = if (provider != null && provider.apiKey.isNotBlank()) {
+        "${provider.name} · ${provider.activeModel.ifBlank { "модель не выбрана" }}"
     } else {
         "Провайдер не настроен"
     }
