@@ -84,8 +84,8 @@ jobs:
         if: steps.build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "Runner v1.0.0 APK"
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Runner v1.0.${{ github.run_number }} APK"
           body: "Автоматическая сборка APK автономного ИИ-агента Runner для Android."
           files: app/build/outputs/apk/debug/app-debug.apk
         env:
