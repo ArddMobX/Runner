@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
@@ -284,10 +285,9 @@ private fun BulletElement(element: MarkdownElement.BulletItem) {
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 2.dp, end = 8.dp)
         )
-        Text(
-            text = renderInlineMarkdown(element.text),
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextPrimary
+        MarkdownText(
+            text = element.text,
+            style = MaterialTheme.typography.bodyLarge
         )
     }
 }
@@ -308,10 +308,9 @@ private fun NumberedElement(element: MarkdownElement.NumberedItem) {
                 .width(20.dp)
                 .padding(top = 3.dp)
         )
-        Text(
-            text = renderInlineMarkdown(element.text),
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextPrimary
+        MarkdownText(
+            text = element.text,
+            style = MaterialTheme.typography.bodyLarge
         )
     }
 }
@@ -338,13 +337,114 @@ private fun BlockquoteElement(element: MarkdownElement.Blockquote) {
     }
 }
 
+private sealed interface InlineSegment {
+    data class Plain(val value: String) : InlineSegment
+    data class Code(val value: String) : InlineSegment
+}
+
+private val INLINE_CODE = Regex("`([^`]+)`")
+
+private fun splitInline(text: String): List<InlineSegment> {
+    val segments = mutableListOf<InlineSegment>()
+    var cursor = 0
+    INLINE_CODE.findAll(text).forEach { match ->
+        if (match.range.first > cursor) {
+            segments.add(InlineSegment.Plain(text.substring(cursor, match.range.first)))
+        }
+        segments.add(InlineSegment.Code(match.groupValues[1]))
+        cursor = match.range.last + 1
+    }
+    if (cursor < text.length) {
+        segments.add(InlineSegment.Plain(text.substring(cursor)))
+    }
+    return segments
+}
+
+/**
+ * Чипсы уместны только в коротких строках-перечислениях вида
+ * «`Download` `DCIM` `Pictures`». В обычном абзаце с одним словом в коде
+ * разбивать поток на блоки нельзя — там остаётся цельный текст.
+ */
+private fun shouldUseChips(segments: List<InlineSegment>): Boolean {
+    if (segments.none { it is InlineSegment.Code }) return false
+    if (segments.size > 9) return false
+    return segments.filterIsInstance<InlineSegment.Plain>()
+        .all { it.value.trim().length <= 28 }
+}
+
+/**
+ * Текст с инлайн-кодом. Если код есть и строка короткая — код рендерится
+ * скруглёнными чипсами, иначе всё идёт единым потоком с акцентной подсветкой.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MarkdownText(
+    text: String,
+    style: TextStyle,
+    color: Color = TextPrimary,
+    modifier: Modifier = Modifier
+) {
+    val segments = remember(text) { splitInline(text) }
+
+    if (!shouldUseChips(segments)) {
+        Text(
+            text = renderInlineMarkdown(text),
+            style = style,
+            color = color,
+            modifier = modifier
+        )
+        return
+    }
+
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        segments.forEach { segment ->
+            when (segment) {
+                is InlineSegment.Plain -> {
+                    val chunk = segment.value.trim()
+                    if (chunk.isNotEmpty()) {
+                        Text(text = chunk, style = style, color = color)
+                    }
+                }
+
+                is InlineSegment.Code -> InlineChip(
+                    text = segment.value,
+                    fontSize = style.fontSize
+                )
+            }
+        }
+    }
+}
+
+/** Скруглённый чип для слова в бэктиках. */
+@Composable
+private fun InlineChip(text: String, fontSize: TextUnit) {
+    val shape = RoundedCornerShape(7.dp)
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(AccentPrimary.copy(alpha = 0.14f))
+            .border(BorderStroke(0.5.dp, AccentPrimary.copy(alpha = 0.22f)), shape)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Text(
+            text = text,
+            color = AccentPrimary,
+            fontSize = if (fontSize.isSpecified) fontSize * 0.92f else 12.5.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+    }
+}
+
 @Composable
 private fun ParagraphElement(element: MarkdownElement.Paragraph) {
-    Text(
-        text = renderInlineMarkdown(element.text),
-        style = MaterialTheme.typography.bodyLarge,
-        color = TextPrimary,
-        lineHeight = 22.sp
+    MarkdownText(
+        text = element.text,
+        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
     )
 }
 

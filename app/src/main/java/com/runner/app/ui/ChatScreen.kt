@@ -48,6 +48,7 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -101,6 +102,7 @@ import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.theme.AccentPrimary
+import com.runner.app.ui.theme.AccentSecondary
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.OutlineSubtle
 import com.runner.app.ui.theme.StatusError
@@ -246,6 +248,7 @@ fun ChatScreen(
                                 MessageItem(
                                     message = message,
                                     showToolDetails = appSettings.showToolDetails,
+                                    showStats = appSettings.showStats,
                                     onAction = { action ->
                                         when (action) {
                                             MessageAction.OPEN_SETTINGS -> onOpenSettings()
@@ -670,6 +673,7 @@ private fun SuggestionCard(
 private fun MessageItem(
     message: ChatMessage,
     showToolDetails: Boolean,
+    showStats: Boolean,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
@@ -695,22 +699,31 @@ private fun MessageItem(
         }
 
         MessageRole.ASSISTANT -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.96f)
+                    .padding(vertical = 2.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.96f)
-                        .clip(RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp))
-                        .padding(vertical = 2.dp)
-                ) {
-                    MarkdownView(text = message.content)
+                if (showStats) {
+                    ReasoningBlock(
+                        reasoning = message.reasoningText,
+                        reasoningMs = message.reasoningMs
+                    )
+                }
+
+                MarkdownView(text = message.content)
+
+                if (showStats) {
+                    ResponseStats(message)
                 }
             }
         }
 
-        MessageRole.TOOL_EXECUTION -> ToolCard(message = message, showDetails = showToolDetails)
+        MessageRole.TOOL_EXECUTION -> ToolCard(
+            message = message,
+            showDetails = showToolDetails,
+            showStats = showStats
+        )
 
         MessageRole.SYSTEM_INFO -> NoticeBanner(
             text = message.content,
@@ -718,6 +731,112 @@ private fun MessageItem(
             action = message.action,
             onAction = onAction
         )
+    }
+}
+
+/** Плашка под ответом: сколько занял весь пайплайн, токены и скорость генерации. */
+@Composable
+private fun ResponseStats(message: ChatMessage) {
+    val parts = buildList {
+        message.durationMs?.let { add("⏱ ${formatDuration(it)}") }
+        val prompt = message.promptTokens
+        val completion = message.completionTokens
+        if (prompt != null || completion != null) {
+            add("${prompt ?: 0}→${completion ?: 0} ток")
+        }
+        message.tokensPerSecond?.let { add("%.0f т/с".format(it)) }
+    }
+
+    if (parts.isEmpty()) return
+
+    Row(
+        modifier = Modifier.padding(top = 6.dp, start = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        parts.forEach { part ->
+            Text(
+                text = part,
+                color = TextTertiary,
+                fontSize = 10.5.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+/** Размышления thinking-модели: счётчик на виду, процесс — под катом. */
+@Composable
+private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
+    if (reasoning.isNullOrBlank()) return
+
+    var expanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionTokens.fluidSpring(),
+        label = "reasoning_chevron"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(SurfaceContainerLow)
+            .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+            .animateContentSize(animationSpec = MotionTokens.fluidSpring())
+            .clickable { expanded = !expanded }
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.Psychology,
+                contentDescription = null,
+                tint = AccentSecondary,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (reasoningMs != null && reasoningMs > 0) {
+                    "Думал ${formatDuration(reasoningMs)}"
+                } else {
+                    "Размышления"
+                },
+                color = TextSecondary,
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.Outlined.KeyboardArrowDown,
+                contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                tint = TextTertiary,
+                modifier = Modifier
+                    .size(16.dp)
+                    .graphicsLayer { rotationZ = rotation }
+            )
+        }
+
+        if (expanded) {
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = reasoning,
+                color = TextTertiary,
+                fontSize = 11.5.sp,
+                lineHeight = 17.sp
+            )
+        }
+    }
+}
+
+/** Компактная длительность: 480 мс, 2.4 с, 1 мин 12 с. */
+private fun formatDuration(millis: Long): String = when {
+    millis < 1000L -> "$millis мс"
+    millis < 60_000L -> "%.1f с".format(millis / 1000.0)
+    else -> {
+        val totalSeconds = millis / 1000
+        "${totalSeconds / 60} мин ${totalSeconds % 60} с"
     }
 }
 
@@ -752,7 +871,7 @@ private fun StreamingBubble(text: String) {
  * Технические детали — только по нажатию.
  */
 @Composable
-private fun ToolCard(message: ChatMessage, showDetails: Boolean) {
+private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Boolean) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val rotation by animateFloatAsState(
@@ -795,6 +914,18 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean) {
                         text = "· ${message.toolSummary}",
                         color = TextTertiary,
                         fontSize = 12.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
+
+                // Время самой операции: сразу видно, что было узким местом — диск или сеть
+                if (showStats && !message.isRunning && message.toolDurationMs != null) {
+                    Text(
+                        text = "· ${formatDuration(message.toolDurationMs)}",
+                        color = TextTertiary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         modifier = Modifier.padding(start = 6.dp)
                     )

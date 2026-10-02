@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
 import com.runner.app.data.ChatRepository
+import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
 import com.runner.app.data.OpenAIClient
@@ -73,7 +74,17 @@ data class ChatMessage(
     val isError: Boolean = false,
     val isDeclined: Boolean = false,
     val action: MessageAction? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    /** Полное время ответа агента на задачу. */
+    val durationMs: Long? = null,
+    /** Время работы конкретного инструмента. */
+    val toolDurationMs: Long? = null,
+    /** Размышления thinking-модели — показываются под катом. */
+    val reasoningText: String? = null,
+    val reasoningMs: Long? = null,
+    val promptTokens: Int? = null,
+    val completionTokens: Int? = null,
+    val tokensPerSecond: Double? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -443,11 +454,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun runAgentLoop(sessionId: String, provider: Provider, model: String) {
         val currentSettings = _settings.value
+        val trackStats = currentSettings.showStats
+        val turnStartedAt = System.currentTimeMillis()
+
+        // Суммарные счётчики по всей задаче — уходят в плашку под финальным ответом
+        var totalPromptTokens = 0
+        var totalCompletionTokens = 0
         var step = 0
 
         while (step < currentSettings.maxSteps && !stopRequested) {
             step++
             _currentStatus.value = "Шаг $step · $model"
+
+            val metrics = GenerationMetrics()
 
             val result = apiClient.sendChatCompletion(
                 baseUrl = provider.baseUrl,
@@ -469,25 +488,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     override fun onRetry(message: String, delayMillis: Long) {
                         _currentStatus.value = "Повтор через ${delayMillis / 1000} с · $message"
                     }
-                }
+                },
+                metrics = metrics
             )
+
+            metrics.promptTokens?.let { totalPromptTokens += it }
+            metrics.completionTokens?.let { totalCompletionTokens += it }
 
             when (result) {
                 is AIResponseResult.Cancelled -> {
                     finalizeStreamedText(sessionId, stopped = true)
+                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
                     return
                 }
 
                 is AIResponseResult.Error -> {
                     finalizeStreamedText(sessionId, stopped = false)
                     appendSystemInfo(result.message, null)
+                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
                     return
                 }
 
                 is AIResponseResult.TextResult -> {
                     val reply = result.text.ifBlank { "Готово." }
                     _streamingText.value = ""
-                    saveAssistantMessage(sessionId, reply)
+                    saveAssistantMessage(
+                        sessionId = sessionId,
+                        text = reply,
+                        reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
+                        reasoningMs = metrics.reasoningMillis.takeIf { it > 0L },
+                        completionTokens = metrics.completionTokens,
+                        tokensPerSecond = metrics.tokensPerSecond
+                    )
                     conversationJson.put(
                         JSONObject().apply {
                             put("role", "assistant")
@@ -495,6 +527,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     )
                     persistContext(sessionId)
+                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
                     return
                 }
 
@@ -502,7 +535,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val preText = result.assistantMessageJson.optString("content")
                     if (preText.isNotBlank()) {
                         _streamingText.value = ""
-                        saveAssistantMessage(sessionId, preText)
+                        saveAssistantMessage(
+                            sessionId = sessionId,
+                            text = preText,
+                            reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
+                            reasoningMs = metrics.reasoningMillis.takeIf { it > 0L }
+                        )
                     }
                     conversationJson.put(result.assistantMessageJson)
                     persistContext(sessionId)
@@ -523,6 +561,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             )
         }
+        attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
+    }
+
+    /**
+     * Дописывает в последний ответ общее время пайплайна и суммарные токены.
+     * Плашка «сколько заняла вся задача» вешается именно на финальный ответ.
+     */
+    private suspend fun attachTurnStats(
+        sessionId: String,
+        turnStartedAt: Long,
+        promptTokens: Int,
+        completionTokens: Int,
+        enabled: Boolean
+    ) {
+        if (!enabled) return
+
+        val lastAssistant = _messages.value.lastOrNull { it.role == MessageRole.ASSISTANT } ?: return
+        val updated = lastAssistant.copy(
+            durationMs = System.currentTimeMillis() - turnStartedAt,
+            promptTokens = promptTokens.takeIf { it > 0 },
+            completionTokens = completionTokens.takeIf { it > 0 }
+        )
+
+        _messages.value = _messages.value.map { if (it.id == updated.id) updated else it }
+        repository.saveMessage(updated.toEntity(sessionId))
     }
 
     private suspend fun executeToolCall(sessionId: String, call: ToolCall) {
@@ -540,6 +603,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         var declined = false
+        // Замеряем только саму операцию: время ожидания подтверждения пользователем
+        // в это число не входит, иначе тайминг теряет смысл.
+        var toolDurationMs: Long? = null
+
         val output = if (ToolDispatcher.isCriticalOperation(call.name)) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
@@ -560,13 +627,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             if (approved && !stopRequested) {
                 _currentStatus.value = title
-                ToolDispatcher.execute(call.name, call.arguments, getApplication())
+                val startedAt = System.currentTimeMillis()
+                val result = ToolDispatcher.execute(call.name, call.arguments, getApplication())
+                toolDurationMs = System.currentTimeMillis() - startedAt
+                result
             } else {
                 declined = true
                 "Пользователь отклонил операцию. Предложи альтернативу или остановись."
             }
         } else {
-            ToolDispatcher.execute(call.name, call.arguments, getApplication())
+            val startedAt = System.currentTimeMillis()
+            val result = ToolDispatcher.execute(call.name, call.arguments, getApplication())
+            toolDurationMs = System.currentTimeMillis() - startedAt
+            result
         }
 
         val isError = !declined && (
@@ -581,6 +654,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 message.copy(
                     toolOutput = output,
                     toolSummary = summary,
+                    toolDurationMs = toolDurationMs,
                     isRunning = false,
                     isError = isError,
                     isDeclined = declined
@@ -601,7 +675,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 toolOutput = output,
                 isError = isError,
                 isDeclined = declined,
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                toolDurationMs = toolDurationMs
             )
         )
 
@@ -637,22 +712,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistContext(sessionId)
     }
 
-    private suspend fun saveAssistantMessage(sessionId: String, text: String) {
+    private suspend fun saveAssistantMessage(
+        sessionId: String,
+        text: String,
+        reasoningText: String? = null,
+        reasoningMs: Long? = null,
+        completionTokens: Int? = null,
+        tokensPerSecond: Double? = null
+    ) {
         val id = UUID.randomUUID().toString()
-        _messages.value = _messages.value + ChatMessage(
+        val now = System.currentTimeMillis()
+        val message = ChatMessage(
             id = id,
             role = MessageRole.ASSISTANT,
-            content = text
+            content = text,
+            timestamp = now,
+            reasoningText = reasoningText,
+            reasoningMs = reasoningMs,
+            completionTokens = completionTokens,
+            tokensPerSecond = tokensPerSecond
         )
-        repository.saveMessage(
-            MessageEntity(
-                id = id,
-                sessionId = sessionId,
-                role = MessageRole.ASSISTANT.name,
-                content = text,
-                createdAt = System.currentTimeMillis()
-            )
-        )
+        _messages.value = _messages.value + message
+        repository.saveMessage(message.toEntity(sessionId))
     }
 
     private suspend fun persistContext(sessionId: String) {
@@ -677,6 +758,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun ChatMessage.toEntity(sessionId: String): MessageEntity = MessageEntity(
+        id = id,
+        sessionId = sessionId,
+        role = role.name,
+        content = content,
+        toolName = toolName,
+        toolArgs = toolArgs,
+        toolOutput = toolOutput,
+        isError = isError,
+        isDeclined = isDeclined,
+        createdAt = timestamp,
+        durationMs = durationMs,
+        toolDurationMs = toolDurationMs,
+        reasoningText = reasoningText,
+        reasoningMs = reasoningMs,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        tokensPerSecond = tokensPerSecond
+    )
+
     private fun MessageEntity.toChatMessage(): ChatMessage = ChatMessage(
         id = id,
         role = try {
@@ -690,6 +791,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         toolOutput = toolOutput,
         isError = isError,
         isDeclined = isDeclined,
-        timestamp = createdAt
+        timestamp = createdAt,
+        durationMs = durationMs,
+        toolDurationMs = toolDurationMs,
+        reasoningText = reasoningText,
+        reasoningMs = reasoningMs,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        tokensPerSecond = tokensPerSecond
     )
 }

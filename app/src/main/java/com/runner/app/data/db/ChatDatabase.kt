@@ -13,6 +13,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /** Сессия чата — одна строка в боковом меню. */
@@ -53,7 +55,17 @@ data class MessageEntity(
     val toolOutput: String? = null,
     val isError: Boolean = false,
     val isDeclined: Boolean = false,
-    val createdAt: Long
+    val createdAt: Long,
+    /** Полное время ответа агента в миллисекундах. */
+    val durationMs: Long? = null,
+    /** Время работы конкретного инструмента. */
+    val toolDurationMs: Long? = null,
+    /** Текст размышлений thinking-модели, показывается под катом. */
+    val reasoningText: String? = null,
+    val reasoningMs: Long? = null,
+    val promptTokens: Int? = null,
+    val completionTokens: Int? = null,
+    val tokensPerSecond: Double? = null
 )
 
 @Dao
@@ -119,7 +131,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -130,13 +142,33 @@ abstract class ChatDatabase : RoomDatabase() {
         @Volatile
         private var instance: ChatDatabase? = null
 
+        /**
+         * v1 → v2: добавлены тайминги, размышления и счётчики токенов.
+         * Все колонки nullable, поэтому ALTER TABLE без DEFAULT — существующая
+         * история чатов остаётся на месте.
+         */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN durationMs INTEGER")
+                db.execSQL("ALTER TABLE messages ADD COLUMN toolDurationMs INTEGER")
+                db.execSQL("ALTER TABLE messages ADD COLUMN reasoningText TEXT")
+                db.execSQL("ALTER TABLE messages ADD COLUMN reasoningMs INTEGER")
+                db.execSQL("ALTER TABLE messages ADD COLUMN promptTokens INTEGER")
+                db.execSQL("ALTER TABLE messages ADD COLUMN completionTokens INTEGER")
+                db.execSQL("ALTER TABLE messages ADD COLUMN tokensPerSecond REAL")
+            }
+        }
+
         fun get(context: Context): ChatDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     ChatDatabase::class.java,
                     "runner_chat.db"
-                ).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { instance = it }
             }
     }
 }

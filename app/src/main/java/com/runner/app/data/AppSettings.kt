@@ -11,7 +11,9 @@ data class AppSettings(
     val maxSteps: Int = 5,
     val reverseProxyUrl: String = "",
     val textScale: Float = 1f,
-    val showToolDetails: Boolean = true
+    val showToolDetails: Boolean = true,
+    /** Показывать тайминги, токены и скорость генерации. */
+    val showStats: Boolean = true
 ) {
     companion object {
         val TEMPERATURE_RANGE = 0f..1.5f
@@ -52,7 +54,8 @@ class SettingsStore(context: Context) {
             maxSteps = prefs.getInt(KEY_MAX_STEPS, 5),
             reverseProxyUrl = prefs.getString(KEY_PROXY, null) ?: migratedProxy,
             textScale = prefs.getFloat(KEY_TEXT_SCALE, 1f),
-            showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true)
+            showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
+            showStats = prefs.getBoolean(KEY_SHOW_STATS, true)
         )
     }
 
@@ -64,6 +67,7 @@ class SettingsStore(context: Context) {
             .putString(KEY_PROXY, settings.reverseProxyUrl)
             .putFloat(KEY_TEXT_SCALE, settings.textScale)
             .putBoolean(KEY_SHOW_TOOL_DETAILS, settings.showToolDetails)
+            .putBoolean(KEY_SHOW_STATS, settings.showStats)
             .apply()
     }
 
@@ -75,5 +79,6 @@ class SettingsStore(context: Context) {
         const val KEY_PROXY = "reverse_proxy_url"
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_SHOW_TOOL_DETAILS = "show_tool_details"
+        const val KEY_SHOW_STATS = "show_stats"
     }
 }

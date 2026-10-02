@@ -36,6 +36,63 @@ sealed class AIResponseResult {
     object Cancelled : AIResponseResult()
 }
 
+/**
+ * Метрики одного обращения к модели. Живёт от начала запроса до его конца,
+ * читается вызывающей стороной после возврата.
+ */
+class GenerationMetrics {
+
+    @Volatile
+    var promptTokens: Int? = null
+
+    @Volatile
+    var completionTokens: Int? = null
+
+    @Volatile
+    var reasoningText: String = ""
+
+    @Volatile
+    var reasoningMillis: Long = 0L
+
+    private var reasoningStartedAt = 0L
+    private var reasoningEndedAt = 0L
+    private val reasoningBuffer = StringBuilder()
+
+    private var firstTokenAt = 0L
+    private var lastTokenAt = 0L
+
+    fun noteReasoning(delta: String, now: Long) {
+        if (reasoningStartedAt == 0L) reasoningStartedAt = now
+        reasoningEndedAt = now
+        reasoningBuffer.append(delta)
+    }
+
+    fun noteContent(now: Long) {
+        if (firstTokenAt == 0L) firstTokenAt = now
+        lastTokenAt = now
+    }
+
+    /** Вызывается по завершении запроса — фиксирует размышления и их длительность. */
+    fun finish() {
+        reasoningText = reasoningBuffer.toString()
+        reasoningMillis = if (reasoningStartedAt > 0L && reasoningEndedAt >= reasoningStartedAt) {
+            reasoningEndedAt - reasoningStartedAt
+        } else {
+            0L
+        }
+    }
+
+    /** Скорость генерации: выходные токены за время после первого токена. */
+    val tokensPerSecond: Double?
+        get() {
+            val tokens = completionTokens ?: return null
+            if (firstTokenAt == 0L || lastTokenAt <= firstTokenAt) return null
+            val seconds = (lastTokenAt - firstTokenAt) / 1000.0
+            if (seconds < 0.15) return null
+            return tokens / seconds
+        }
+}
+
 class OpenAIClient {
 
     /** Колбэки для живого вывода. Все методы необязательные. */
@@ -43,6 +100,19 @@ class OpenAIClient {
         fun onTextDelta(delta: String) {}
         fun onToolCallStarted(name: String) {}
         fun onRetry(message: String, delayMillis: Long) {}
+    }
+
+    /**
+     * usage в стриме приходит только по явному запросу, и поддерживают его
+     * не все провайдеры. Шлём только тем, в ком уверены, — иначе есть риск
+     * получить ошибку на неизвестном параметре.
+     */
+    private fun supportsStreamUsage(endpoint: String): Boolean {
+        val host = endpoint.lowercase()
+        return host.contains("openai.com") ||
+                host.contains("groq.com") ||
+                host.contains("openrouter.ai") ||
+                host.contains("deepseek.com")
     }
 
     private val client = OkHttpClient.Builder()
@@ -70,7 +140,8 @@ class OpenAIClient {
         reverseProxyUrl: String = "",
         temperature: Double = 0.2,
         streaming: Boolean = true,
-        listener: StreamListener? = null
+        listener: StreamListener? = null,
+        metrics: GenerationMetrics? = null
     ): AIResponseResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             return@withContext AIResponseResult.Error(
@@ -96,7 +167,12 @@ class OpenAIClient {
                 put("tools", ToolDispatcher.getToolsJson())
                 put("tool_choice", "auto")
                 put("temperature", temperature)
-                if (streaming) put("stream", true)
+                if (streaming) {
+                    put("stream", true)
+                    if (supportsStreamUsage(endpoint)) {
+                        put("stream_options", JSONObject().put("include_usage", true))
+                    }
+                }
                 // У DeepSeek V4 thinking mode включён по умолчанию. Для агентского цикла это
                 // лишняя латентность и расход токенов, поэтому явно выключаем.
                 if (endpoint.contains("deepseek.com")) {
@@ -117,9 +193,9 @@ class OpenAIClient {
             activeCall = call
             try {
                 val result = if (streaming) {
-                    executeStreaming(call, listener, isGemini)
+                    executeStreaming(call, listener, isGemini, metrics)
                 } else {
-                    executeBlocking(call, isGemini)
+                    executeBlocking(call, isGemini, metrics)
                 }
 
                 if (result is AIResponseResult.Error && result.retryable && attempt < MAX_RETRIES) {
@@ -161,7 +237,8 @@ class OpenAIClient {
     private fun executeStreaming(
         call: Call,
         listener: StreamListener?,
-        isGemini: Boolean
+        isGemini: Boolean,
+        metrics: GenerationMetrics?
     ): AIResponseResult {
         val content = StringBuilder()
         val toolCallSlots = sortedMapOf<Int, ToolCallAccumulator>()
@@ -191,11 +268,32 @@ class OpenAIClient {
                     continue
                 }
 
+                // Чанк с usage приходит отдельно и с пустым choices — читаем до разбора choices
+                val usage = chunk.optJSONObject("usage")
+                if (usage != null && metrics != null) {
+                    val prompt = usage.optInt("prompt_tokens", 0)
+                    if (prompt > 0) metrics.promptTokens = prompt
+                    val completion = usage.optInt("completion_tokens", 0)
+                    if (completion > 0) metrics.completionTokens = completion
+                }
+
                 val choices = chunk.optJSONArray("choices") ?: continue
                 val choice0 = choices.optJSONObject(0) ?: continue
                 val delta = choice0.optJSONObject("delta") ?: continue
 
+                val now = System.currentTimeMillis()
+
+                // Размышления thinking-моделей: у OpenRouter это reasoning,
+                // у DeepSeek — reasoning_content.
+                val reasoningPiece =
+                    (delta.opt("reasoning_content") as? String)?.takeIf { it.isNotEmpty() }
+                        ?: (delta.opt("reasoning") as? String)?.takeIf { it.isNotEmpty() }
+                if (reasoningPiece != null) {
+                    metrics?.noteReasoning(reasoningPiece, now)
+                }
+
                 (delta.opt("content") as? String)?.takeIf { it.isNotEmpty() }?.let { piece ->
+                    metrics?.noteContent(now)
                     content.append(piece)
                     emitted = true
                     listener?.onTextDelta(piece)
@@ -271,6 +369,8 @@ class OpenAIClient {
             }
         }
 
+        metrics?.finish()
+
         if (toolCallSlots.isEmpty()) {
             val text = content.toString()
             return if (text.isBlank()) {
@@ -282,7 +382,11 @@ class OpenAIClient {
         return buildToolCallResult(content.toString(), toolCallSlots, isGemini)
     }
 
-    private fun executeBlocking(call: Call, isGemini: Boolean): AIResponseResult {
+    private fun executeBlocking(
+        call: Call,
+        isGemini: Boolean,
+        metrics: GenerationMetrics?
+    ): AIResponseResult {
         call.execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
@@ -295,8 +399,27 @@ class OpenAIClient {
                 return AIResponseResult.Error("Получен пустой ответ от модели.")
             }
 
+            json.optJSONObject("usage")?.let { usage ->
+                if (metrics != null) {
+                    val prompt = usage.optInt("prompt_tokens", 0)
+                    if (prompt > 0) metrics.promptTokens = prompt
+                    val completion = usage.optInt("completion_tokens", 0)
+                    if (completion > 0) metrics.completionTokens = completion
+                }
+            }
+
             val choice0 = choices.getJSONObject(0)
             val message = choice0.getJSONObject("message")
+
+            // Размышления thinking-модели приходят в самом сообщении
+            val reasoning = (message.opt("reasoning_content") as? String)?.takeIf { it.isNotBlank() }
+                ?: (message.opt("reasoning") as? String)?.takeIf { it.isNotBlank() }
+            if (reasoning != null && metrics != null) {
+                val now = System.currentTimeMillis()
+                metrics.noteReasoning(reasoning, now)
+            }
+            metrics?.finish()
+
             val toolCallsJson = message.optJSONArray("tool_calls")
             val messageExtra = message.optJSONObject("extra_content")
             val messageSig = messageExtra?.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }

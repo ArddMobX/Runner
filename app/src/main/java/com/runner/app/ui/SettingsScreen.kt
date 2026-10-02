@@ -329,6 +329,40 @@ private fun SettingsRoot(
                     )
                 )
             }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Время генерации и статистика",
+                        color = TextPrimary,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Тайминги, токены и скорость ответа",
+                        color = TextTertiary,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.showStats,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(showStats = it))
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SurfaceDark,
+                        checkedTrackColor = AccentPrimary,
+                        uncheckedThumbColor = TextTertiary,
+                        uncheckedTrackColor = SurfaceContainerHigh
+                    )
+                )
+            }
         }
 
         SettingsGroup("Сеть и прокси") {
