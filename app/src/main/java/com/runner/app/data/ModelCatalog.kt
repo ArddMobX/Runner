@@ -112,12 +112,14 @@ object ModelCatalog {
         timeoutSeconds: Int = 30,
         customHeaders: String = ""
     ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
-        val target = if (reverseProxyUrl.isNotBlank()) reverseProxyUrl.trim() else baseUrl.trim()
+        val target = com.runner.app.util.UrlSanitizer.sanitizeBaseUrl(
+            if (reverseProxyUrl.isNotBlank()) reverseProxyUrl else baseUrl
+        )
         if (target.isBlank()) {
             return@withContext Result.failure(IOException("Base URL не задан"))
         }
 
-        val endpoint = target.trimEnd('/') + "/models"
+        val endpoint = if (target.endsWith("/models")) target else "$target/models"
         val requestBuilder = Request.Builder()
             .url(endpoint)
             .get()

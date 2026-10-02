@@ -11,8 +11,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -60,11 +62,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.util.PluralUtils
+import com.runner.app.util.UrlSanitizer
 import kotlinx.coroutines.delay
 
 /**
@@ -98,9 +103,11 @@ fun ProviderEditScreen(
 
     LaunchedEffect(apiKey, baseUrl, autoFetchEnabled) {
         if (!autoFetchEnabled) return@LaunchedEffect
-        if (apiKey.isBlank() || baseUrl.isBlank()) return@LaunchedEffect
+        val cleanUrl = UrlSanitizer.sanitizeBaseUrl(baseUrl)
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank() || cleanUrl.isBlank()) return@LaunchedEffect
         delay(600)
-        viewModel.fetchModels(provider.id, baseUrl, apiKey) { status.value = it }
+        viewModel.fetchModels(provider.id, cleanUrl, cleanKey) { status.value = it }
     }
 
     val isActive = provider.id == activeProviderId
@@ -225,7 +232,18 @@ fun ProviderEditScreen(
                         autoFetchEnabled = true
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("sk-...", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp) },
+                    placeholder = {
+                        val isGemini = provider.id.contains("gemini", ignoreCase = true) || name.contains("gemini", ignoreCase = true)
+                        val keyPlaceholder = when {
+                            isGemini -> "AIzaSy..."
+                            provider.id.contains("anthropic", ignoreCase = true) -> "sk-ant-..."
+                            provider.id.contains("openrouter", ignoreCase = true) -> "sk-or-..."
+                            provider.id.contains("groq", ignoreCase = true) -> "gsk_..."
+                            provider.id.contains("openai", ignoreCase = true) -> "sk-..."
+                            else -> "Введите API-ключ..."
+                        }
+                        Text(keyPlaceholder, color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
+                    },
                     singleLine = true,
                     visualTransformation = if (keyVisible) {
                         VisualTransformation.None
@@ -258,21 +276,30 @@ fun ProviderEditScreen(
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Button(
                         onClick = {
+                            val cleanUrl = UrlSanitizer.sanitizeBaseUrl(baseUrl)
+                            val cleanKey = apiKey.trim()
                             viewModel.saveProvider(
                                 provider.copy(
                                     name = name.trim().ifBlank { "Без названия" },
-                                    baseUrl = baseUrl.trim(),
-                                    apiKey = apiKey.trim()
+                                    baseUrl = cleanUrl,
+                                    apiKey = cleanKey
                                 )
                             )
+                            baseUrl = cleanUrl
+                            apiKey = cleanKey
                             status.value = "Сохранено"
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp),
+                            .defaultMinSize(minHeight = 44.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                         enabled = isDirty,
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -282,7 +309,7 @@ fun ProviderEditScreen(
                             disabledContentColor = MaterialTheme.colorScheme.outline
                         )
                     ) {
-                        Text("Сохранить", fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+                        Text("Сохранить", fontSize = 13.5.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
                     }
 
                     if (!isActive) {
@@ -290,7 +317,8 @@ fun ProviderEditScreen(
                             onClick = { viewModel.selectProvider(provider.id) },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp),
+                                .defaultMinSize(minHeight = 44.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                             colors = ButtonDefaults.outlinedButtonColors(
@@ -298,7 +326,14 @@ fun ProviderEditScreen(
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             )
                         ) {
-                            Text("Сделать активным", fontSize = 13.sp)
+                            Text(
+                                text = "Сделать активным",
+                                fontSize = 12.5.sp,
+                                lineHeight = 15.sp,
+                                maxLines = 2,
+                                softWrap = true,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
                 }
@@ -321,7 +356,7 @@ fun ProviderEditScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "${provider.models.size} в списке",
+                            text = "${PluralUtils.models(provider.models.size)} в списке",
                             color = MaterialTheme.colorScheme.outline,
                             fontSize = 11.5.sp
                         )

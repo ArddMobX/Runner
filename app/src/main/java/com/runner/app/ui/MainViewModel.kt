@@ -97,6 +97,15 @@ private const val NO_TOOLS_MARKER = "БЕЗ_ИНСТРУМЕНТОВ"
 /** Жёсткий потолок шагов в плане (лимит исполнения всё равно задаёт maxSteps). */
 private const val MAX_PLAN_STEPS = 12
 
+/** Сколько последних реплик диалога отдаём планировщику для контекста уточнений. */
+private const val PLAN_HISTORY_TAIL = 10
+
+/**
+ * Деструктивные тулы: план с такими шагами всегда показываем на подтверждение.
+ * Безопасные (поиск, чтение, листинги, сводки) исполняются молча.
+ */
+private val DESTRUCTIVE_PLAN_TOOLS = setOf("delete_file", "write_file", "organize_downloads")
+
 /**
  * Системный промпт фазы планирования. Формат строгий: слабые модели
  * (Flash Lite и подобные) надёжно держат нумерованный список, а свободный
@@ -440,13 +449,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsStore.save(newSettings)
     }
 
-    fun resetSystemPrompt() {
-        updateSettings(_settings.value.copy(systemPrompt = AppSettings.DEFAULT_SYSTEM_PROMPT))
-    }
-
     fun setThemeMode(mode: AppThemeMode) {
         viewModelScope.launch { themeStore.updateThemeMode(mode) }
     }
+
 
     fun setColorSource(source: ColorSource) {
         viewModelScope.launch { themeStore.updateColorSource(source) }
@@ -613,7 +619,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Планирование: сначала план шагов + подтверждение, потом исполнение.
                 // Слабым моделям (Flash Lite и подобные) это сильно поднимает надёжность.
                 val planNote = if (_settings.value.planningEnabled) {
-                    requestPlanApproval(sessionId, provider, model, text)
+                    requestPlanApproval(sessionId, provider, model)
                 } else {
                     null
                 }
@@ -652,12 +658,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun requestPlanApproval(
         sessionId: String,
         provider: Provider,
-        model: String,
-        userText: String
+        model: String
     ): String? {
         val currentSettings = _settings.value
         _currentStatus.value = "Составляю план"
 
+        // Короткие уточнения («самая жирная по весу?») планируем в контексте:
+        // отдаём хвост диалога (user/assistant/tool), иначе план слепой
+        // и уводит исполнение в анализ несоответствующих файлов.
+        // conversationJson уже заканчивается текущим сообщением пользователя.
         val planningMessages = JSONArray().apply {
             put(
                 JSONObject().apply {
@@ -665,12 +674,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     put("content", PLAN_SYSTEM_PROMPT)
                 }
             )
-            put(
-                JSONObject().apply {
-                    put("role", "user")
-                    put("content", userText)
-                }
-            )
+            val start = maxOf(0, conversationJson.length() - PLAN_HISTORY_TAIL)
+            for (i in start until conversationJson.length()) {
+                conversationJson.optJSONObject(i)?.let { put(JSONObject(it.toString())) }
+            }
         }
 
         val metrics = GenerationMetrics()
@@ -728,6 +735,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 createdAt = System.currentTimeMillis()
             )
         )
+
+        fun planNoteText(): String = buildString {
+            append("План по шагам (не пропускай шаги, не выдумывай свои инструменты):\n")
+            steps.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
+        }
+
+        // Диалог — только при деструктивных шагах (удаление, перезапись, очистка).
+        // Безопасный план исполняется молча, без паузы на согласование.
+        val needsApproval = steps.any { step ->
+            DESTRUCTIVE_PLAN_TOOLS.any { tool -> step.contains(tool) }
+        }
+        if (!needsApproval) {
+            return planNoteText()
+        }
 
         _currentStatus.value = "Жду подтверждения плана"
         val approved = suspendCancellableCoroutine { continuation ->
@@ -920,7 +941,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // в это число не входит, иначе тайминг теряет смысл.
         var toolDurationMs: Long? = null
 
-        val output = if (ToolDispatcher.isCriticalOperation(call.name)) {
+        // Режим «Спрашивать каждый шаг» поднимает до подтверждения даже безопасные
+        // чтение/поиск. По умолчанию («Только опасные действия») они идут молча.
+        val needConfirm = ToolDispatcher.isCriticalOperation(call.name) || _settings.value.confirmEveryStep
+        val output = if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
 
@@ -1054,12 +1078,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun freshContext(): JSONArray = JSONArray().apply {
-        val basePrompt = _settings.value.systemPrompt
-        val effectivePrompt = if (basePrompt.contains(AppSettings.MANDATORY_PROMPT_SUFFIX)) {
-            basePrompt
-        } else {
-            basePrompt.trimEnd() + "\n- " + AppSettings.MANDATORY_PROMPT_SUFFIX
-        }
+        // База зашита в код + доп. инструкции пользователя (если заданы).
+        val effectivePrompt =
+            AppSettings.buildFinalSystemPrompt(_settings.value.userInstructions)
         put(
             JSONObject().apply {
                 put("role", "system")
@@ -1068,7 +1089,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /**
+     * Анти-спам системных плашек: identical SYSTEM_INFO подряд не плодим
+     * (например, «Ключ провайдера не задан» на каждый клик Send). Повтор просто
+     * игнорируется — в ленте висит один актуальный баннер.
+     */
     private fun appendSystemInfo(text: String, action: MessageAction?) {
+        val last = _messages.value.lastOrNull()
+        if (last != null && last.role == MessageRole.SYSTEM_INFO &&
+            last.content == text && last.action == action
+        ) {
+            return
+        }
         _messages.value = _messages.value + ChatMessage(
             role = MessageRole.SYSTEM_INFO,
             content = text,

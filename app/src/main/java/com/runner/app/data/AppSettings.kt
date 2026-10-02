@@ -7,7 +7,8 @@ import android.content.Context
  * Секретные заголовки шифруются через Android Keystore (SecureStore).
  */
 data class AppSettings(
-    val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
+    /** Пользовательские доп. инструкции. Пусто = только базовый промпт. */
+    val userInstructions: String = "",
     val temperature: Float = 0.2f,
     val maxSteps: Int = DEFAULT_MAX_STEPS,
     val reverseProxyUrl: String = "",
@@ -19,7 +20,12 @@ data class AppSettings(
     /** Показывать тайминги, токены и скорость генерации. */
     val showStats: Boolean = true,
     /** Планирование: модель сначала составляет план шагов, исполнение — после подтверждения. */
-    val planningEnabled: Boolean = true
+    val planningEnabled: Boolean = true,
+    /**
+     * Подтверждение каждого шага: false = «Только опасные действия» (по умолчанию,
+     * безопасные чтение/поиск выполняются молча), true = «Спрашивать каждый шаг».
+     */
+    val confirmEveryStep: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -40,7 +46,11 @@ data class AppSettings(
 
         const val MANDATORY_PROMPT_SUFFIX = "Числа и единицы пиши обычным текстом: 51.6 GB, 89%. Не используй LaTeX, формулы и эмодзи. Не заканчивай ответ фразой 'При необходимости могу...'."
 
-        val DEFAULT_SYSTEM_PROMPT = """
+        /**
+         * Базовый промпт агента: инструменты, пути Android, логика Runner.
+         * Зашит в код, в UI не редактируется — иначе легко сломать логику тулов.
+         */
+        val CORE_SYSTEM_PROMPT = """
             Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам:
             1. Аналитика: get_storage_summary, find_largest_files, find_junk_files, search_files.
             2. Файлы: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
@@ -59,6 +69,21 @@ data class AppSettings(
             - Отвечай кратко и по делу, на русском языке.
             - $MANDATORY_PROMPT_SUFFIX
         """.trimIndent()
+
+        /** Склейка базы и пользовательских инструкций для системного сообщения LLM. */
+        fun buildFinalSystemPrompt(userInstructions: String): String {
+            val user = userInstructions.trim()
+            val base = if (user.isBlank()) {
+                CORE_SYSTEM_PROMPT
+            } else {
+                CORE_SYSTEM_PROMPT + "\n\nДополнительные инструкции пользователя:\n" + user
+            }
+            return if (base.contains(MANDATORY_PROMPT_SUFFIX)) {
+                base
+            } else {
+                base.trimEnd() + "\n- " + MANDATORY_PROMPT_SUFFIX
+            }
+        }
     }
 }
 
@@ -97,7 +122,16 @@ class SettingsStore(context: Context) {
         }
 
         return AppSettings(
-            systemPrompt = prefs.getString(KEY_PROMPT, null) ?: AppSettings.DEFAULT_SYSTEM_PROMPT,
+            // Миграция со старого редактируемого промпта: нетронутый дефолт
+            // равен CORE_SYSTEM_PROMPT — сбрасываем в пустые инструкции,
+            // изменённый текст бережно сохраняем как пользовательские инструкции.
+            userInstructions = prefs.getString(KEY_PROMPT, null).let { stored ->
+                when {
+                    stored == null -> ""
+                    stored == AppSettings.CORE_SYSTEM_PROMPT -> ""
+                    else -> stored
+                }
+            },
             temperature = prefs.getFloat(KEY_TEMPERATURE, 0.2f),
             maxSteps = effectiveSteps,
             reverseProxyUrl = prefs.getString(KEY_PROXY, null) ?: migratedProxy,
@@ -107,14 +141,15 @@ class SettingsStore(context: Context) {
             textScale = prefs.getFloat(KEY_TEXT_SCALE, 1f),
             showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
             showStats = prefs.getBoolean(KEY_SHOW_STATS, true),
-            planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true)
+            planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
+            confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false)
         )
     }
 
     fun save(settings: AppSettings) {
         val encryptedHeaders = SecureStore.encrypt(settings.customHeaders)
         val editor = prefs.edit()
-            .putString(KEY_PROMPT, settings.systemPrompt)
+            .putString(KEY_PROMPT, settings.userInstructions)
             .putFloat(KEY_TEMPERATURE, settings.temperature)
             .putInt(KEY_MAX_STEPS, settings.maxSteps)
             .putString(KEY_PROXY, settings.reverseProxyUrl)
@@ -125,6 +160,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_SHOW_TOOL_DETAILS, settings.showToolDetails)
             .putBoolean(KEY_SHOW_STATS, settings.showStats)
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
+            .putBoolean(KEY_CONFIRM_EVERY_STEP, settings.confirmEveryStep)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -151,5 +187,6 @@ class SettingsStore(context: Context) {
         const val KEY_SHOW_TOOL_DETAILS = "show_tool_details"
         const val KEY_SHOW_STATS = "show_stats"
         const val KEY_PLANNING_ENABLED = "planning_enabled"
+        const val KEY_CONFIRM_EVERY_STEP = "confirm_every_step"
     }
 }

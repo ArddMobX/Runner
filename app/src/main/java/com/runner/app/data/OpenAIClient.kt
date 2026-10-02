@@ -725,12 +725,13 @@ class OpenAIClient {
         (2000L * (1L shl (attempt - 1))).coerceAtMost(10_000L)
 
     private fun resolveChatEndpoint(baseUrl: String, reverseProxyUrl: String): String {
-        val target = if (reverseProxyUrl.isNotBlank()) reverseProxyUrl.trim() else baseUrl.trim()
-        val trimmed = target.trimEnd('/')
+        val target = com.runner.app.util.UrlSanitizer.sanitizeBaseUrl(
+            if (reverseProxyUrl.isNotBlank()) reverseProxyUrl else baseUrl
+        )
         return when {
-            trimmed.endsWith("/chat/completions") -> trimmed
-            trimmed.endsWith("/v1") -> "$trimmed/chat/completions"
-            else -> "$trimmed/chat/completions"
+            target.endsWith("/chat/completions") -> target
+            target.endsWith("/v1") -> "$target/chat/completions"
+            else -> "$target/chat/completions"
         }
     }
 
@@ -745,7 +746,7 @@ class OpenAIClient {
         customHeaders: String = "",
         providerName: String = ""
     ): ConnectionTestResult = withContext(Dispatchers.IO) {
-        val cleanUrl = targetUrl.trim()
+        val cleanUrl = com.runner.app.util.UrlSanitizer.sanitizeBaseUrl(targetUrl)
         val providerPrefix = if (providerName.isNotBlank()) "$providerName: " else ""
         if (cleanUrl.isBlank()) {
             return@withContext ConnectionTestResult(

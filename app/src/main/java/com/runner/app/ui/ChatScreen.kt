@@ -108,6 +108,7 @@ import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
+import com.runner.app.util.PluralUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,10 +193,18 @@ fun ChatScreen(
                     }
                 },
                 title = {
+                    // Название — как в списке провайдера: сначала ищем label
+                    // выбранной модели, иначе форматируем raw ID. Логотип
+                    // по-прежнему строится по raw ID внутри ModelChip.
+                    val activeModelId = provider?.activeModel.orEmpty()
+                    val activeModelLabel = provider?.models
+                        ?.firstOrNull { it.id == activeModelId }
+                        ?.label?.takeIf { it.isNotBlank() }
                     ModelChip(
                         providerId = provider?.id.orEmpty(),
                         providerName = provider?.name ?: "Провайдер",
-                        modelName = provider?.activeModel.orEmpty().ifBlank { "модель не выбрана" },
+                        modelName = activeModelId.ifBlank { "модель не выбрана" },
+                        displayName = activeModelLabel.orEmpty(),
                         hasKey = provider?.apiKey?.isNotBlank() == true,
                         isLoading = modelsLoadingFor != null,
                         onClick = { showModelPicker = true }
@@ -242,28 +251,43 @@ fun ChatScreen(
                             LocalDensity.current.fontScale * appSettings.textScale
                         )
                     ) {
+                        // Серии одинаковых вызовов схлопываем в один аккордеон,
+                        // чтобы «Выполняю команду...» не захламляли экран.
+                        val chatItems = remember(messages) { groupChatItems(messages) }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(messages, key = { it.id }) { message ->
-                                MessageItem(
-                                    message = message,
-                                    showToolDetails = appSettings.showToolDetails,
-                                    showStats = appSettings.showStats,
-                                    planAwaitingId = pendingPlan?.id,
-                                    onApprovePlan = { viewModel.resolvePlan(true) },
-                                    onRejectPlan = { viewModel.resolvePlan(false) },
-                                    onAction = { action ->
-                                        when (action) {
-                                            MessageAction.OPEN_SETTINGS -> onOpenSettings()
-                                            MessageAction.OPEN_MODELS -> showModelPicker = true
-                                            MessageAction.GRANT_STORAGE -> onOpenStorageSettings()
-                                        }
+                            items(
+                                chatItems,
+                                key = {
+                                    when (it) {
+                                        is ChatListItem.Single -> it.message.id
+                                        is ChatListItem.ToolGroup -> "group_${it.messages.first().id}"
                                     }
-                                )
+                                }
+                            ) { item ->
+                                when (item) {
+                                    is ChatListItem.Single -> MessageItem(
+                                        message = item.message,
+                                        showToolDetails = appSettings.showToolDetails,
+                                        showStats = appSettings.showStats,
+                                        planAwaitingId = pendingPlan?.id,
+                                        onApprovePlan = { viewModel.resolvePlan(true) },
+                                        onRejectPlan = { viewModel.resolvePlan(false) },
+                                        onAction = { action ->
+                                            when (action) {
+                                                MessageAction.OPEN_SETTINGS -> onOpenSettings()
+                                                MessageAction.OPEN_MODELS -> showModelPicker = true
+                                                MessageAction.GRANT_STORAGE -> onOpenStorageSettings()
+                                            }
+                                        }
+                                    )
+
+                                    is ChatListItem.ToolGroup -> ToolGroupCard(messages = item.messages)
+                                }
                             }
 
                             if (streamingText.isNotBlank()) {
@@ -371,9 +395,13 @@ private fun ModelChip(
     modelName: String,
     hasKey: Boolean,
     isLoading: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    /** Готовое название из списка провайдера; пусто — форматируем modelName. */
+    displayName: String = ""
 ) {
-    val cleanModel = remember(modelName) { formatModelName(modelName) }
+    val cleanModel = remember(displayName, modelName) {
+        displayName.ifBlank { formatModelName(modelName) }
+    }
     val brandLogo = remember(modelName, providerId, providerName) {
         ProviderLogos.forModelOrProvider(
             modelId = modelName,
@@ -792,7 +820,7 @@ private fun PlanCard(
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "${steps.size} шагов",
+                    text = PluralUtils.steps(steps.size),
                     color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
@@ -869,6 +897,144 @@ private fun parsePlanStepsUi(text: String): List<String> {
     val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
     return text.lines()
         .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
+}
+
+/**
+ * Элемент ленты чата: одиночное сообщение либо схлопнутая серия
+ * одинаковых вызовов инструментов.
+ */
+private sealed interface ChatListItem {
+    data class Single(val message: ChatMessage) : ChatListItem
+    data class ToolGroup(val messages: List<ChatMessage>) : ChatListItem
+}
+
+/**
+ * Схлопывает идущие подряд завершённые вызовы одного и того же тула
+ * («Выполняю команду...» × N) в единую группу. Живые (isRunning) и
+ * одиночные вызовы не трогаем.
+ */
+private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
+    val out = mutableListOf<ChatListItem>()
+    var run = mutableListOf<ChatMessage>()
+    fun flush() {
+        if (run.size == 1) out += ChatListItem.Single(run[0])
+        else if (run.isNotEmpty()) out += ChatListItem.ToolGroup(run.toList())
+        run = mutableListOf()
+    }
+    for (m in messages) {
+        val continues = m.role == MessageRole.TOOL_EXECUTION && !m.isRunning &&
+                m.toolName != null && (run.isEmpty() || run.last().toolName == m.toolName)
+        if (continues) {
+            run += m
+        } else {
+            flush()
+            if (m.role == MessageRole.TOOL_EXECUTION && !m.isRunning && m.toolName != null) {
+                run += m
+            } else {
+                out += ChatListItem.Single(m)
+            }
+        }
+    }
+    flush()
+    return out
+}
+
+/**
+ * Аккордеон серии вызовов: «Выполнено N действий (нажми для деталей)».
+ * Внутри — заголовок и вывод каждого вызова, стиль как у лёгкой тул-плашки.
+ */
+@Composable
+private fun ToolGroupCard(messages: List<ChatMessage>) {
+    var expanded by remember(messages.first().id) { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionTokens.fluidSpring(),
+        label = "group_chevron_rotation"
+    )
+    val hasErrors = messages.any { it.isError }
+    val compactShape = RoundedCornerShape(9.dp)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(compactShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f))
+            .border(
+                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                compactShape
+            )
+            .animateContentSize(animationSpec = MotionTokens.fluidSpring())
+            .clickable { expanded = !expanded }
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(if (hasErrors) MaterialTheme.colorScheme.error else StatusSuccess)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Выполнено ${PluralUtils.actions(messages.size)}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = "· ${messages.first().content}",
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 6.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Свернуть" else "Детали",
+                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(14.dp)
+                        .graphicsLayer { rotationZ = rotation }
+                )
+            }
+
+            if (expanded) {
+                Spacer(modifier = Modifier.height(9.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(4.dp))
+                messages.forEachIndexed { index, m ->
+                    if (index > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            thickness = 0.5.dp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    Text(
+                        text = m.content,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!m.toolOutput.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        ToolOutputView(output = m.toolOutput)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**

@@ -1,10 +1,8 @@
 package com.runner.app.ui
 
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -18,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,7 +40,6 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -105,6 +103,7 @@ import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
+import com.runner.app.util.PluralUtils
 import java.net.URI
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -244,15 +243,15 @@ private fun SettingsRoot(
 
         SettingsGroup("Агент") {
             SettingsRow(
-                label = "Системный промпт",
-                value = "${appSettings.systemPrompt.length} символов",
+                label = "Доп. инструкции",
+                value = appSettings.userInstructions.trim().takeIf { it.isNotEmpty() }?.let { "${it.length} символов" } ?: "Не заданы",
                 onClick = { onNavigate(SettingsRoute.Agent) },
                 icon = Icons.Outlined.Terminal
             )
             SettingsDivider()
             SettingsRow(
                 label = "Температура и шаги",
-                value = "${appSettings.temperature} · ${appSettings.maxSteps} шагов",
+                value = "${appSettings.temperature} · ${PluralUtils.steps(appSettings.maxSteps)}",
                 onClick = { onNavigate(SettingsRoute.Agent) },
                 icon = Icons.Outlined.Tune
             )
@@ -825,7 +824,6 @@ private fun ProvidersList(
 @Composable
 private fun AgentSettings(viewModel: MainViewModel) {
     val appSettings by viewModel.settings.collectAsState()
-    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -835,13 +833,9 @@ private fun AgentSettings(viewModel: MainViewModel) {
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         SettingsGroup {
-            SystemPromptBlock(
-                prompt = appSettings.systemPrompt,
-                onPromptChange = { viewModel.updateSettings(appSettings.copy(systemPrompt = it)) },
-                onCopy = {
-                    copyText(context, appSettings.systemPrompt, "Промпт")
-                },
-                onReset = { viewModel.resetSystemPrompt() }
+            UserInstructionsField(
+                instructions = appSettings.userInstructions,
+                onInstructionsChange = { viewModel.updateSettings(appSettings.copy(userInstructions = it)) }
             )
 
             SettingsDivider()
@@ -890,6 +884,47 @@ private fun AgentSettings(viewModel: MainViewModel) {
                     fontSize = 11.5.sp
                 )
             }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Спрашивать каждый шаг",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.confirmEveryStep) {
+                            "Спрашивать каждый шаг"
+                        } else {
+                            "Только опасные действия"
+                        },
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.confirmEveryStep,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(confirmEveryStep = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.confirmEveryStep) {
+                Text(
+                    text = "Безопасные чтение и поиск тоже будут ждать подтверждения.",
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -897,97 +932,78 @@ private fun AgentSettings(viewModel: MainViewModel) {
 }
 
 /**
- * Системный промпт как терминальный блок: моноширинный шрифт на тёмной плашке,
- * копирование в углу, свёрнуто до 6 строк с кнопкой разворота.
+ * Пользовательские доп. инструкции: многострочное поле в терминальном стиле,
+ * всегда видно целиком. Кнопка очистки — только когда текст введён.
+ * Базовый промпт зашит в код (CORE_SYSTEM_PROMPT) и здесь не показывается.
  */
 @Composable
-private fun SystemPromptBlock(
-    prompt: String,
-    onPromptChange: (String) -> Unit,
-    onCopy: () -> Unit,
-    onReset: () -> Unit
+private fun UserInstructionsField(
+    instructions: String,
+    onInstructionsChange: (String) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
     Column(modifier = Modifier.padding(14.dp)) {
-        SliderHeader(
-            title = "Системный промпт",
-            badge = "${prompt.length} символов"
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                    .border(
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        RoundedCornerShape(10.dp)
-                    )
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 12.dp, end = 4.dp, top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "system",
-                            color = MaterialTheme.colorScheme.outline,
-                            fontSize = 10.5.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
-                            Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
-                                contentDescription = "Копировать промпт",
-                                tint = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-
-                    BasicTextField(
-                        value = prompt,
-                        onValueChange = onPromptChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                        textStyle = TextStyle(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 12.5.sp,
-                            lineHeight = 18.sp,
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        maxLines = if (expanded) Int.MAX_VALUE else 6,
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Row {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Дополнительные инструкции",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            if (instructions.isNotBlank()) {
                 TextButton(
-                    onClick = { expanded = !expanded },
+                    onClick = { onInstructionsChange("") },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = if (expanded) "Свернуть" else "Показать полностью",
-                        color = MaterialTheme.colorScheme.primary,
+                        text = "Очистить",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.5.sp
                     )
                 }
-                TextButton(
-                    onClick = onReset,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(text = "Сбросить", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.5.sp)
-                }
             }
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    RoundedCornerShape(10.dp)
+                )
+        ) {
+            BasicTextField(
+                value = instructions,
+                onValueChange = onInstructionsChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 96.dp)
+                    .padding(12.dp),
+                textStyle = TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    if (instructions.isEmpty()) {
+                        Text(
+                            text = "Задай стиль общения, язык или дополнительные правила поведения агента...",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp
+                        )
+                    }
+                    innerTextField()
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -1255,7 +1271,7 @@ private fun DiscreteStepsSlider(
                 fontFamily = FontFamily.Monospace
             )
             Text(
-                text = "$value шагов",
+                text = PluralUtils.steps(value),
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
@@ -1623,12 +1639,6 @@ private fun isValidHttpUrl(value: String): Boolean {
 private fun readClipboard(context: Context): String {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     return manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-}
-
-private fun copyText(context: Context, text: String, label: String) {
-    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    manager.setPrimaryClip(ClipData.newPlainText(label, text))
-    Toast.makeText(context, "$label скопирован в буфер", Toast.LENGTH_SHORT).show()
 }
 
 @Composable
