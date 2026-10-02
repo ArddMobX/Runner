@@ -144,7 +144,7 @@ fun ChatInputBar(
             cursorBrush = SolidColor(AccentPrimary),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
-                autoCorrectEnabled = true,
+                autoCorrect = true,
                 imeAction = ImeAction.Send
             ),
             keyboardActions = KeyboardActions(
