@@ -36,15 +36,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.runner.app.ui.theme.AccentPrimary
+import androidx.compose.material3.MaterialTheme
 import com.runner.app.ui.theme.MotionTokens
-import com.runner.app.ui.theme.OutlineSubtle
-import com.runner.app.ui.theme.StatusError
-import com.runner.app.ui.theme.SurfaceContainer
-import com.runner.app.ui.theme.SurfaceContainerHigh
-import com.runner.app.ui.theme.SurfaceDark
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextTertiary
 import com.runner.app.ui.theme.bounceClick
 
 /**
@@ -105,9 +98,9 @@ fun ChatInputBar(
 
     val borderColor by animateColorAsState(
         targetValue = when {
-            isRunning -> StatusError.copy(alpha = 0.4f)
-            isActive -> AccentPrimary.copy(alpha = 0.45f)
-            else -> OutlineSubtle
+            isRunning -> MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
+            isActive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+            else -> MaterialTheme.colorScheme.outlineVariant
         },
         animationSpec = MotionTokens.fluidTween(200),
         label = "input_border"
@@ -126,7 +119,7 @@ fun ChatInputBar(
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(SurfaceContainer)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(24.dp))
             .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.Bottom
@@ -138,10 +131,10 @@ fun ChatInputBar(
                 .weight(1f)
                 .padding(start = 14.dp, end = 6.dp, top = 11.dp, bottom = 11.dp)
                 .onFocusChanged { isFocused = it.isFocused },
-            textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, lineHeight = 21.sp),
+            textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, lineHeight = 21.sp),
             maxLines = 5,
             minLines = 1,
-            cursorBrush = SolidColor(AccentPrimary),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
                 autoCorrect = true,
@@ -155,7 +148,7 @@ fun ChatInputBar(
                     if (rawText.isEmpty()) {
                         Text(
                             text = "Задать задачу",
-                            color = TextTertiary,
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 15.sp,
                             lineHeight = 21.sp
                         )
@@ -189,9 +182,9 @@ private fun SendStopButton(
 
     val background by animateColorAsState(
         targetValue = when {
-            isRunning -> StatusError.copy(alpha = 0.18f)
-            canSend -> AccentPrimary
-            else -> SurfaceContainerHigh.copy(alpha = 0.6f)
+            isRunning -> MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+            canSend -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
         },
         animationSpec = MotionTokens.fluidTween(220),
         label = "send_background"
@@ -199,9 +192,9 @@ private fun SendStopButton(
 
     val iconTint by animateColorAsState(
         targetValue = when {
-            isRunning -> StatusError
-            canSend -> SurfaceDark
-            else -> TextTertiary
+            isRunning -> MaterialTheme.colorScheme.error
+            canSend -> MaterialTheme.colorScheme.onPrimary
+            else -> MaterialTheme.colorScheme.outline
         },
         animationSpec = MotionTokens.fluidTween(220),
         label = "send_tint"

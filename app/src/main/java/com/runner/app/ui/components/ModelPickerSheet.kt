@@ -62,18 +62,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
 import com.runner.app.data.Provider
-import com.runner.app.ui.theme.AccentPrimary
-import com.runner.app.ui.theme.OutlineSubtle
 import com.runner.app.ui.theme.StatusSuccess
-import com.runner.app.ui.theme.SurfaceContainer
-import com.runner.app.ui.theme.SurfaceContainerHigh
-import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.SurfaceDark
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
 
 /**
  * Выбор модели: провайдер сверху, поиск, список моделей с бейджем контекста
@@ -101,16 +93,19 @@ fun ModelPickerSheet(
     val provider = providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull()
     val isLoading = provider != null && loadingProviderId == provider.id
 
-    val models = provider?.models.orEmpty().filter { model ->
-        query.isBlank() ||
-                model.id.contains(query.trim(), ignoreCase = true) ||
-                model.name.contains(query.trim(), ignoreCase = true)
-    }
+    val models = provider?.models.orEmpty()
+        .filter { model -> ModelCatalog.isChatAndToolModel(model.id, model.name) }
+        .filter { model ->
+            query.isBlank() ||
+                    model.id.contains(query.trim(), ignoreCase = true) ||
+                    model.label.contains(query.trim(), ignoreCase = true) ||
+                    model.name.contains(query.trim(), ignoreCase = true)
+        }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = SurfaceContainerLow,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = Color.Black.copy(alpha = 0.65f),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
@@ -120,7 +115,7 @@ fun ModelPickerSheet(
                     .width(32.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(TextTertiary.copy(alpha = 0.4f))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
             )
         }
     ) {
@@ -138,14 +133,14 @@ fun ModelPickerSheet(
             ) {
                 Text(
                     text = if (manualMode) "Свой ID модели" else "Модель",
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
                 if (manualMode) {
                     TextButton(onClick = { manualMode = false }) {
-                        Text("К списку", color = AccentPrimary, fontSize = 13.sp)
+                        Text("К списку", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                     }
                 } else if (provider != null) {
                     IconButton(
@@ -156,13 +151,13 @@ fun ModelPickerSheet(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
                                 strokeWidth = 1.8.dp,
-                                color = AccentPrimary
+                                color = MaterialTheme.colorScheme.primary
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
                                 contentDescription = "Обновить список",
-                                tint = TextSecondary,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -202,11 +197,15 @@ fun ModelPickerSheet(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) SurfaceContainerHigh else SurfaceContainer)
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh
+                                else MaterialTheme.colorScheme.surfaceContainer
+                            )
                             .border(
                                 BorderStroke(
                                     1.dp,
-                                    if (isSelected) AccentPrimary.copy(alpha = 0.5f) else OutlineSubtle
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                 ),
                                 RoundedCornerShape(8.dp)
                             )
@@ -221,7 +220,7 @@ fun ModelPickerSheet(
                                 Icon(
                                     imageVector = providerLogo,
                                     contentDescription = null,
-                                    tint = if (isSelected) AccentPrimary else TextSecondary,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -230,21 +229,21 @@ fun ModelPickerSheet(
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(RoundedCornerShape(3.dp))
-                                        .background(TextTertiary)
+                                        .background(MaterialTheme.colorScheme.outline)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                             } else if (isSelected) {
                                 Icon(
                                     imageVector = Icons.Outlined.Check,
                                     contentDescription = null,
-                                    tint = AccentPrimary,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(5.dp))
                             }
                             Text(
                                 text = item.name,
-                                color = if (isSelected) AccentPrimary else TextPrimary,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -259,13 +258,16 @@ fun ModelPickerSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
-                placeholder = { Text("Поиск модели", color = TextTertiary, fontSize = 13.sp) },
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        RoundedCornerShape(10.dp)
+                    ),
+                placeholder = { Text("Поиск модели", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Search,
                         contentDescription = null,
-                        tint = TextTertiary,
+                        tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(17.dp)
                     )
                 },
@@ -288,14 +290,14 @@ fun ModelPickerSheet(
                 Icon(
                     imageVector = Icons.Outlined.Edit,
                     contentDescription = null,
-                    tint = AccentPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                Text(text = "Ввести ID вручную", color = AccentPrimary, fontSize = 13.sp)
+                Text(text = "Ввести ID вручную", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
             }
 
-            HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
 
             when {
                 provider == null -> SheetMessage("Нет ни одного провайдера")
@@ -307,12 +309,12 @@ fun ModelPickerSheet(
                 ) {
                     Text(
                         text = "У провайдера ${provider.name} не задан ключ — список моделей не запросить.",
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     TextButton(onClick = onOpenProviderSettings) {
-                        Text("Открыть провайдеры", color = AccentPrimary, fontSize = 13.sp)
+                        Text("Открыть провайдеры", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                     }
                 }
 
@@ -333,7 +335,7 @@ fun ModelPickerSheet(
                                 Toast.makeText(context, "ID скопирован в буфер", Toast.LENGTH_SHORT).show()
                             }
                         )
-                        HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
                     }
                 }
             }
@@ -350,7 +352,7 @@ private fun ModelRow(
     onSelect: () -> Unit,
     onCopy: () -> Unit
 ) {
-    val hasReadableName = model.name.isNotBlank()
+    val hasReadableName = model.name.isNotBlank() || model.label != model.id
     val modelLogo = remember(model.id, providerId, providerName) {
         ProviderLogos.forModelOrProvider(
             modelId = model.id,
@@ -370,11 +372,15 @@ private fun ModelRow(
             modifier = Modifier
                 .size(32.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (isActive) AccentPrimary.copy(alpha = 0.12f) else SurfaceContainerHigh)
+                .background(
+                    if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                )
                 .border(
                     BorderStroke(
                         1.dp,
-                        if (isActive) AccentPrimary.copy(alpha = 0.35f) else OutlineSubtle
+                        if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                     ),
                     RoundedCornerShape(8.dp)
                 ),
@@ -383,7 +389,7 @@ private fun ModelRow(
             Icon(
                 imageVector = modelLogo ?: Icons.Outlined.AutoAwesome,
                 contentDescription = null,
-                tint = if (isActive) AccentPrimary else TextSecondary,
+                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -393,7 +399,7 @@ private fun ModelRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = model.label,
-                color = if (isActive) AccentPrimary else TextPrimary,
+                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 fontSize = 13.5.sp,
                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
@@ -403,7 +409,7 @@ private fun ModelRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = model.id,
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
@@ -416,12 +422,12 @@ private fun ModelRow(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(5.dp))
-                    .background(SurfaceContainerHigh)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = badge,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
                 )
@@ -446,7 +452,7 @@ private fun ModelRow(
             Icon(
                 imageVector = Icons.Outlined.ContentCopy,
                 contentDescription = "Скопировать ID",
-                tint = TextTertiary,
+                tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(15.dp)
             )
         }
@@ -463,7 +469,7 @@ private fun ManualIdEntry(
     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
         Text(
             text = "Провайдер должен поддерживать tool calling, иначе агент не сможет вызывать инструменты.",
-            color = TextTertiary,
+            color = MaterialTheme.colorScheme.outline,
             fontSize = 11.5.sp,
             lineHeight = 16.sp
         )
@@ -473,9 +479,12 @@ private fun ManualIdEntry(
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    RoundedCornerShape(10.dp)
+                ),
             placeholder = {
-                Text("meta-llama/llama-3.3-70b-instruct", color = TextTertiary, fontSize = 13.sp)
+                Text("meta-llama/llama-3.3-70b-instruct", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
             },
             singleLine = true,
             shape = RoundedCornerShape(10.dp),
@@ -490,10 +499,10 @@ private fun ManualIdEntry(
                 .height(44.dp),
             shape = RoundedCornerShape(11.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = AccentPrimary,
-                contentColor = SurfaceDark,
-                disabledContainerColor = SurfaceContainerHigh,
-                disabledContentColor = TextTertiary
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                disabledContentColor = MaterialTheme.colorScheme.outline
             )
         ) {
             Text("Использовать этот ID", fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
@@ -510,7 +519,7 @@ private fun SheetMessage(text: String) {
             .padding(vertical = 40.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = TextTertiary, fontSize = 13.sp)
+        Text(text = text, color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
     }
 }
 
@@ -521,11 +530,11 @@ private fun copyToClipboard(context: Context, text: String) {
 
 @Composable
 private fun sheetFieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = SurfaceContainer,
-    unfocusedContainerColor = SurfaceContainer,
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
     focusedIndicatorColor = Color.Transparent,
     unfocusedIndicatorColor = Color.Transparent,
-    cursorColor = AccentPrimary,
-    focusedTextColor = TextPrimary,
-    unfocusedTextColor = TextPrimary
+    cursorColor = MaterialTheme.colorScheme.primary,
+    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
 )

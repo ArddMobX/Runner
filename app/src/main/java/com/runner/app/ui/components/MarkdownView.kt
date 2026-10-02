@@ -32,12 +32,14 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.runner.app.ui.theme.*
+import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.theme.bounceClick
 
 sealed class MarkdownElement {
     data class Header(val level: Int, val content: String) : MarkdownElement()
     data class CodeBlock(val language: String, val code: String) : MarkdownElement()
     data class MathBlock(val latex: String) : MarkdownElement()
+    data class ListBlock(val items: List<MarkdownElement>) : MarkdownElement()
     data class BulletItem(val text: String) : MarkdownElement()
     data class NumberedItem(val number: String, val text: String) : MarkdownElement()
     data class Blockquote(val text: String) : MarkdownElement()
@@ -61,6 +63,7 @@ fun MarkdownView(
                     is MarkdownElement.Header -> HeaderElement(element)
                     is MarkdownElement.CodeBlock -> CodeBlockElement(element)
                     is MarkdownElement.MathBlock -> MathBlockElement(element)
+                    is MarkdownElement.ListBlock -> ListBlockElement(element)
                     is MarkdownElement.BulletItem -> BulletElement(element)
                     is MarkdownElement.NumberedItem -> NumberedElement(element)
                     is MarkdownElement.Blockquote -> BlockquoteElement(element)
@@ -94,9 +97,13 @@ private fun HeaderElement(element: MarkdownElement.Header) {
         ) to 5.dp
     }
     Text(
-        text = renderInlineMarkdown(element.content),
+        text = renderInlineMarkdown(
+            element.content,
+            primaryColor = MaterialTheme.colorScheme.primary,
+            secondaryColor = MaterialTheme.colorScheme.secondary
+        ),
         style = style,
-        color = TextPrimary,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.padding(top = topPadding)
     )
 }
@@ -107,8 +114,8 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
     var copied by remember { mutableStateOf(false) }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceContainerHigh),
-        border = BorderStroke(1.dp, OutlineSubtle),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -117,7 +124,7 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(SurfaceContainerLowest.copy(alpha = 0.5f))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.5f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -127,7 +134,7 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,
-                    color = AccentPrimary
+                    color = MaterialTheme.colorScheme.primary
                 )
 
                 Row(
@@ -153,7 +160,7 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                         Icon(
                             imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
                             contentDescription = "Копировать",
-                            tint = if (copied) StatusSuccess else TextSecondary,
+                            tint = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -172,7 +179,7 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -182,8 +189,8 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
 @Composable
 private fun MathBlockElement(element: MarkdownElement.MathBlock) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceContainerHigh),
-        border = BorderStroke(1.dp, OutlineSubtle),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -194,7 +201,7 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
                 Icon(
                     imageVector = Icons.Outlined.Functions,
                     contentDescription = "LaTeX Formula",
-                    tint = AccentSecondary,
+                    tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(15.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -202,7 +209,7 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
                     text = "LaTeX Formula",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = AccentSecondary
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
 
@@ -272,22 +279,41 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
 }
 
 @Composable
+private fun ListBlockElement(element: MarkdownElement.ListBlock) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        element.items.forEach { item ->
+            when (item) {
+                is MarkdownElement.BulletItem -> BulletElement(item)
+                is MarkdownElement.NumberedItem -> NumberedElement(item)
+                else -> {}
+            }
+        }
+    }
+}
+
+@Composable
 private fun BulletElement(element: MarkdownElement.BulletItem) {
     Row(
-        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Маркер меньше текста, иначе список спорит по весу с обычным абзацем.
+        // Увеличенный маркер с выравниванием по строке текста
         Text(
             text = "•",
-            color = AccentPrimary,
-            fontWeight = FontWeight.Medium,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 2.dp, end = 8.dp)
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            lineHeight = 22.sp,
+            modifier = Modifier.padding(end = 8.dp)
         )
         MarkdownText(
             text = element.text,
-            style = MaterialTheme.typography.bodyLarge
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
         )
     }
 }
@@ -295,22 +321,24 @@ private fun BulletElement(element: MarkdownElement.BulletItem) {
 @Composable
 private fun NumberedElement(element: MarkdownElement.NumberedItem) {
     Row(
-        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Фиксированная ширина — чтобы двузначные номера не сдвигали текст.
         Text(
             text = "${element.number}.",
-            color = AccentPrimary,
-            fontWeight = FontWeight.Medium,
-            fontSize = 12.5.sp,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 22.sp,
             modifier = Modifier
-                .width(20.dp)
-                .padding(top = 3.dp)
+                .width(22.dp)
+                .padding(end = 4.dp)
         )
         MarkdownText(
             text = element.text,
-            style = MaterialTheme.typography.bodyLarge
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
         )
     }
 }
@@ -321,18 +349,22 @@ private fun BlockquoteElement(element: MarkdownElement.Blockquote) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .background(SurfaceContainerHigh.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
             .border(
-                BorderStroke(2.dp, AccentPrimary.copy(alpha = 0.6f)),
+                BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
                 RoundedCornerShape(4.dp)
             )
             .padding(10.dp)
     ) {
         Text(
-            text = renderInlineMarkdown(element.text),
+            text = renderInlineMarkdown(
+                element.text,
+                primaryColor = MaterialTheme.colorScheme.primary,
+                secondaryColor = MaterialTheme.colorScheme.secondary
+            ),
             fontStyle = FontStyle.Italic,
             style = MaterialTheme.typography.bodyLarge,
-            color = TextSecondary
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -381,14 +413,16 @@ private fun shouldUseChips(segments: List<InlineSegment>): Boolean {
 private fun MarkdownText(
     text: String,
     style: TextStyle,
-    color: Color = TextPrimary,
+    color: Color = MaterialTheme.colorScheme.onSurface,
     modifier: Modifier = Modifier
 ) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
     val segments = remember(text) { splitInline(text) }
 
     if (!shouldUseChips(segments)) {
         Text(
-            text = renderInlineMarkdown(text),
+            text = renderInlineMarkdown(text, primaryColor, secondaryColor),
             style = style,
             color = color,
             modifier = modifier
@@ -423,13 +457,13 @@ private fun InlineChip(text: String) {
     Box(
         modifier = Modifier
             .clip(shape)
-            .background(AccentPrimary.copy(alpha = 0.14f))
-            .border(BorderStroke(0.5.dp, AccentPrimary.copy(alpha = 0.22f)), shape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)), shape)
             .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Text(
             text = text,
-            color = AccentPrimary,
+            color = MaterialTheme.colorScheme.primary,
             fontSize = 13.5.sp,
             fontFamily = FontFamily.Monospace,
             maxLines = 1
@@ -446,10 +480,53 @@ private fun ParagraphElement(element: MarkdownElement.Paragraph) {
 }
 
 /**
+ * Sanitizes LaTeX numbers, units, and escapes from LLM responses:
+ * - \text{X} -> X
+ * - \% -> %
+ * - Strips $...$ around numbers, units, and percentages (e.g. $51.6 GB$ -> 51.6 GB, $89%$ -> 89%)
+ */
+fun sanitizeMarkdown(text: String): String {
+    if (text.isEmpty() || (!text.contains("\\text") && !text.contains("\\%") && !text.contains("$"))) {
+        return text
+    }
+
+    val parts = text.split("```")
+    if (parts.size > 1) {
+        return parts.mapIndexed { index, part ->
+            if (index % 2 == 1) {
+                // Inside code block: preserve exactly
+                part
+            } else {
+                sanitizeTextChunk(part)
+            }
+        }.joinToString("```")
+    }
+
+    return sanitizeTextChunk(text)
+}
+
+private fun sanitizeTextChunk(chunk: String): String {
+    // 1. \text{X} -> X
+    var result = Regex("""\\text\{([^}]*)\}""").replace(chunk) { it.groupValues[1] }
+    // 2. \% -> %
+    result = result.replace("""\%""", "%")
+    // 3. Remove $...$ around numbers and units (e.g. $51.6 GB$, $89%$, $100$)
+    result = Regex("""(?<!\$)\$\s*([~≈±+\-–—]?\s*\d[\d.,\s]*(?:[a-zA-Zа-яА-ЯёЁ%°²³/-]+(?:\s*[a-zA-Zа-яА-ЯёЁ%°²³/-]+)*)?)\s*\$(?!\$)""").replace(result) {
+        it.groupValues[1].trim()
+    }
+    // Also remove $...$ around standalone percentage e.g. $%$
+    result = Regex("""(?<!\$)\$\s*([~≈±+\-–—]?\s*%)\s*\$(?!\$)""").replace(result) {
+        it.groupValues[1].trim()
+    }
+    return result
+}
+
+/**
  * Parses raw text into high-level Markdown elements.
  */
 fun parseMarkdown(rawText: String): List<MarkdownElement> {
-    val lines = rawText.lines()
+    val sanitized = sanitizeMarkdown(rawText)
+    val lines = sanitized.lines()
     val elements = mutableListOf<MarkdownElement>()
     var i = 0
 
@@ -519,25 +596,34 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             continue
         }
 
-        // 5. Bullet Lists (* item, - item)
-        if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
-            val itemText = trimmed.drop(2).trim()
-            elements.add(MarkdownElement.BulletItem(itemText))
-            i++
+        // 5. Lists (Bullet Lists: * item, - item; Numbered Lists: 1. item)
+        val isBullet = trimmed.startsWith("* ") || trimmed.startsWith("- ")
+        val isNumbered = Regex("^([0-9]+)\\.\\s+(.*)").matches(trimmed)
+        if (isBullet || isNumbered) {
+            val listItems = mutableListOf<MarkdownElement>()
+            while (i < lines.size) {
+                val currentTrimmed = lines[i].trim()
+                if (currentTrimmed.startsWith("* ") || currentTrimmed.startsWith("- ")) {
+                    val itemText = currentTrimmed.drop(2).trim()
+                    listItems.add(MarkdownElement.BulletItem(itemText))
+                    i++
+                } else {
+                    val numMatch = Regex("^([0-9]+)\\.\\s+(.*)").find(currentTrimmed)
+                    if (numMatch != null) {
+                        val number = numMatch.groupValues[1]
+                        val itemText = numMatch.groupValues[2]
+                        listItems.add(MarkdownElement.NumberedItem(number, itemText))
+                        i++
+                    } else {
+                        break
+                    }
+                }
+            }
+            elements.add(MarkdownElement.ListBlock(listItems))
             continue
         }
 
-        // 6. Numbered Lists (1. item)
-        val numMatch = Regex("^([0-9]+)\\.\\s+(.*)").find(trimmed)
-        if (numMatch != null) {
-            val number = numMatch.groupValues[1]
-            val itemText = numMatch.groupValues[2]
-            elements.add(MarkdownElement.NumberedItem(number, itemText))
-            i++
-            continue
-        }
-
-        // 7. Regular paragraph / empty line
+        // 6. Regular paragraph / empty line
         if (trimmed.isNotEmpty()) {
             elements.add(MarkdownElement.Paragraph(line))
         }
@@ -552,12 +638,17 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
  * Formats inline Markdown: bold (**text**), italic (*text*), code (`code`), strikethrough (~~text~~),
  * and inline math ($x = y$).
  */
-fun renderInlineMarkdown(text: String): AnnotatedString {
+fun renderInlineMarkdown(
+    text: String,
+    primaryColor: Color = Color(0xFF90CAF9),
+    secondaryColor: Color = Color(0xFF80CBC4)
+): AnnotatedString {
+    val sanitized = sanitizeMarkdown(text)
     return buildAnnotatedString {
         var cursor = 0
 
         val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|~~.*?~~|\\$.*?\\$|\\[.*?\\]\\(.*?\\))")
-        val matches = regex.findAll(text)
+        val matches = regex.findAll(sanitized)
 
         for (match in matches) {
             if (match.range.first > cursor) {
@@ -588,8 +679,8 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     pushStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
-                            background = AccentPrimary.copy(alpha = 0.13f),
-                            color = AccentPrimary,
+                            background = primaryColor.copy(alpha = 0.13f),
+                            color = primaryColor,
                             fontSize = 13.sp
                         )
                     )
@@ -610,7 +701,7 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     pushStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
-                            color = AccentSecondary,
+                            color = secondaryColor,
                             fontWeight = FontWeight.Medium
                         )
                     )
@@ -623,7 +714,7 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     val linkText = token.substringAfter("[").substringBefore("]")
                     pushStyle(
                         SpanStyle(
-                            color = AccentPrimary,
+                            color = primaryColor,
                             textDecoration = TextDecoration.Underline
                         )
                     )

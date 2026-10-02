@@ -17,9 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
+import androidx.compose.material3.MaterialTheme
 
 /** Файл, вытащенный из вывода инструмента. */
 data class FileEntry(
@@ -108,7 +106,7 @@ fun ToolOutputView(
 
                 is OutputLine.Plain -> Text(
                     text = line.value,
-                    color = if (line.isHeading) TextTertiary else TextSecondary,
+                    color = if (line.isHeading) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (line.isHeading) 11.sp else 12.5.sp,
                     fontWeight = if (line.isHeading) FontWeight.Medium else FontWeight.Normal,
                     lineHeight = 17.sp
@@ -130,7 +128,7 @@ private fun FileRow(entry: FileEntry) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.name,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 12.5.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -138,7 +136,7 @@ private fun FileRow(entry: FileEntry) {
             entry.folder?.let { folder ->
                 Text(
                     text = folder,
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 10.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -150,7 +148,7 @@ private fun FileRow(entry: FileEntry) {
             Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = size,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.5.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1

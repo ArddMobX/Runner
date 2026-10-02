@@ -1,50 +1,72 @@
 package com.runner.app.ui.theme
 
 import android.app.Activity
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-
-private val DarkColorScheme = darkColorScheme(
-    primary = AccentPrimary,
-    onPrimary = SurfaceDark,
-    primaryContainer = SurfaceContainerHigh,
-    onPrimaryContainer = TextPrimary,
-    secondary = AccentSecondary,
-    onSecondary = SurfaceDark,
-    background = SurfaceDark,
-    onBackground = TextPrimary,
-    surface = SurfaceDark,
-    onSurface = TextPrimary,
-    surfaceVariant = SurfaceContainer,
-    onSurfaceVariant = TextSecondary,
-    surfaceContainer = SurfaceContainer,
-    surfaceContainerLow = SurfaceContainerLow,
-    surfaceContainerHigh = SurfaceContainerHigh,
-    surfaceContainerHighest = SurfaceContainerHighest,
-    outline = OutlineSubtle,
-    outlineVariant = OutlineHover,
-    error = StatusError,
-    onError = SurfaceDark
-)
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
+import com.runner.app.data.AppThemeMode
+import com.runner.app.data.ColorSource
+import com.runner.app.data.ThemeConfig
 
 @Composable
 fun RunnerTheme(
+    themeConfig: ThemeConfig = ThemeConfig(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = DarkColorScheme
+    val context = LocalContext.current
+    val systemInDark = isSystemInDarkTheme()
+    val isDark = when (themeConfig.themeMode) {
+        AppThemeMode.SYSTEM -> systemInDark
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
+
+    val isDynamicAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val useDynamic = themeConfig.colorSource == ColorSource.DYNAMIC && isDynamicAvailable
+
+    val rawColorScheme: ColorScheme = if (useDynamic) {
+        if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } else {
+        dynamicColorScheme(
+            seedColor = Color(themeConfig.customSeedColor),
+            isDark = isDark,
+            isAmoled = isDark && themeConfig.isAmoled,
+            style = PaletteStyle.TonalSpot
+        )
+    }
+
+    val colorScheme = if (isDark && themeConfig.isAmoled) {
+        rawColorScheme.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceContainerLowest = Color.Black
+        )
+    } else {
+        rawColorScheme
+    }
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.background.toArgb()
             window.navigationBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
-            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
+            val isLight = !isDark
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.isAppearanceLightStatusBars = isLight
+            insetsController.isAppearanceLightNavigationBars = isLight
         }
     }
 

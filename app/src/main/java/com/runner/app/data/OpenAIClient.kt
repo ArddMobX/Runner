@@ -177,12 +177,16 @@ class OpenAIClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private fun clientWithTimeout(timeoutSeconds: Int): OkHttpClient {
-        val sec = timeoutSeconds.coerceIn(5, 300).toLong()
+    private fun clientWithTimeout(
+        connectTimeoutSeconds: Int = 15,
+        responseTimeoutSeconds: Int = 60
+    ): OkHttpClient {
+        val connectSec = connectTimeoutSeconds.coerceIn(5, 60).toLong()
+        val readSec = responseTimeoutSeconds.coerceIn(10, 300).toLong()
         return client.newBuilder()
-            .connectTimeout(sec.coerceAtMost(30), TimeUnit.SECONDS)
-            .readTimeout(sec, TimeUnit.SECONDS)
-            .writeTimeout(sec.coerceAtMost(60), TimeUnit.SECONDS)
+            .connectTimeout(connectSec, TimeUnit.SECONDS)
+            .readTimeout(readSec, TimeUnit.SECONDS)
+            .writeTimeout(connectSec.coerceAtLeast(30), TimeUnit.SECONDS)
             .build()
     }
 
@@ -204,6 +208,8 @@ class OpenAIClient {
         messages: JSONArray,
         reverseProxyUrl: String = "",
         timeoutSeconds: Int = 60,
+        connectTimeoutSeconds: Int = 15,
+        responseTimeoutSeconds: Int = timeoutSeconds,
         customHeaders: String = "",
         temperature: Double = 0.2,
         streaming: Boolean = true,
@@ -262,7 +268,7 @@ class OpenAIClient {
                 .post(requestBody.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            val call = clientWithTimeout(timeoutSeconds).newCall(request)
+            val call = clientWithTimeout(connectTimeoutSeconds, responseTimeoutSeconds).newCall(request)
             activeCall = call
             try {
                 val result = if (streaming) {
@@ -731,17 +737,19 @@ class OpenAIClient {
     suspend fun testConnection(
         targetUrl: String,
         apiKey: String = "",
-        timeoutSeconds: Int = 30,
-        customHeaders: String = ""
+        timeoutSeconds: Int = 15,
+        customHeaders: String = "",
+        providerName: String = ""
     ): ConnectionTestResult = withContext(Dispatchers.IO) {
         val cleanUrl = targetUrl.trim()
+        val providerPrefix = if (providerName.isNotBlank()) "$providerName: " else ""
         if (cleanUrl.isBlank()) {
             return@withContext ConnectionTestResult(
                 isSuccess = false,
                 isReachable = false,
                 statusCode = null,
                 latencyMs = 0L,
-                message = "Адрес не указан",
+                message = "${providerPrefix}Адрес не указан",
                 targetEndpoint = ""
             )
         }
@@ -765,7 +773,7 @@ class OpenAIClient {
                 isReachable = false,
                 statusCode = null,
                 latencyMs = 0L,
-                message = "Некорректный адрес URL: ${e.localizedMessage ?: cleanUrl}",
+                message = "${providerPrefix}Некорректный адрес URL: ${e.localizedMessage ?: cleanUrl}",
                 targetEndpoint = testEndpoint
             )
         }
@@ -795,7 +803,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Подключено · $code OK · $latencyMs мс",
+                        message = "${providerPrefix}Подключено · $code OK · $latencyMs мс",
                         targetEndpoint = testEndpoint
                     )
                     code == 401 -> ConnectionTestResult(
@@ -803,7 +811,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Сервер ответил ($latencyMs мс) · 401 Unauthorized (проверьте ключ)",
+                        message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 401 Unauthorized (проверьте ключ)",
                         targetEndpoint = testEndpoint
                     )
                     code == 403 -> ConnectionTestResult(
@@ -811,7 +819,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Сервер ответил ($latencyMs мс) · 403 Forbidden (доступ ограничен)",
+                        message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 403 Forbidden (доступ ограничен)",
                         targetEndpoint = testEndpoint
                     )
                     code == 404 -> ConnectionTestResult(
@@ -819,7 +827,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Сервер ответил · 404 Not Found · $latencyMs мс",
+                        message = "${providerPrefix}Сервер ответил · 404 Not Found · $latencyMs мс",
                         targetEndpoint = testEndpoint
                     )
                     code == 405 -> ConnectionTestResult(
@@ -827,7 +835,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Сервер доступен · 405 Method · $latencyMs мс",
+                        message = "${providerPrefix}Сервер доступен · 405 Method · $latencyMs мс",
                         targetEndpoint = testEndpoint
                     )
                     code == 429 -> ConnectionTestResult(
@@ -835,7 +843,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Сервер ответил ($latencyMs мс) · 429 Превышен лимит запросов",
+                        message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 429 Превышен лимит запросов",
                         targetEndpoint = testEndpoint
                     )
                     else -> ConnectionTestResult(
@@ -843,7 +851,7 @@ class OpenAIClient {
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "Сервер ответил · HTTP $code · $latencyMs мс",
+                        message = "${providerPrefix}Сервер ответил · HTTP $code · $latencyMs мс",
                         targetEndpoint = testEndpoint
                     )
                 }
@@ -855,7 +863,7 @@ class OpenAIClient {
                 isReachable = false,
                 statusCode = null,
                 latencyMs = latencyMs,
-                message = "Таймаут ($timeoutSeconds с) — сервер не ответил",
+                message = "${providerPrefix}Таймаут ($timeoutSeconds с) — сервер не ответил",
                 targetEndpoint = testEndpoint
             )
         } catch (e: java.net.UnknownHostException) {

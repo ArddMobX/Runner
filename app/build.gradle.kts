@@ -78,6 +78,12 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
+    // DataStore — настройки темы и приложения
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // MaterialKolor — генерация Material Design 3 ColorScheme из seed-цветов через Google Material Color Utilities
+    implementation("com.materialkolor:material-kolor:1.7.1")
+
     // Debugging Compose
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

@@ -12,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
@@ -31,8 +32,6 @@ import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
 import com.runner.app.ui.theme.RunnerTheme
-import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.SurfaceDark
 import kotlinx.coroutines.launch
 
 private enum class Screen {
@@ -47,8 +46,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            RunnerTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = SurfaceDark) {
+            val themeConfig by viewModel.themeConfig.collectAsState()
+            RunnerTheme(themeConfig = themeConfig) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
                     AppNavigation(viewModel = viewModel)
                 }
             }
@@ -79,7 +82,7 @@ fun AppNavigation(viewModel: MainViewModel) {
             drawerState = drawerState,
             drawerContent = {
                 ModalDrawerSheet(
-                    drawerContainerColor = SurfaceContainerLow,
+                    drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     modifier = Modifier.width(300.dp)
                 ) {
                     AppDrawerContent(

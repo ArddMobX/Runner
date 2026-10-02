@@ -104,21 +104,9 @@ import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.components.rememberChatInputState
-import com.runner.app.ui.theme.AccentPrimary
-import com.runner.app.ui.theme.AccentSecondary
 import com.runner.app.ui.theme.MotionTokens
-import com.runner.app.ui.theme.OutlineSubtle
-import com.runner.app.ui.theme.StatusError
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
-import com.runner.app.ui.theme.SurfaceContainer
-import com.runner.app.ui.theme.SurfaceContainerHigh
-import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.SurfaceContainerLowest
-import com.runner.app.ui.theme.SurfaceDark
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
 import com.runner.app.ui.theme.bounceClick
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -186,7 +174,7 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Outlined.Menu,
                             contentDescription = "Чаты",
-                            tint = TextPrimary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -209,18 +197,18 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.Outlined.Add,
                             contentDescription = "Новый чат",
-                            tint = TextSecondary,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SurfaceDark,
-                    titleContentColor = TextPrimary
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         },
-        containerColor = SurfaceDark
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -291,12 +279,12 @@ fun ChatScreen(
                     CircularProgressIndicator(
                         modifier = Modifier.size(11.dp),
                         strokeWidth = 1.6.dp,
-                        color = AccentPrimary
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(9.dp))
                     Text(
                         text = currentStatus ?: "Работаю",
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -382,8 +370,8 @@ private fun ModelChip(
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(SurfaceContainerLow)
-            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -393,15 +381,15 @@ private fun ModelChip(
             contentDescription = null,
             tint = when {
                 !hasKey -> StatusWarning
-                brandLogo != null -> TextPrimary
-                else -> AccentPrimary
+                brandLogo != null -> MaterialTheme.colorScheme.onSurface
+                else -> MaterialTheme.colorScheme.primary
             },
             modifier = Modifier.size(15.dp)
         )
         Spacer(modifier = Modifier.width(7.dp))
         Text(
             text = cleanModel,
-            color = if (hasKey) TextPrimary else StatusWarning,
+            color = if (hasKey) MaterialTheme.colorScheme.onSurface else StatusWarning,
             fontSize = 13.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
@@ -412,13 +400,13 @@ private fun ModelChip(
             CircularProgressIndicator(
                 modifier = Modifier.size(12.dp),
                 strokeWidth = 1.6.dp,
-                color = AccentPrimary
+                color = MaterialTheme.colorScheme.primary
             )
         } else {
             Icon(
                 imageVector = Icons.Outlined.KeyboardArrowDown,
                 contentDescription = "Выбрать модель",
-                tint = TextTertiary,
+                tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -438,7 +426,7 @@ private fun EmptyChatState(
         Triple(Icons.Outlined.Storage, "Сводка памяти", "Сделай сводку по памяти устройства"),
         Triple(Icons.Outlined.FolderOpen, "Папка Download", "Покажи сводку по папке Download"),
         Triple(Icons.Outlined.WarningAmber, "Найти мусор", "Найди временные и мусорные файлы"),
-        Triple(Icons.Outlined.Info, "Свободное место", "Сколько свободного места на устройстве?")
+        Triple(Icons.Outlined.Info, "Свободное место", "Сколько свободного место на устройстве?")
     )
 
     Column(
@@ -449,7 +437,7 @@ private fun EmptyChatState(
     ) {
         Text(
             text = "Runner",
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 24.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = (-0.5).sp
@@ -457,7 +445,7 @@ private fun EmptyChatState(
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "Агент для работы с файлами, памятью и терминалом прямо на телефоне.",
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.5.sp,
             lineHeight = 20.sp
         )
@@ -511,8 +499,8 @@ private fun SuggestionCard(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceContainerLow)
-            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(12.dp))
             .bounceClick(onClick = onClick)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -520,12 +508,12 @@ private fun SuggestionCard(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = AccentPrimary,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(18.dp)
         )
         Text(
             text = title,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             lineHeight = 18.sp,
@@ -551,12 +539,12 @@ private fun MessageItem(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
                         .clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp))
-                        .background(SurfaceContainerHigh)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = message.content,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
@@ -622,7 +610,7 @@ private fun ResponseStats(message: ChatMessage) {
         parts.forEach { part ->
             Text(
                 text = part,
-                color = TextTertiary,
+                color = MaterialTheme.colorScheme.outline,
                 fontSize = 10.5.sp,
                 fontFamily = FontFamily.Monospace
             )
@@ -647,8 +635,8 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
             .fillMaxWidth()
             .padding(bottom = 6.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(SurfaceContainerLow)
-            .border(BorderStroke(0.5.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp))
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable { expanded = !expanded }
             .padding(horizontal = 12.dp, vertical = 9.dp)
@@ -657,7 +645,7 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
             Icon(
                 imageVector = Icons.Outlined.Psychology,
                 contentDescription = null,
-                tint = AccentSecondary,
+                tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(15.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -667,14 +655,14 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
                 } else {
                     "Размышления"
                 },
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 modifier = Modifier.weight(1f)
             )
             Icon(
                 imageVector = Icons.Outlined.KeyboardArrowDown,
                 contentDescription = if (expanded) "Свернуть" else "Развернуть",
-                tint = TextTertiary,
+                tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier
                     .size(16.dp)
                     .graphicsLayer { rotationZ = rotation }
@@ -683,11 +671,11 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
 
         if (expanded) {
             Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = reasoning,
-                color = TextTertiary,
+                color = MaterialTheme.colorScheme.outline,
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp
             )
@@ -723,8 +711,8 @@ private fun StreamingBubble(text: String) {
                     modifier = Modifier
                         .width(22.dp)
                         .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(AccentPrimary.copy(alpha = 0.7f))
+                        .clip(RoundedCornerShape(1dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                 )
             }
         }
@@ -749,8 +737,8 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
             )
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
-        border = BorderStroke(0.5.dp, OutlineSubtle),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -768,7 +756,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                 Text(
                     text = message.content,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (message.isDeclined) TextSecondary else TextPrimary,
+                    color = if (message.isDeclined) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -777,7 +765,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                 if (!message.toolSummary.isNullOrBlank()) {
                     Text(
                         text = "· ${message.toolSummary}",
-                        color = TextTertiary,
+                        color = MaterialTheme.colorScheme.outline,
                         fontSize = 12.sp,
                         maxLines = 1,
                         modifier = Modifier.padding(start = 6.dp)
@@ -788,7 +776,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                 if (showStats && !message.isRunning && message.toolDurationMs != null) {
                     Text(
                         text = "· ${formatDuration(message.toolDurationMs)}",
-                        color = TextTertiary,
+                        color = MaterialTheme.colorScheme.outline,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
@@ -804,7 +792,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                     Icon(
                         imageVector = Icons.Outlined.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
-                        tint = TextTertiary,
+                        tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier
                             .size(17.dp)
                             .graphicsLayer { rotationZ = rotation }
@@ -814,13 +802,13 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
 
             if (expanded && hasDetails) {
                 Spacer(modifier = Modifier.height(9.dp))
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 if (!message.toolArgs.isNullOrBlank() && message.toolArgs != "{}") {
                     Text(
                         text = "Аргументы",
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -830,7 +818,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
-                        color = TextTertiary
+                        color = MaterialTheme.colorScheme.outline
                     )
                     Spacer(modifier = Modifier.height(9.dp))
                 }
@@ -842,7 +830,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                     ) {
                         Text(
                             text = "Результат",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
@@ -860,7 +848,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                             Icon(
                                 imageVector = Icons.Outlined.ContentCopy,
                                 contentDescription = "Копировать",
-                                tint = TextTertiary,
+                                tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(13.dp)
                             )
                         }
@@ -879,20 +867,20 @@ private fun ToolStatusIcon(message: ChatMessage) {
         message.isRunning -> CircularProgressIndicator(
             modifier = Modifier.size(13.dp),
             strokeWidth = 1.8.dp,
-            color = AccentPrimary
+            color = MaterialTheme.colorScheme.primary
         )
 
         message.isDeclined -> Icon(
             imageVector = Icons.Outlined.Block,
             contentDescription = null,
-            tint = TextTertiary,
+            tint = MaterialTheme.colorScheme.outline,
             modifier = Modifier.size(15.dp)
         )
 
         message.isError -> Icon(
             imageVector = Icons.Outlined.ErrorOutline,
             contentDescription = null,
-            tint = StatusError,
+            tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(15.dp)
         )
 
@@ -913,13 +901,13 @@ private fun NoticeBanner(
     action: MessageAction?,
     onAction: (MessageAction) -> Unit
 ) {
-    val accent = if (isError) StatusError else StatusWarning
+    val accent = if (isError) MaterialTheme.colorScheme.error else StatusWarning
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(SurfaceContainerLow)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .border(BorderStroke(1.dp, accent.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
@@ -935,7 +923,7 @@ private fun NoticeBanner(
             Spacer(modifier = Modifier.width(9.dp))
             Text(
                 text = text,
-                color = TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
             )
@@ -951,7 +939,7 @@ private fun NoticeBanner(
                 onClick = { onAction(action) },
                 modifier = Modifier.padding(start = 24.dp, top = 2.dp)
             ) {
-                Text(label, color = AccentPrimary, fontSize = 13.sp)
+                Text(label, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
             }
         }
     }
@@ -964,7 +952,7 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(SurfaceContainerLow)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .border(BorderStroke(1.dp, StatusWarning.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -978,12 +966,12 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
         Spacer(modifier = Modifier.width(9.dp))
         Text(
             text = "Нет доступа ко всем файлам",
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 12.5.sp,
             modifier = Modifier.weight(1f)
         )
         TextButton(onClick = onOpenSettings) {
-            Text("Выдать", color = AccentPrimary, fontSize = 13.sp)
+            Text("Выдать", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
         }
     }
 }
@@ -1003,8 +991,8 @@ private fun ConfirmationBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onReject,
         sheetState = sheetState,
-        containerColor = SurfaceContainerLow,
-        scrimColor = Color.Black.copy(alpha = 0.65f),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
             Box(
@@ -1013,7 +1001,7 @@ private fun ConfirmationBottomSheet(
                     .width(32.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(TextTertiary.copy(alpha = 0.4f))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
             )
         }
     ) {
@@ -1028,21 +1016,21 @@ private fun ConfirmationBottomSheet(
             Column {
                 Text(
                     text = request.title,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = "Подтверди операцию",
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 12.5.sp
                 )
             }
 
             Surface(
-                color = SurfaceContainerLowest,
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
                 shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, OutlineSubtle),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
@@ -1050,16 +1038,16 @@ private fun ConfirmationBottomSheet(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(12.dp)
                 )
             }
 
             if (request.preview.isNotBlank()) {
                 Surface(
-                    color = SurfaceContainerHigh.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, OutlineSubtle),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
@@ -1067,7 +1055,7 @@ private fun ConfirmationBottomSheet(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(12.dp)
                     )
                 }
@@ -1085,7 +1073,7 @@ private fun ConfirmationBottomSheet(
                 Spacer(modifier = Modifier.width(9.dp))
                 Text(
                     text = request.warning,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp
                 )
@@ -1098,10 +1086,10 @@ private fun ConfirmationBottomSheet(
                         .weight(1f)
                         .height(44.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = SurfaceContainer,
-                        contentColor = TextPrimary
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        contentColor = MaterialTheme.colorScheme.onSurface
                     ),
-                    border = BorderStroke(1.dp, OutlineSubtle),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     shape = RoundedCornerShape(11.dp)
                 ) {
                     Text("Отклонить", fontSize = 14.sp)
@@ -1113,8 +1101,8 @@ private fun ConfirmationBottomSheet(
                         .weight(1f)
                         .height(44.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentPrimary,
-                        contentColor = SurfaceDark
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     shape = RoundedCornerShape(11.dp)
                 ) {

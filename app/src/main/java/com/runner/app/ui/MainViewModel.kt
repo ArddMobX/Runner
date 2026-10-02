@@ -8,7 +8,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
+import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ChatRepository
+import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
@@ -17,6 +19,8 @@ import com.runner.app.data.OpenAIClient
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.SettingsStore
+import com.runner.app.data.ThemeConfig
+import com.runner.app.data.ThemeStore
 import com.runner.app.data.ToolCall
 import com.runner.app.data.db.ChatDatabase
 import com.runner.app.data.db.MessageEntity
@@ -130,6 +134,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _connectionTestState = MutableStateFlow(ConnectionTestState())
     val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
+
+    // --- Тема (Material You / DataStore) ---
+
+    private val themeStore = ThemeStore(application)
+    val themeConfig: StateFlow<ThemeConfig> = themeStore.themeFlow.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        ThemeConfig()
+    )
 
     // --- История чатов ---
 
@@ -318,7 +331,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseUrl = baseUrl,
                 apiKey = apiKey,
                 reverseProxyUrl = currentSettings.reverseProxyUrl,
-                timeoutSeconds = currentSettings.timeoutSeconds,
+                timeoutSeconds = currentSettings.connectTimeoutSeconds,
                 customHeaders = currentSettings.customHeaders
             )
 
@@ -361,6 +374,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateSettings(_settings.value.copy(systemPrompt = AppSettings.DEFAULT_SYSTEM_PROMPT))
     }
 
+    fun setThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch { themeStore.updateThemeMode(mode) }
+    }
+
+    fun setColorSource(source: ColorSource) {
+        viewModelScope.launch { themeStore.updateColorSource(source) }
+    }
+
+    fun setCustomSeedColor(color: Int) {
+        viewModelScope.launch { themeStore.updateCustomSeedColor(color) }
+    }
+
+    fun setAmoled(isAmoled: Boolean) {
+        viewModelScope.launch { themeStore.updateAmoled(isAmoled) }
+    }
+
     /**
      * Проверка связи: пингует заданный reverse proxy или официальный baseUrl активного провайдера
      * с учётом настроенного таймаута и кастомных заголовков.
@@ -368,8 +397,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun testConnection() {
         if (_connectionTestState.value.isTesting) return
         val currentSettings = _settings.value
+        val provider = activeProvider.value
+        val providerName = provider?.name.orEmpty().ifBlank { "API" }
         val targetUrl = currentSettings.reverseProxyUrl.ifBlank {
-            activeProvider.value?.baseUrl.orEmpty()
+            provider?.baseUrl.orEmpty()
         }
         if (targetUrl.isBlank()) {
             _connectionTestState.value = ConnectionTestState(
@@ -379,15 +410,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isReachable = false,
                     statusCode = null,
                     latencyMs = 0L,
-                    message = "Укажите адрес прокси или настройте провайдера",
+                    message = "Укажите адрес прокси или настройте провайдера $providerName",
                     targetEndpoint = ""
                 )
             )
             return
         }
 
-        val apiKey = activeProvider.value?.apiKey.orEmpty()
-        val timeout = currentSettings.timeoutSeconds
+        val apiKey = provider?.apiKey.orEmpty()
+        val timeout = currentSettings.connectTimeoutSeconds
         val customHeaders = currentSettings.customHeaders
 
         _connectionTestState.value = ConnectionTestState(isTesting = true)
@@ -396,7 +427,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 targetUrl = targetUrl,
                 apiKey = apiKey,
                 timeoutSeconds = timeout,
-                customHeaders = customHeaders
+                customHeaders = customHeaders,
+                providerName = providerName
             )
             _connectionTestState.value = ConnectionTestState(isTesting = false, result = result)
         }
@@ -531,7 +563,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 modelName = model,
                 messages = conversationJson,
                 reverseProxyUrl = currentSettings.reverseProxyUrl,
-                timeoutSeconds = currentSettings.timeoutSeconds,
+                connectTimeoutSeconds = currentSettings.connectTimeoutSeconds,
+                responseTimeoutSeconds = currentSettings.responseTimeoutSeconds,
                 customHeaders = currentSettings.customHeaders,
                 temperature = currentSettings.temperature.toDouble(),
                 streaming = true,
@@ -800,10 +833,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun freshContext(): JSONArray = JSONArray().apply {
+        val basePrompt = _settings.value.systemPrompt
+        val effectivePrompt = if (basePrompt.contains(AppSettings.MANDATORY_PROMPT_SUFFIX)) {
+            basePrompt
+        } else {
+            basePrompt.trimEnd() + "\n- " + AppSettings.MANDATORY_PROMPT_SUFFIX
+        }
         put(
             JSONObject().apply {
                 put("role", "system")
-                put("content", _settings.value.systemPrompt)
+                put("content", effectivePrompt)
             }
         )
     }

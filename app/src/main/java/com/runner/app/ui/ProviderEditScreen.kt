@@ -63,18 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.ProviderLogos
-import com.runner.app.ui.theme.AccentPrimary
-import com.runner.app.ui.theme.OutlineSubtle
-import com.runner.app.ui.theme.StatusError
 import com.runner.app.ui.theme.StatusSuccess
-import com.runner.app.ui.theme.SurfaceContainer
-import com.runner.app.ui.theme.SurfaceContainerHigh
-import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.SurfaceContainerLowest
-import com.runner.app.ui.theme.SurfaceDark
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
 import kotlinx.coroutines.delay
 
 /**
@@ -140,11 +129,15 @@ fun ProviderEditScreen(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(RoundedCornerShape(9.dp))
-                            .background(if (isActive) AccentPrimary.copy(alpha = 0.12f) else SurfaceContainerHigh)
+                            .background(
+                                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceContainerHigh
+                            )
                             .border(
                                 BorderStroke(
                                     1.dp,
-                                    if (isActive) AccentPrimary.copy(alpha = 0.35f) else OutlineSubtle
+                                    if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                 ),
                                 RoundedCornerShape(9.dp)
                             ),
@@ -153,7 +146,7 @@ fun ProviderEditScreen(
                         Icon(
                             imageVector = providerLogo ?: Icons.Outlined.AutoAwesome,
                             contentDescription = null,
-                            tint = if (isActive) AccentPrimary else TextSecondary,
+                            tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -163,13 +156,13 @@ fun ProviderEditScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = name.ifBlank { "Провайдер" },
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = if (isActive) "Активный провайдер" else "Настройка провайдера",
-                            color = if (isActive) AccentPrimary else TextTertiary,
+                            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                             fontSize = 11.5.sp
                         )
                     }
@@ -192,7 +185,7 @@ fun ProviderEditScreen(
                     }
                 }
 
-                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
                 Spacer(modifier = Modifier.height(14.dp))
 
                 FieldLabel("Название")
@@ -215,7 +208,7 @@ fun ProviderEditScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
-                        Text("https://api.groq.com/openai/v1", color = TextTertiary, fontSize = 13.sp)
+                        Text("https://api.groq.com/openai/v1", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -231,7 +224,7 @@ fun ProviderEditScreen(
                         autoFetchEnabled = true
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("sk-...", color = TextTertiary, fontSize = 13.sp) },
+                    placeholder = { Text("sk-...", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp) },
                     singleLine = true,
                     visualTransformation = if (keyVisible) {
                         VisualTransformation.None
@@ -247,7 +240,7 @@ fun ProviderEditScreen(
                                     Icons.Outlined.Visibility
                                 },
                                 contentDescription = "Показать ключ",
-                                tint = TextSecondary,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(17.dp)
                             )
                         }
@@ -258,7 +251,7 @@ fun ProviderEditScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Ключ шифруется ключом Android Keystore и наружу не уходит.",
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.sp,
                     lineHeight = 15.sp
                 )
@@ -282,10 +275,10 @@ fun ProviderEditScreen(
                         enabled = isDirty,
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = AccentPrimary,
-                            contentColor = SurfaceDark,
-                            disabledContainerColor = SurfaceContainerHigh,
-                            disabledContentColor = TextTertiary
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            disabledContentColor = MaterialTheme.colorScheme.outline
                         )
                     ) {
                         Text("Сохранить", fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
@@ -298,10 +291,10 @@ fun ProviderEditScreen(
                                 .weight(1f)
                                 .height(44.dp),
                             shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(0.5.dp, OutlineSubtle),
+                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = SurfaceContainer,
-                                contentColor = TextPrimary
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                contentColor = MaterialTheme.colorScheme.onSurface
                             )
                         ) {
                             Text("Сделать активным", fontSize = 13.sp)
@@ -311,7 +304,7 @@ fun ProviderEditScreen(
 
                 status.value?.let { message ->
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = message, color = TextSecondary, fontSize = 12.sp)
+                    Text(text = message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
             }
         }
@@ -322,13 +315,13 @@ fun ProviderEditScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Модели",
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "${provider.models.size} в списке",
-                            color = TextTertiary,
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 11.5.sp
                         )
                     }
@@ -343,13 +336,13 @@ fun ProviderEditScreen(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(17.dp),
                                 strokeWidth = 1.8.dp,
-                                color = AccentPrimary
+                                color = MaterialTheme.colorScheme.primary
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
                                 contentDescription = "Загрузить список",
-                                tint = AccentPrimary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(19.dp)
                             )
                         }
@@ -366,7 +359,7 @@ fun ProviderEditScreen(
                             "Список пуст. Модели подтянутся сами после ввода ключа, " +
                                     "либо нажми обновление."
                         },
-                        color = TextTertiary,
+                        color = MaterialTheme.colorScheme.outline,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
@@ -375,7 +368,7 @@ fun ProviderEditScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(240.dp)
-                            .background(SurfaceContainerLowest, RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(10.dp))
                     ) {
                         LazyColumn {
                             items(provider.models, key = { it.id }) { model ->
@@ -393,7 +386,7 @@ fun ProviderEditScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = model.label,
-                                            color = if (isSelected) AccentPrimary else TextPrimary,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                             fontSize = 12.sp,
                                             fontFamily = FontFamily.Monospace,
                                             maxLines = 1,
@@ -403,7 +396,7 @@ fun ProviderEditScreen(
                                             Spacer(modifier = Modifier.height(1.dp))
                                             Text(
                                                 text = model.id,
-                                                color = TextTertiary,
+                                                color = MaterialTheme.colorScheme.outline,
                                                 fontSize = 10.5.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 maxLines = 1,
@@ -416,12 +409,12 @@ fun ProviderEditScreen(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(5.dp))
-                                                .background(SurfaceContainerHigh)
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                                 .padding(horizontal = 5.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = badge,
-                                                color = TextSecondary,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
@@ -443,7 +436,7 @@ fun ProviderEditScreen(
                                         Icon(
                                             imageVector = Icons.Outlined.ContentCopy,
                                             contentDescription = "Скопировать ID",
-                                            tint = TextTertiary,
+                                            tint = MaterialTheme.colorScheme.outline,
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }
@@ -457,7 +450,10 @@ fun ProviderEditScreen(
                                         )
                                     }
                                 }
-                                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                    thickness = 0.5.dp
+                                )
                             }
                         }
                     }
@@ -470,7 +466,7 @@ fun ProviderEditScreen(
                 onClick = { confirmDelete = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Удалить провайдера", color = StatusError, fontSize = 13.sp)
+                Text("Удалить провайдера", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
             }
         }
 
@@ -480,12 +476,12 @@ fun ProviderEditScreen(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            containerColor = SurfaceContainerHigh,
-            title = { Text("Удалить провайдера?", color = TextPrimary, fontSize = 16.sp) },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Удалить провайдера?", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp) },
             text = {
                 Text(
                     text = "«${provider.name}» и его ключ будут удалены с устройства.",
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp
                 )
             },
@@ -495,12 +491,12 @@ fun ProviderEditScreen(
                     viewModel.deleteProvider(provider.id)
                     onDeleted()
                 }) {
-                    Text("Удалить", color = StatusError, fontSize = 14.sp)
+                    Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) {
-                    Text("Отмена", color = TextSecondary, fontSize = 14.sp)
+                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                 }
             }
         )
@@ -511,7 +507,7 @@ fun ProviderEditScreen(
 private fun FieldLabel(text: String) {
     Text(
         text = text,
-        color = TextSecondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 12.sp,
         fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(bottom = 6.dp)
@@ -526,8 +522,8 @@ private fun copyModelId(context: Context, modelId: String) {
 @Composable
 private fun SettingsCard(content: @Composable () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
-        border = BorderStroke(1.dp, OutlineSubtle),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -537,11 +533,11 @@ private fun SettingsCard(content: @Composable () -> Unit) {
 
 @Composable
 private fun providerFieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = SurfaceContainer,
-    unfocusedContainerColor = SurfaceContainer,
-    focusedIndicatorColor = OutlineSubtle,
-    unfocusedIndicatorColor = OutlineSubtle,
-    cursorColor = AccentPrimary,
-    focusedTextColor = TextPrimary,
-    unfocusedTextColor = TextPrimary
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    focusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+    unfocusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+    cursorColor = MaterialTheme.colorScheme.primary,
+    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
 )

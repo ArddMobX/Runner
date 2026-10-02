@@ -18,8 +18,8 @@ data class ModelInfo(
     val name: String = "",
     val contextLength: Int? = null
 ) {
-    /** Что показывать в списке: человекочитаемое имя, если оно есть. */
-    val label: String get() = name.ifBlank { id }
+    /** Что показывать в списке: человекочитаемое имя, если оно есть, без технического префикса models/. */
+    val label: String get() = (name.ifBlank { id }).removePrefix("models/")
 
     /** Компактный бейдж контекста: «1M», «262K». */
     val contextBadge: String?
@@ -42,6 +42,68 @@ object ModelCatalog {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * Фильтрует не-чат модели:
+     * - Оставляет только модели с поддержкой generateContent (если провайдер отдаёт supportedGenerationMethods).
+     * - Скрывает aqa, deep-research*, computer-use*, antigravity*, embedding, moderation, tts, whisper, etc.
+     */
+    fun isChatAndToolModel(
+        id: String,
+        name: String = "",
+        supportedMethods: List<String>? = null
+    ): Boolean {
+        // 1. Проверка методов генерации (Gemini API)
+        if (supportedMethods != null && supportedMethods.isNotEmpty()) {
+            if (!supportedMethods.contains("generateContent")) {
+                return false
+            }
+        }
+
+        val cleanId = id.removePrefix("models/").lowercase()
+        val cleanName = name.removePrefix("models/").lowercase()
+
+        // 2. Скрываем aqa, deep-research*, computer-use*, antigravity*
+        val blockedExactOrPrefix = listOf(
+            "aqa",
+            "deep-research",
+            "computer-use",
+            "antigravity"
+        )
+        for (pattern in blockedExactOrPrefix) {
+            if (cleanId == pattern ||
+                cleanId.startsWith("$pattern-") ||
+                cleanId.startsWith("${pattern}_") ||
+                cleanId.contains(pattern)
+            ) {
+                return false
+            }
+            if (cleanName.contains(pattern)) {
+                return false
+            }
+        }
+
+        // 3. Скрываем embedding и прочие не-чат сервисы
+        val blockedKeywords = listOf(
+            "embed",
+            "moderation",
+            "tts",
+            "whisper",
+            "dall-e",
+            "imagen",
+            "realtime",
+            "transcription",
+            "babbage",
+            "davinci"
+        )
+        for (kw in blockedKeywords) {
+            if (cleanId.contains(kw) || cleanName.contains(kw)) {
+                return false
+            }
+        }
+
+        return true
+    }
 
     suspend fun fetchModels(
         baseUrl: String,
@@ -85,23 +147,39 @@ object ModelCatalog {
                     )
                 }
 
-                val array = JSONObject(body).optJSONArray("data") ?: JSONArray()
+                val rootJson = JSONObject(body)
+                val array = rootJson.optJSONArray("data")
+                    ?: rootJson.optJSONArray("models")
+                    ?: JSONArray()
                 val models = LinkedHashMap<String, ModelInfo>()
 
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    val id = item.optString("id")
+                    val id = item.optString("id").ifBlank { item.optString("name") }
                     if (id.isBlank()) continue
 
-                    val name = item.optString("name")
+                    val displayName = item.optString("displayName").ifBlank { item.optString("name") }
+
+                    val methodsJson = item.optJSONArray("supportedGenerationMethods")
+                    val supportedMethods = if (methodsJson != null) {
+                        List(methodsJson.length()) { methodsJson.optString(it) }
+                    } else null
+
+                    if (!isChatAndToolModel(id, displayName, supportedMethods)) {
+                        continue
+                    }
+
                     val contextLength = item.optInt("context_length", 0).takeIf { it > 0 }
+                        ?: item.optInt("inputTokenLimit", 0).takeIf { it > 0 }
                         ?: item.optJSONObject("top_provider")
                             ?.optInt("context_length", 0)
                             ?.takeIf { it > 0 }
 
+                    val cleanName = displayName.takeIf { it.isNotBlank() && it != id }.orEmpty()
+
                     models[id] = ModelInfo(
                         id = id,
-                        name = name.takeIf { it.isNotBlank() && it != id }.orEmpty(),
+                        name = cleanName,
                         contextLength = contextLength
                     )
                 }
@@ -109,7 +187,7 @@ object ModelCatalog {
                 if (models.isEmpty()) {
                     Result.failure(IOException("Провайдер вернул пустой список моделей"))
                 } else {
-                    Result.success(models.values.sortedBy { it.id })
+                    Result.success(models.values.sortedBy { it.label.lowercase() })
                 }
             }
         } catch (e: IOException) {

@@ -50,17 +50,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.MaterialTheme
 import com.runner.app.data.db.SessionEntity
-import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.MotionTokens
-import com.runner.app.ui.theme.OutlineSubtle
-import com.runner.app.ui.theme.StatusError
-import com.runner.app.ui.theme.SurfaceContainer
-import com.runner.app.ui.theme.SurfaceContainerHigh
-import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -111,11 +103,11 @@ fun AppDrawerContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(SurfaceContainerLow)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Text(
             text = "Runner",
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 17.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 14.dp)
@@ -129,13 +121,13 @@ fun AppDrawerContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp)
-                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
-            placeholder = { Text("Поиск по чатам", color = TextTertiary, fontSize = 13.sp) },
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp)),
+            placeholder = { Text("Поиск по чатам", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Search,
                     contentDescription = null,
-                    tint = TextTertiary,
+                    tint = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(16.dp)
                 )
             },
@@ -143,17 +135,17 @@ fun AppDrawerContent(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             shape = RoundedCornerShape(10.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = SurfaceContainer,
-                unfocusedContainerColor = SurfaceContainer,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
-                cursorColor = AccentPrimary,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary
+                cursorColor = MaterialTheme.colorScheme.primary,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
             )
         )
 
-        HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
         if (sessions.isEmpty()) {
             Box(
@@ -164,7 +156,7 @@ fun AppDrawerContent(
             ) {
                 Text(
                     text = if (query.isBlank()) "Чатов пока нет" else "Ничего не найдено",
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 13.sp
                 )
             }
@@ -177,7 +169,7 @@ fun AppDrawerContent(
                     item(key = "header_${group.name}") {
                         Text(
                             text = group.title,
-                            color = TextTertiary,
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp)
@@ -197,7 +189,7 @@ fun AppDrawerContent(
             }
         }
 
-        HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
         Row(
             modifier = Modifier
@@ -209,11 +201,11 @@ fun AppDrawerContent(
             Icon(
                 imageVector = Icons.Outlined.Settings,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Text(text = "Настройки", color = TextPrimary, fontSize = 14.sp)
+            Text(text = "Настройки", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
         }
     }
 
@@ -231,12 +223,12 @@ fun AppDrawerContent(
     sessionToDelete?.let { session ->
         AlertDialog(
             onDismissRequest = { sessionToDelete = null },
-            containerColor = SurfaceContainerHigh,
-            title = { Text("Удалить чат?", color = TextPrimary, fontSize = 16.sp) },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Удалить чат?", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp) },
             text = {
                 Text(
                     text = "«${session.title.ifBlank { "Без названия" }}» и вся его история будут удалены.",
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp
                 )
             },
@@ -245,12 +237,12 @@ fun AppDrawerContent(
                     onDeleteSession(session.id)
                     sessionToDelete = null
                 }) {
-                    Text("Удалить", color = StatusError, fontSize = 14.sp)
+                    Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { sessionToDelete = null }) {
-                    Text("Отмена", color = TextSecondary, fontSize = 14.sp)
+                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                 }
             }
         )
@@ -263,7 +255,7 @@ private fun NewChatButton(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val background by animateColorAsState(
-        targetValue = if (pressed) SurfaceContainerHigh else Color.Transparent,
+        targetValue = if (pressed) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
         animationSpec = MotionTokens.fluidTween(180),
         label = "new_chat_press"
     )
@@ -274,7 +266,7 @@ private fun NewChatButton(onClick: () -> Unit) {
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(background)
-            .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -286,13 +278,13 @@ private fun NewChatButton(onClick: () -> Unit) {
         Icon(
             imageVector = Icons.Outlined.Add,
             contentDescription = null,
-            tint = TextSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = "Новый чат",
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )
@@ -321,7 +313,7 @@ private fun SessionRow(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
                 .background(
-                    if (isCurrent) Color(0x0FFFFFFF) // rgba(255, 255, 255, 0.06)
+                    if (isCurrent) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                     else Color.Transparent
                 )
                 .combinedClickable(
@@ -333,7 +325,7 @@ private fun SessionRow(
         ) {
             Text(
                 text = session.title.ifBlank { "Без названия" },
-                color = if (isCurrent) TextPrimary else TextSecondary,
+                color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.5.sp,
                 fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 1,
@@ -346,12 +338,12 @@ private fun SessionRow(
             onDismissRequest = { menuExpanded = false }
         ) {
             DropdownMenuItem(
-                text = { Text("Переименовать", color = TextPrimary, fontSize = 14.sp) },
+                text = { Text("Переименовать", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Edit,
                         contentDescription = null,
-                        tint = TextSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                 },
@@ -361,12 +353,12 @@ private fun SessionRow(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Удалить", color = StatusError, fontSize = 14.sp) },
+                text = { Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.DeleteOutline,
                         contentDescription = null,
-                        tint = StatusError,
+                        tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(16.dp)
                     )
                 },
@@ -389,8 +381,8 @@ private fun RenameSessionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = SurfaceContainerHigh,
-        title = { Text("Переименовать чат", color = TextPrimary, fontSize = 16.sp) },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        title = { Text("Переименовать чат", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp) },
         text = {
             TextField(
                 value = title,
@@ -399,24 +391,24 @@ private fun RenameSessionDialog(
                 singleLine = true,
                 shape = RoundedCornerShape(10.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = SurfaceContainer,
-                    unfocusedContainerColor = SurfaceContainer,
-                    focusedIndicatorColor = OutlineSubtle,
-                    unfocusedIndicatorColor = OutlineSubtle,
-                    cursorColor = AccentPrimary,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    focusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant,
+                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(title) }) {
-                Text("Сохранить", color = AccentPrimary, fontSize = 14.sp)
+                Text("Сохранить", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Отмена", color = TextSecondary, fontSize = 14.sp)
+                Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             }
         }
     )

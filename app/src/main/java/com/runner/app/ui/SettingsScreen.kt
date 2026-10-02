@@ -3,6 +3,7 @@ package com.runner.app.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -38,12 +39,20 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -79,26 +88,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
+import com.runner.app.data.AppThemeMode
+import com.runner.app.data.ColorSource
 import com.runner.app.data.Provider
+import com.runner.app.data.ThemeConfig
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
-import com.runner.app.ui.theme.AccentPrimary
-import com.runner.app.ui.theme.OutlineSubtle
-import com.runner.app.ui.theme.StatusError
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
-import com.runner.app.ui.theme.SurfaceContainer
-import com.runner.app.ui.theme.SurfaceContainerHigh
-import com.runner.app.ui.theme.SurfaceContainerHighest
-import com.runner.app.ui.theme.SurfaceContainerLow
-import com.runner.app.ui.theme.SurfaceContainerLowest
+import com.runner.app.ui.theme.bounceClick
 import java.net.URI
 import java.util.Locale
-import com.runner.app.ui.theme.SurfaceDark
-import com.runner.app.ui.theme.TextPrimary
-import com.runner.app.ui.theme.TextSecondary
-import com.runner.app.ui.theme.TextTertiary
-import com.runner.app.ui.theme.bounceClick
 import kotlin.math.roundToInt
 
 private sealed interface SettingsRoute {
@@ -143,7 +143,7 @@ fun SettingsScreen(
                         text = title,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Medium,
-                        color = TextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 navigationIcon = {
@@ -154,18 +154,18 @@ fun SettingsScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "Назад",
-                            tint = TextPrimary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SurfaceDark,
-                    titleContentColor = TextPrimary
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         },
-        containerColor = SurfaceDark
+        containerColor = MaterialTheme.colorScheme.surface
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -203,6 +203,7 @@ private fun SettingsRoot(
     val appSettings by viewModel.settings.collectAsState()
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
     val connectionState by viewModel.connectionTestState.collectAsState()
+    val themeConfig by viewModel.themeConfig.collectAsState()
     val context = LocalContext.current
 
     val proxyUrl = appSettings.reverseProxyUrl
@@ -216,9 +217,10 @@ private fun SettingsRoot(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         SettingsGroup("Провайдеры") {
+            val keysCount = providers.count { it.apiKey.isNotBlank() }
             SettingsRow(
                 label = "Провайдеры и ключи",
-                value = "${providers.size} · активен ${activeProvider?.name ?: "—"}",
+                value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "—"}",
                 onClick = { onNavigate(SettingsRoute.Providers) }
             )
             SettingsDivider()
@@ -253,23 +255,34 @@ private fun SettingsRoot(
             )
         }
 
+        SettingsGroup("Тема") {
+            ThemeSettingsContent(
+                themeConfig = themeConfig,
+                onModeChange = { viewModel.setThemeMode(it) },
+                onSourceChange = { viewModel.setColorSource(it) },
+                onSeedColorChange = { viewModel.setCustomSeedColor(it) },
+                onAmoledChange = { viewModel.setAmoled(it) }
+            )
+        }
+
         SettingsGroup("Интерфейс") {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
                     text = "Масштаб текста",
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                // Сегментированный переключатель: одна рамка на весь контрол,
-                // выбранный сегмент подсвечен мягкой заливкой.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceContainer)
-                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RoundedCornerShape(10.dp)
+                        )
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
@@ -281,7 +294,7 @@ private fun SettingsRoot(
                                 .clip(RoundedCornerShape(7.dp))
                                 .background(
                                     if (isSelected) {
-                                        AccentPrimary.copy(alpha = 0.16f)
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                                     } else {
                                         Color.Transparent
                                     }
@@ -294,7 +307,7 @@ private fun SettingsRoot(
                         ) {
                             Text(
                                 text = "${(scale * 100).roundToInt()}%",
-                                color = if (isSelected) AccentPrimary else TextSecondary,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.5.sp,
                                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
                             )
@@ -312,12 +325,12 @@ private fun SettingsRoot(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Детали вызовов инструментов",
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp
                     )
                     Text(
                         text = "Показывать аргументы и вывод тулов",
-                        color = TextTertiary,
+                        color = MaterialTheme.colorScheme.outline,
                         fontSize = 11.5.sp
                     )
                 }
@@ -326,12 +339,7 @@ private fun SettingsRoot(
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(showToolDetails = it))
                     },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = SurfaceDark,
-                        checkedTrackColor = AccentPrimary,
-                        uncheckedThumbColor = TextTertiary,
-                        uncheckedTrackColor = SurfaceContainerHigh
-                    )
+                    colors = runnerSwitchColors()
                 )
             }
 
@@ -346,12 +354,12 @@ private fun SettingsRoot(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Время генерации и статистика",
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp
                     )
                     Text(
                         text = "Тайминги, токены и скорость ответа",
-                        color = TextTertiary,
+                        color = MaterialTheme.colorScheme.outline,
                         fontSize = 11.5.sp
                     )
                 }
@@ -360,12 +368,7 @@ private fun SettingsRoot(
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(showStats = it))
                     },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = SurfaceDark,
-                        checkedTrackColor = AccentPrimary,
-                        uncheckedThumbColor = TextTertiary,
-                        uncheckedTrackColor = SurfaceContainerHigh
-                    )
+                    colors = runnerSwitchColors()
                 )
             }
         }
@@ -375,7 +378,7 @@ private fun SettingsRoot(
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
                     text = "Reverse proxy",
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -388,11 +391,14 @@ private fun SettingsRoot(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceContainer)
-                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp)),
-                    textStyle = TextStyle(color = TextSecondary, fontSize = 13.sp),
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RoundedCornerShape(10.dp)
+                        ),
+                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp),
                     singleLine = true,
-                    cursorBrush = SolidColor(AccentPrimary),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     decorationBox = { innerTextField ->
                         Row(
                             modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -402,7 +408,7 @@ private fun SettingsRoot(
                                 if (proxyUrl.isEmpty()) {
                                     Text(
                                         text = "https://my-proxy.workers.dev/v1",
-                                        color = TextTertiary,
+                                        color = MaterialTheme.colorScheme.outline,
                                         fontSize = 13.sp
                                     )
                                 }
@@ -417,7 +423,7 @@ private fun SettingsRoot(
                                         .size(7.dp)
                                         .clip(CircleShape)
                                         .background(
-                                            if (isValidProxy) StatusSuccess else StatusError
+                                            if (isValidProxy) StatusSuccess else MaterialTheme.colorScheme.error
                                         )
                                 )
                             }
@@ -436,7 +442,7 @@ private fun SettingsRoot(
                                 Icon(
                                     imageVector = Icons.Outlined.ContentPaste,
                                     contentDescription = "Вставить из буфера",
-                                    tint = TextTertiary,
+                                    tint = MaterialTheme.colorScheme.outline,
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
@@ -450,7 +456,7 @@ private fun SettingsRoot(
                         isValidProxy -> "Адрес корректен."
                         else -> "Нужен полный адрес вида https://host/path"
                     },
-                    color = if (proxyUrl.isNotBlank() && !isValidProxy) StatusError else TextTertiary,
+                    color = if (proxyUrl.isNotBlank() && !isValidProxy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
                     fontSize = 11.5.sp
                 )
             }
@@ -467,13 +473,13 @@ private fun SettingsRoot(
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
                             text = "Проверка связи",
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = if (proxyUrl.isNotBlank()) "Тест пинга до reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
-                            color = TextTertiary,
+                            text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 11.5.sp
                         )
                     }
@@ -482,12 +488,14 @@ private fun SettingsRoot(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (connectionState.isTesting) SurfaceContainerHighest else AccentPrimary.copy(alpha = 0.12f)
+                                if (connectionState.isTesting) MaterialTheme.colorScheme.surfaceContainerHighest
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                             )
                             .border(
                                 BorderStroke(
                                     1.dp,
-                                    if (connectionState.isTesting) OutlineSubtle else AccentPrimary.copy(alpha = 0.35f)
+                                    if (connectionState.isTesting) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
                                 ),
                                 RoundedCornerShape(8.dp)
                             )
@@ -505,11 +513,11 @@ private fun SettingsRoot(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(13.dp),
                                     strokeWidth = 2.dp,
-                                    color = AccentPrimary
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
                                     text = "Проверка...",
-                                    color = TextTertiary,
+                                    color = MaterialTheme.colorScheme.outline,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -517,12 +525,12 @@ private fun SettingsRoot(
                                 Icon(
                                     imageVector = RunnerIcons.Activity,
                                     contentDescription = null,
-                                    tint = AccentPrimary,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Text(
                                     text = "Проверить",
-                                    color = AccentPrimary,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -533,20 +541,21 @@ private fun SettingsRoot(
 
                 connectionState.result?.let { res ->
                     Spacer(modifier = Modifier.height(10.dp))
+                    val errorColor = MaterialTheme.colorScheme.error
                     val badgeBg = when {
                         res.isSuccess -> StatusSuccess.copy(alpha = 0.12f)
                         res.isReachable -> StatusWarning.copy(alpha = 0.12f)
-                        else -> StatusError.copy(alpha = 0.12f)
+                        else -> errorColor.copy(alpha = 0.12f)
                     }
                     val badgeBorder = when {
                         res.isSuccess -> StatusSuccess.copy(alpha = 0.35f)
                         res.isReachable -> StatusWarning.copy(alpha = 0.35f)
-                        else -> StatusError.copy(alpha = 0.35f)
+                        else -> errorColor.copy(alpha = 0.35f)
                     }
                     val badgeTextColor = when {
                         res.isSuccess -> StatusSuccess
                         res.isReachable -> StatusWarning
-                        else -> StatusError
+                        else -> errorColor
                     }
 
                     Box(
@@ -582,7 +591,7 @@ private fun SettingsRoot(
 
             SettingsDivider()
 
-            // 3. Таймаут ответа
+            // 3a. Таймаут подключения
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -590,22 +599,22 @@ private fun SettingsRoot(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Таймаут ожидания",
-                        color = TextPrimary,
+                        text = "Таймаут подключения",
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "${appSettings.timeoutSeconds} с",
-                        color = AccentPrimary,
+                        text = "${appSettings.connectTimeoutSeconds} с",
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Таймаут подключения и генерации ответа моделью",
-                    color = TextTertiary,
+                    text = "Время на установку сетевого соединения с сервером",
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -613,29 +622,97 @@ private fun SettingsRoot(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceContainer)
-                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
-                        .padding(3.dp),
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RoundedCornerShape(10.dp)
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    AppSettings.TIMEOUT_PRESETS.forEach { sec ->
-                        val isSelected = sec == appSettings.timeoutSeconds
+                    AppSettings.CONNECT_TIMEOUT_PRESETS.forEach { sec ->
+                        val isSelected = sec == appSettings.connectTimeoutSeconds
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(7.dp))
                                 .background(
-                                    if (isSelected) AccentPrimary.copy(alpha = 0.16f) else Color.Transparent
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent
                                 )
                                 .clickable {
-                                    viewModel.updateSettings(appSettings.copy(timeoutSeconds = sec))
+                                    viewModel.updateSettings(appSettings.copy(connectTimeoutSeconds = sec))
                                 }
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "${sec}с",
-                                color = if (isSelected) AccentPrimary else TextSecondary,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            // 3b. Таймаут ответа
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Таймаут ответа",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${appSettings.responseTimeoutSeconds} с",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Ожидание ответа и генерации токенов моделью",
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.5.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RoundedCornerShape(10.dp)
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    AppSettings.RESPONSE_TIMEOUT_PRESETS.forEach { sec ->
+                        val isSelected = sec == appSettings.responseTimeoutSeconds
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent
+                                )
+                                .clickable {
+                                    viewModel.updateSettings(appSettings.copy(responseTimeoutSeconds = sec))
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${sec}с",
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.5.sp,
                                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
                             )
@@ -648,6 +725,8 @@ private fun SettingsRoot(
 
             // 4. Кастомные заголовки (Custom Headers)
             val customHeaders = appSettings.customHeaders
+            var showSecrets by remember { mutableStateOf(false) }
+
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -657,33 +736,47 @@ private fun SettingsRoot(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Кастомные заголовки (Headers)",
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "Cloudflare Access, X-Api-Key, кастомный auth",
-                            color = TextTertiary,
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 11.5.sp
                         )
                     }
 
-                    IconButton(
-                        onClick = {
-                            val text = readClipboard(context)
-                            if (text.isNotBlank()) {
-                                val current = if (customHeaders.isBlank()) text.trim() else "${customHeaders.trim()}\n${text.trim()}"
-                                viewModel.updateSettings(appSettings.copy(customHeaders = current))
-                            }
-                        },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.ContentPaste,
-                            contentDescription = "Вставить заголовки из буфера",
-                            tint = TextTertiary,
-                            modifier = Modifier.size(15.dp)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { showSecrets = !showSecrets },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (showSecrets) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = if (showSecrets) "Скрыть секреты" else "Показать секреты",
+                                tint = if (showSecrets) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = {
+                                val text = readClipboard(context)
+                                if (text.isNotBlank()) {
+                                    val current = if (customHeaders.isBlank()) text.trim() else "${customHeaders.trim()}\n${text.trim()}"
+                                    viewModel.updateSettings(appSettings.copy(customHeaders = current))
+                                }
+                            },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentPaste,
+                                contentDescription = "Вставить заголовки из буфера",
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -692,27 +785,31 @@ private fun SettingsRoot(
                     onValueChange = {
                         viewModel.updateSettings(appSettings.copy(customHeaders = it))
                     },
+                    visualTransformation = if (showSecrets) VisualTransformation.None else remember { SecretHeadersVisualTransformation() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceContainer)
-                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RoundedCornerShape(10.dp)
+                        )
                         .padding(12.dp),
                     textStyle = TextStyle(
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         lineHeight = 16.sp
                     ),
                     minLines = 3,
                     maxLines = 6,
-                    cursorBrush = SolidColor(AccentPrimary),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     decorationBox = { innerTextField ->
                         Box {
                             if (customHeaders.isEmpty()) {
                                 Text(
                                     text = "CF-Access-Client-Id: xxx\nCF-Access-Client-Secret: yyy\nX-Custom-Auth: zzz",
-                                    color = TextTertiary.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     lineHeight = 16.sp
@@ -725,7 +822,7 @@ private fun SettingsRoot(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Формат: Header: Value (по одной строке) или JSON объект.",
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.5.sp
                 )
             }
@@ -768,11 +865,15 @@ private fun ProvidersList(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (provider.id == activeProviderId) AccentPrimary.copy(alpha = 0.12f) else SurfaceContainerHigh)
+                            .background(
+                                if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceContainerHigh
+                            )
                             .border(
                                 BorderStroke(
                                     1.dp,
-                                    if (provider.id == activeProviderId) AccentPrimary.copy(alpha = 0.35f) else OutlineSubtle
+                                    if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                 ),
                                 RoundedCornerShape(8.dp)
                             ),
@@ -781,7 +882,7 @@ private fun ProvidersList(
                         Icon(
                             imageVector = providerLogo ?: Icons.Outlined.AutoAwesome,
                             contentDescription = null,
-                            tint = if (provider.id == activeProviderId) AccentPrimary else TextSecondary,
+                            tint = if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -791,14 +892,14 @@ private fun ProvidersList(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = provider.name,
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = formatModelName(provider.activeModel),
-                            color = TextTertiary,
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 11.5.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -824,13 +925,16 @@ private fun ProvidersList(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(SurfaceContainerHighest)
-                                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .border(
+                                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                    RoundedCornerShape(6.dp)
+                                )
                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "Не настроен",
-                                color = TextTertiary,
+                                color = MaterialTheme.colorScheme.outline,
                                 fontSize = 11.sp
                             )
                         }
@@ -839,7 +943,7 @@ private fun ProvidersList(
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                         contentDescription = null,
-                        tint = TextTertiary,
+                        tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(17.dp)
                     )
                 }
@@ -864,11 +968,11 @@ private fun ProvidersList(
             Icon(
                 imageVector = Icons.Outlined.Add,
                 contentDescription = null,
-                tint = AccentPrimary,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(17.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "Добавить провайдера", color = AccentPrimary, fontSize = 13.5.sp)
+            Text(text = "Добавить провайдера", color = MaterialTheme.colorScheme.primary, fontSize = 13.5.sp)
         }
     }
 }
@@ -912,7 +1016,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Ниже — предсказуемее, выше — креативнее.",
-                    color = TextTertiary,
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.5.sp
                 )
             }
@@ -925,19 +1029,17 @@ private fun AgentSettings(viewModel: MainViewModel) {
                     badge = "${appSettings.maxSteps}"
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                MinimalSlider(
-                    value = appSettings.maxSteps.toFloat(),
+                DiscreteStepsSlider(
+                    value = appSettings.maxSteps,
                     onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(maxSteps = it.roundToInt()))
+                        viewModel.updateSettings(appSettings.copy(maxSteps = it))
                     },
-                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..
-                            AppSettings.STEPS_RANGE.last.toFloat(),
-                    steps = 10
+                    range = AppSettings.STEPS_RANGE
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Сколько раз модель может вызвать инструменты в одной задаче.",
-                    color = TextTertiary,
+                    text = "Сколько раз модель может вызвать инструменты в одной задаче (хватает на scan → unpack → sort).",
+                    color = MaterialTheme.colorScheme.outline,
                     fontSize = 11.5.sp
                 )
             }
@@ -966,8 +1068,11 @@ private fun SystemPromptBlock(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(SurfaceContainerLowest)
-                    .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        RoundedCornerShape(10.dp)
+                    )
             ) {
                 Column {
                     Row(
@@ -978,7 +1083,7 @@ private fun SystemPromptBlock(
                     ) {
                         Text(
                             text = "system",
-                            color = TextTertiary,
+                            color = MaterialTheme.colorScheme.outline,
                             fontSize = 10.5.sp,
                             fontFamily = FontFamily.Monospace
                         )
@@ -987,7 +1092,7 @@ private fun SystemPromptBlock(
                             Icon(
                                 imageVector = Icons.Outlined.ContentCopy,
                                 contentDescription = "Копировать промпт",
-                                tint = TextTertiary,
+                                tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -1000,13 +1105,13 @@ private fun SystemPromptBlock(
                             .fillMaxWidth()
                             .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                         textStyle = TextStyle(
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.5.sp,
                             lineHeight = 18.sp,
                             fontFamily = FontFamily.Monospace
                         ),
                         maxLines = if (expanded) Int.MAX_VALUE else 6,
-                        cursorBrush = SolidColor(AccentPrimary)
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
                     )
                 }
             }
@@ -1020,7 +1125,7 @@ private fun SystemPromptBlock(
                 ) {
                     Text(
                         text = if (expanded) "Свернуть" else "Показать полностью",
-                        color = AccentPrimary,
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 12.5.sp
                     )
                 }
@@ -1028,7 +1133,7 @@ private fun SystemPromptBlock(
                     onClick = onReset,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(text = "Сбросить", color = TextSecondary, fontSize = 12.5.sp)
+                    Text(text = "Сбросить", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.5.sp)
                 }
             }
         }
@@ -1042,18 +1147,21 @@ private fun SliderHeader(title: String, badge: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text(text = title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(SurfaceContainerHighest)
-                .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    RoundedCornerShape(6.dp)
+                )
                 .padding(horizontal = 8.dp, vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = badge,
-                color = AccentPrimary,
+                color = MaterialTheme.colorScheme.primary,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium
@@ -1112,7 +1220,7 @@ private fun MinimalSlider(
                 .fillMaxWidth()
                 .height(2.dp)
                 .clip(CircleShape)
-                .background(SurfaceContainerHighest)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
         )
 
         Box(
@@ -1120,7 +1228,7 @@ private fun MinimalSlider(
                 .width((maxWidth - thumbSize) * fraction + thumbSize / 2)
                 .height(2.dp)
                 .clip(CircleShape)
-                .background(AccentPrimary)
+                .background(MaterialTheme.colorScheme.primary)
         )
 
         Box(
@@ -1128,8 +1236,199 @@ private fun MinimalSlider(
                 .offset(x = (maxWidth - thumbSize) * fraction)
                 .size(thumbSize)
                 .clip(CircleShape)
-                .background(AccentPrimary)
+                .background(MaterialTheme.colorScheme.primary)
         )
+    }
+}
+
+/**
+ * Дискретный слайдер для лимита шагов:
+ * - С засечками (делениями) на шкале под каждый целый шаг.
+ * - Принудительно целые значения с плавной привязкой (snap).
+ * - Текущее число и диапазон выводятся прямо под шкалой.
+ */
+@Composable
+private fun DiscreteStepsSlider(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    range: IntRange = AppSettings.STEPS_RANGE
+) {
+    val totalSteps = (range.last - range.first).coerceAtLeast(1)
+    val fraction = ((value - range.first).toFloat() / totalSteps).coerceIn(0f, 1f)
+    val thumbSize = 14.dp
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+                .pointerInput(range) {
+                    val trackWidth = size.width.toFloat().coerceAtLeast(1f)
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val rawRatio = (down.position.x / trackWidth).coerceIn(0f, 1f)
+                        val stepVal = (range.first + (rawRatio * totalSteps).roundToInt()).coerceIn(range.first, range.last)
+                        onValueChange(stepVal)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            val dragRatio = (change.position.x / trackWidth).coerceIn(0f, 1f)
+                            val dragVal = (range.first + (dragRatio * totalSteps).roundToInt()).coerceIn(range.first, range.last)
+                            onValueChange(dragVal)
+                            change.consume()
+                        }
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            val availableWidth = maxWidth - thumbSize
+
+            // Базовый трек
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            )
+
+            // Активный трек
+            Box(
+                modifier = Modifier
+                    .width(availableWidth * fraction + thumbSize / 2)
+                    .height(3.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+
+            // Деления (tick marks) по всей длине трека
+            for (step in range) {
+                val stepFraction = (step - range.first).toFloat() / totalSteps
+                val isPassed = step <= value
+                val isMajor = step % 5 == 0 || step == range.first || step == range.last
+                Box(
+                    modifier = Modifier
+                        .offset(x = availableWidth * stepFraction + (thumbSize - 2.dp) / 2)
+                        .size(width = 2.dp, height = if (isMajor) 9.dp else 5.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(
+                            if (isPassed) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                )
+            }
+
+            // Бегунок (Thumb)
+            Box(
+                modifier = Modifier
+                    .offset(x = availableWidth * fraction)
+                    .size(thumbSize)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            )
+        }
+
+        // Подписи диапазона и текущее число рядом
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${range.first}",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "$value шагов",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "${range.last}",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+/**
+ * Маскирует значения секретов (Authorization, *-Secret, *-Key, *-Token) символами •
+ * Сохраняет длину 1-в-1, чтобы курсор и редактирование работали без искажения смещений.
+ */
+private class SecretHeadersVisualTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val original = text.text
+        if (original.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
+
+        val masked = buildString {
+            val lines = original.split("\n")
+            lines.forEachIndexed { lineIndex, line ->
+                if (lineIndex > 0) append("\n")
+
+                val colonIndex = line.indexOf(':')
+                if (colonIndex > 0) {
+                    val keyPart = line.substring(0, colonIndex)
+                    if (isSecretHeaderName(keyPart)) {
+                        append(keyPart)
+                        append(':')
+                        val valuePart = line.substring(colonIndex + 1)
+                        var inQuotes = false
+                        var quoteStart = -1
+                        var quoteEnd = -1
+                        val firstNonSpace = valuePart.indexOfFirst { !it.isWhitespace() }
+                        if (firstNonSpace >= 0 && valuePart[firstNonSpace] == '"') {
+                            val lastQuote = valuePart.lastIndexOf('"')
+                            if (lastQuote > firstNonSpace) {
+                                inQuotes = true
+                                quoteStart = firstNonSpace
+                                quoteEnd = lastQuote
+                            }
+                        }
+
+                        if (inQuotes) {
+                            for (i in valuePart.indices) {
+                                if (i <= quoteStart || i >= quoteEnd || valuePart[i].isWhitespace()) {
+                                    append(valuePart[i])
+                                } else {
+                                    append('•')
+                                }
+                            }
+                        } else {
+                            for (ch in valuePart) {
+                                if (ch.isWhitespace()) {
+                                    append(ch)
+                                } else {
+                                    append('•')
+                                }
+                            }
+                        }
+                    } else {
+                        append(line)
+                    }
+                } else {
+                    append(line)
+                }
+            }
+        }
+
+        return TransformedText(AnnotatedString(masked), OffsetMapping.Identity)
+    }
+
+    private fun isSecretHeaderName(name: String): Boolean {
+        val clean = name.trim().removeSurrounding("\"").lowercase()
+        return clean == "authorization" ||
+                clean.endsWith("-secret") || clean.endsWith("_secret") || clean == "secret" ||
+                clean.endsWith("-key") || clean.endsWith("_key") || clean == "key" ||
+                clean.endsWith("-token") || clean.endsWith("_token") || clean == "token"
     }
 }
 
@@ -1163,7 +1462,7 @@ private fun AccessSettings(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (hasStorage) "Доступ выдан" else "Доступ не выдан",
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -1172,7 +1471,7 @@ private fun AccessSettings(
                 Text(
                     text = "Нужен, чтобы агент читал и раскладывал файлы. Тумблер сам право не даёт — " +
                             "включи «Доступ ко всем файлам» на системном экране.",
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp
                 )
@@ -1185,8 +1484,8 @@ private fun AccessSettings(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentPrimary,
-                        contentColor = SurfaceDark
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 ) {
                     Text(
@@ -1212,7 +1511,7 @@ private fun SettingsGroup(
             Text(
                 text = title,
                 // TextSecondary вместо TextTertiary: на чистом чёрном Tertiary почти растворяется
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 0.2.sp,
@@ -1220,8 +1519,8 @@ private fun SettingsGroup(
             )
         }
         Card(
-            colors = CardDefaults.cardColors(containerColor = SurfaceContainerLow),
-            border = BorderStroke(1.dp, OutlineSubtle),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -1236,8 +1535,9 @@ private fun SettingsRow(
     value: String,
     onClick: () -> Unit,
     mono: Boolean = false,
-    valueColor: Color = TextSecondary
+    valueColor: Color = Color.Unspecified
 ) {
+    val resolvedValueColor = if (valueColor != Color.Unspecified) valueColor else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1246,11 +1546,11 @@ private fun SettingsRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = label, color = TextPrimary, fontSize = 14.sp)
+            Text(text = label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = value,
-                color = valueColor,
+                color = resolvedValueColor,
                 fontSize = 11.5.sp,
                 fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
                 maxLines = 1,
@@ -1260,7 +1560,7 @@ private fun SettingsRow(
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = null,
-            tint = TextTertiary,
+            tint = MaterialTheme.colorScheme.outline,
             modifier = Modifier.size(17.dp)
         )
     }
@@ -1268,7 +1568,7 @@ private fun SettingsRow(
 
 @Composable
 private fun SettingsDivider() {
-    HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
 }
 
 private fun isValidHttpUrl(value: String): Boolean {
@@ -1292,4 +1592,424 @@ private fun copyText(context: Context, text: String, label: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     manager.setPrimaryClip(ClipData.newPlainText(label, text))
     Toast.makeText(context, "$label скопирован в буфер", Toast.LENGTH_SHORT).show()
+}
+
+@Composable
+private fun runnerSwitchColors() = SwitchDefaults.colors(
+    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+)
+
+@Composable
+private fun ThemeSettingsContent(
+    themeConfig: ThemeConfig,
+    onModeChange: (AppThemeMode) -> Unit,
+    onSourceChange: (ColorSource) -> Unit,
+    onSeedColorChange: (Int) -> Unit,
+    onAmoledChange: (Boolean) -> Unit
+) {
+    var showColorPicker by remember { mutableStateOf(false) }
+    val isDynamicAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    Column(modifier = Modifier.padding(14.dp)) {
+        // 1. Режим: Системная / Светлая / Тёмная
+        Text(
+            text = "Режим",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    RoundedCornerShape(10.dp)
+                )
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            val modes = listOf(
+                AppThemeMode.SYSTEM to "Системная",
+                AppThemeMode.LIGHT to "Светлая",
+                AppThemeMode.DARK to "Тёмная"
+            )
+            modes.forEach { (mode, label) ->
+                val isSelected = themeConfig.themeMode == mode
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                            else Color.Transparent
+                        )
+                        .clickable { onModeChange(mode) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 2. Источник цвета: Обои / Свой цвет
+        Text(
+            text = "Источник цвета",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    RoundedCornerShape(10.dp)
+                )
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            // Опция "Обои"
+            val isDynamicSelected = themeConfig.colorSource == ColorSource.DYNAMIC
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(
+                        if (isDynamicSelected && isDynamicAvailable) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        } else {
+                            Color.Transparent
+                        }
+                    )
+                    .clickable(enabled = isDynamicAvailable) {
+                        onSourceChange(ColorSource.DYNAMIC)
+                    }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Обои",
+                    color = when {
+                        !isDynamicAvailable -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                        isDynamicSelected -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontSize = 12.5.sp,
+                    fontWeight = if (isDynamicSelected && isDynamicAvailable) FontWeight.Medium else FontWeight.Normal
+                )
+            }
+
+            // Опция "Свой цвет"
+            val isCustomSelected = themeConfig.colorSource == ColorSource.CUSTOM || !isDynamicAvailable
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(
+                        if (isCustomSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        else Color.Transparent
+                    )
+                    .clickable {
+                        onSourceChange(ColorSource.CUSTOM)
+                    }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Свой цвет",
+                    color = if (isCustomSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (isCustomSelected) FontWeight.Medium else FontWeight.Normal
+                )
+            }
+        }
+
+        if (!isDynamicAvailable) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "«Обои» недоступны: требуется Android 12+",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.5.sp
+            )
+        }
+
+        // 3. Палитра из 10-12 цветов + кастомный пикер
+        if (themeConfig.colorSource == ColorSource.CUSTOM || !isDynamicAvailable) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = "Палитра акцента",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            val presets = ThemeConfig.PRESET_COLORS
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    presets.take(6).forEach { colorInt ->
+                        ColorCircle(
+                            colorInt = colorInt,
+                            isSelected = themeConfig.colorSource == ColorSource.CUSTOM && themeConfig.customSeedColor == colorInt,
+                            onClick = { onSeedColorChange(colorInt) }
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    presets.drop(6).take(5).forEach { colorInt ->
+                        ColorCircle(
+                            colorInt = colorInt,
+                            isSelected = themeConfig.colorSource == ColorSource.CUSTOM && themeConfig.customSeedColor == colorInt,
+                            onClick = { onSeedColorChange(colorInt) }
+                        )
+                    }
+                    // Кнопка кастомного пикера (плюс / палитра)
+                    val isCustomPickerActive = themeConfig.colorSource == ColorSource.CUSTOM &&
+                            !presets.contains(themeConfig.customSeedColor)
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isCustomPickerActive) Color(themeConfig.customSeedColor)
+                                else MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                            .border(
+                                BorderStroke(
+                                    if (isCustomPickerActive) 2.dp else 1.dp,
+                                    if (isCustomPickerActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                CircleShape
+                            )
+                            .clickable { showColorPicker = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = "Выбрать свой цвет",
+                            tint = if (isCustomPickerActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    SettingsDivider()
+
+    // 4. Тумблер «AMOLED чёрный»
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "AMOLED чёрный",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp
+            )
+            Text(
+                text = "В тёмной теме чистый чёрный фон (#000000)",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.5.sp
+            )
+        }
+        Switch(
+            checked = themeConfig.isAmoled,
+            onCheckedChange = onAmoledChange,
+            colors = runnerSwitchColors()
+        )
+    }
+
+    if (showColorPicker) {
+        CustomColorPickerDialog(
+            initialColor = themeConfig.customSeedColor,
+            onDismiss = { showColorPicker = false },
+            onApply = {
+                onSeedColorChange(it)
+                showColorPicker = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun ColorCircle(
+    colorInt: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val color = Color(colorInt)
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(
+                BorderStroke(
+                    if (isSelected) 2.5.dp else 1.dp,
+                    if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Black.copy(alpha = 0.2f)
+                ),
+                CircleShape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = null,
+                tint = if (isColorDark(colorInt)) Color.White else Color.Black,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+private fun isColorDark(colorInt: Int): Boolean {
+    val r = (colorInt shr 16) and 0xFF
+    val g = (colorInt shr 8) and 0xFF
+    val b = colorInt and 0xFF
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 128
+}
+
+@Composable
+private fun CustomColorPickerDialog(
+    initialColor: Int,
+    onDismiss: () -> Unit,
+    onApply: (Int) -> Unit
+) {
+    var hexInput by remember {
+        mutableStateOf(String.format("%06X", 0xFFFFFF and initialColor))
+    }
+    val parsedColor = remember(hexInput) {
+        runCatching {
+            val clean = hexInput.trim().removePrefix("#")
+            if (clean.length == 6) {
+                (0xFF000000.toInt()) or clean.toLong(16).toInt()
+            } else null
+        }.getOrNull()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Свой цвет темы",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = "Введите 6-значный HEX-код цвета (например 4CAF50):",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(
+                                parsedColor?.let { Color(it) }
+                                    ?: MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                            .border(
+                                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                CircleShape
+                            )
+                    )
+                    BasicTextField(
+                        value = hexInput,
+                        onValueChange = { input ->
+                            val filtered = input.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == '#' }.take(7)
+                            hexInput = filtered
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (parsedColor != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 15.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        singleLine = true,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                    )
+                }
+                if (hexInput.isNotBlank() && parsedColor == null) {
+                    Text(
+                        text = "Некорректный HEX-код",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    parsedColor?.let { onApply(it) }
+                },
+                enabled = parsedColor != null
+            ) {
+                Text(
+                    "Применить",
+                    color = if (parsedColor != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(16.dp)
+    )
 }
