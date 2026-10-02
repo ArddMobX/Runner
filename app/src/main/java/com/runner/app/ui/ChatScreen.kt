@@ -711,7 +711,7 @@ private fun StreamingBubble(text: String) {
                     modifier = Modifier
                         .width(22.dp)
                         .height(2.dp)
-                        .clip(RoundedCornerShape(1dp))
+                        .clip(RoundedCornerShape(1.dp))
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                 )
             }
