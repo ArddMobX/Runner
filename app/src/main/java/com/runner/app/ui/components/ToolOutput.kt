@@ -75,6 +75,9 @@ private fun parseOutput(output: String): List<OutputLine> =
     output.lineSequence()
         .map { it.trim() }
         .filter { it.isNotEmpty() }
+        // resolved_path показывает отдельной секцией карточка вызова (ToolCard),
+        // здесь скрываем, чтобы путь не дублировался в общем списке.
+        .filter { !it.startsWith("resolved_path") }
         .map { line ->
             val entry = parseFileEntry(line)
             if (entry != null) {

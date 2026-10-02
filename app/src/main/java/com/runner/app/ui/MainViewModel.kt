@@ -1,6 +1,7 @@
 package com.runner.app.ui
 
 import android.app.Application
+import android.content.Context
 import android.os.Build
 import android.os.Environment
 import androidx.core.content.ContextCompat
@@ -46,7 +47,9 @@ enum class MessageRole {
     USER,
     ASSISTANT,
     TOOL_EXECUTION,
-    SYSTEM_INFO
+    SYSTEM_INFO,
+    /** Карточка плана шагов: составляется до исполнения, ждёт подтверждения. */
+    PLAN
 }
 
 /** Что предложить пользователю прямо в баннере. */
@@ -70,6 +73,45 @@ data class ConnectionTestState(
     val isTesting: Boolean = false,
     val result: ConnectionTestResult? = null
 )
+
+/**
+ * План шагов на подтверждении у пользователя.
+ * steps — распарсенные шаги, rawText — исходный текст модели.
+ */
+data class PlanProposal(
+    val id: String = UUID.randomUUID().toString(),
+    val steps: List<String>,
+    val rawText: String,
+    val onDecision: (Boolean) -> Unit
+)
+
+/** SharedPreferences для одноразовых first-run флагов (общий с настройками). */
+private const val STORAGE_PREFS = "runner_settings"
+
+/** First-run диалог разрешений уже показывали. */
+private const val KEY_STORAGE_PROMPT_SHOWN = "storage_prompt_shown"
+
+/** Маркер «инструменты не нужны» в ответе планировщика. */
+private const val NO_TOOLS_MARKER = "БЕЗ_ИНСТРУМЕНТОВ"
+
+/** Жёсткий потолок шагов в плане (лимит исполнения всё равно задаёт maxSteps). */
+private const val MAX_PLAN_STEPS = 12
+
+/**
+ * Системный промпт фазы планирования. Формат строгий: слабые модели
+ * (Flash Lite и подобные) надёжно держат нумерованный список, а свободный
+ * текст потом невозможно привязать к шагам исполнения.
+ */
+private const val PLAN_SYSTEM_PROMPT = """
+Ты планировщик мобильного агента Runner для Android. Разложи задачу пользователя на пошаговый план работы с инструментами.
+Доступные инструменты: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file, search_files, create_archive, extract_archive, organize_downloads, get_storage_summary, find_largest_files, find_junk_files, clipboard_read, clipboard_write, run_shell_command.
+Правила вывода:
+- Выведи ТОЛЬКО нумерованный список шагов, по одному на строку: "1. имя_инструмента — что сделать".
+- Используй только инструменты из списка выше.
+- Пути указывай абсолютные от корня /storage/emulated/0.
+- Никаких вступлений, пояснений и заключений.
+- Если задача решается одним текстовым ответом без инструментов, выведи одну строку: БЕЗ_ИНСТРУМЕНТОВ.
+"""
 
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
@@ -177,6 +219,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
     val pendingConfirmation: StateFlow<ConfirmationRequest?> = _pendingConfirmation.asStateFlow()
 
+    /** План шагов, ожидающий решения пользователя (null — нет ожидания). */
+    private val _pendingPlan = MutableStateFlow<PlanProposal?>(null)
+    val pendingPlan: StateFlow<PlanProposal?> = _pendingPlan.asStateFlow()
+
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
 
@@ -185,8 +231,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile
     private var stopRequested = false
 
+    /** First-run диалог «Выдать разрешения»: показывается один раз при входе без прав. */
+    private val _showStoragePrompt = MutableStateFlow(false)
+    val showStoragePrompt: StateFlow<Boolean> = _showStoragePrompt.asStateFlow()
+
     init {
         checkStoragePermission()
+        maybeShowStoragePrompt()
         viewModelScope.launch {
             val empty = repository.getRecentEmptySession()
             val session = empty ?: repository.observeSessions().first().firstOrNull() ?: repository.createSession()
@@ -206,6 +257,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
         _hasStoragePermission.value = granted
+        // Право выдали на системном экране — first-run диалог больше не нужен.
+        if (granted) _showStoragePrompt.value = false
+    }
+
+    /** Закрыть first-run диалог (в т.ч. кнопкой «Позже»). Больше не показываем. */
+    fun dismissStoragePrompt() {
+        _showStoragePrompt.value = false
+        getApplication<Application>().getSharedPreferences(STORAGE_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_STORAGE_PROMPT_SHOWN, true)
+            .apply()
+    }
+
+    private fun maybeShowStoragePrompt() {
+        val shown = getApplication<Application>().getSharedPreferences(STORAGE_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_STORAGE_PROMPT_SHOWN, false)
+        if (!_hasStoragePermission.value && !shown) {
+            _showStoragePrompt.value = true
+        }
     }
 
     // --- Сессии ---
@@ -446,9 +516,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         current?.onDecision?.invoke(confirmed)
     }
 
+    /** Решение пользователя по плану шагов. */
+    fun resolvePlan(approved: Boolean) {
+        val current = _pendingPlan.value
+        _pendingPlan.value = null
+        current?.onDecision?.invoke(approved)
+    }
+
     fun stopGeneration() {
         stopRequested = true
         apiClient.cancelActive()
+        // Разблокировать ожидание решения по плану: дальше проверка stopRequested остановит цикл.
+        resolvePlan(false)
         _currentStatus.value = "Останавливаю"
     }
 
@@ -531,6 +610,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 persistContext(sessionId)
 
+                // Планирование: сначала план шагов + подтверждение, потом исполнение.
+                // Слабым моделям (Flash Lite и подобные) это сильно поднимает надёжность.
+                val planNote = if (_settings.value.planningEnabled) {
+                    requestPlanApproval(sessionId, provider, model, text)
+                } else {
+                    null
+                }
+                if (stopRequested) {
+                    finalizeStreamedText(sessionId, stopped = true)
+                    return@launch
+                }
+                if (planNote != null) {
+                    conversationJson.put(
+                        JSONObject().apply {
+                            put("role", "user")
+                            put("content", planNote)
+                        }
+                    )
+                    persistContext(sessionId)
+                }
+
                 runAgentLoop(sessionId, provider, model)
             } finally {
                 _isRunning.value = false
@@ -539,6 +639,127 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 apiClient.cancelActive()
             }
         }
+    }
+
+    /**
+     * Фаза планирования: одним дешёвым нетуловым запросом просим модель разложить
+     * задачу на шаги, показываем план карточкой и ждём решения пользователя.
+     *
+     * Возвращает текст для подстановки в контекст (утверждённый план) или null:
+     * null = исполнять цикл как обычно без плана (план выключен, не нужен,
+     * не распознан, отклонён или остановка).
+     */
+    private suspend fun requestPlanApproval(
+        sessionId: String,
+        provider: Provider,
+        model: String,
+        userText: String
+    ): String? {
+        val currentSettings = _settings.value
+        _currentStatus.value = "Составляю план"
+
+        val planningMessages = JSONArray().apply {
+            put(
+                JSONObject().apply {
+                    put("role", "system")
+                    put("content", PLAN_SYSTEM_PROMPT)
+                }
+            )
+            put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put("content", userText)
+                }
+            )
+        }
+
+        val metrics = GenerationMetrics()
+        val result = apiClient.sendChatCompletion(
+            baseUrl = provider.baseUrl,
+            apiKey = provider.apiKey,
+            modelName = model,
+            messages = planningMessages,
+            reverseProxyUrl = currentSettings.reverseProxyUrl,
+            connectTimeoutSeconds = currentSettings.connectTimeoutSeconds,
+            responseTimeoutSeconds = currentSettings.responseTimeoutSeconds,
+            customHeaders = currentSettings.customHeaders,
+            // Детерминированный план: строгий формат важнее креативности.
+            temperature = 0.1,
+            streaming = false,
+            metrics = metrics,
+            withTools = false
+        )
+
+        val planText = when (result) {
+            is AIResponseResult.TextResult -> result.text.trim()
+            is AIResponseResult.Cancelled -> return null
+            is AIResponseResult.Error -> {
+                appendSystemInfo("План не составлен (${result.message}). Работаю без плана.", null)
+                return null
+            }
+            is AIResponseResult.ToolCallsResult -> {
+                // Без тулов этого быть не должно; fallback — свободный режим.
+                return null
+            }
+        }
+
+        if (planText.isBlank()) return null
+        if (planText.contains(NO_TOOLS_MARKER)) return null
+
+        val steps = parsePlanSteps(planText)
+        if (steps.isEmpty()) {
+            appendSystemInfo("План не распознан. Работаю без плана.", null)
+            return null
+        }
+
+        val planMessageId = UUID.randomUUID().toString()
+        val planMessage = ChatMessage(
+            id = planMessageId,
+            role = MessageRole.PLAN,
+            content = planText
+        )
+        _messages.value = _messages.value + planMessage
+        repository.saveMessage(
+            MessageEntity(
+                id = planMessageId,
+                sessionId = sessionId,
+                role = MessageRole.PLAN.name,
+                content = planText,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+
+        _currentStatus.value = "Жду подтверждения плана"
+        val approved = suspendCancellableCoroutine { continuation ->
+            _pendingPlan.value = PlanProposal(
+                id = planMessageId,
+                steps = steps,
+                rawText = planText,
+                onDecision = { decision ->
+                    if (continuation.isActive) continuation.resume(decision)
+                }
+            )
+        }
+        _pendingPlan.value = null
+
+        return if (approved && !stopRequested) {
+            buildString {
+                append("Утверждённый пользователем план, строго следуй ему по шагам ")
+                append("(не пропускай шаги, не выдумывай свои инструменты):\n")
+                steps.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
+            }
+        } else {
+            appendSystemInfo("План отклонён. Работаю без плана.", null)
+            null
+        }
+    }
+
+    /** Строки вида "1. ..." / "1) ..." — остальное игнорируем. */
+    private fun parsePlanSteps(text: String): List<String> {
+        val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
+        return text.lines()
+            .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
+            .take(MAX_PLAN_STEPS)
     }
 
     private suspend fun runAgentLoop(sessionId: String, provider: Provider, model: String) {

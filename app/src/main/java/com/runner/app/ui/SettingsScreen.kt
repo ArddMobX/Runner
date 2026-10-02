@@ -44,8 +44,14 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -79,6 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -90,6 +97,7 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ColorSource
+import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
 import com.runner.app.data.ThemeConfig
 import com.runner.app.ui.components.ProviderLogos
@@ -221,14 +229,16 @@ private fun SettingsRoot(
             SettingsRow(
                 label = "Провайдеры и ключи",
                 value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "—"}",
-                onClick = { onNavigate(SettingsRoute.Providers) }
+                onClick = { onNavigate(SettingsRoute.Providers) },
+                icon = Icons.Outlined.VpnKey
             )
             SettingsDivider()
             SettingsRow(
                 label = "Модель",
                 // Показываем человеческое имя, технический ID живёт в списке выбора
                 value = formatModelName(activeProvider?.activeModel.orEmpty()),
-                onClick = { onNavigate(SettingsRoute.Providers) }
+                onClick = { onNavigate(SettingsRoute.Providers) },
+                icon = Icons.Outlined.SmartToy
             )
         }
 
@@ -236,13 +246,15 @@ private fun SettingsRoot(
             SettingsRow(
                 label = "Системный промпт",
                 value = "${appSettings.systemPrompt.length} символов",
-                onClick = { onNavigate(SettingsRoute.Agent) }
+                onClick = { onNavigate(SettingsRoute.Agent) },
+                icon = Icons.Outlined.Terminal
             )
             SettingsDivider()
             SettingsRow(
                 label = "Температура и шаги",
                 value = "${appSettings.temperature} · ${appSettings.maxSteps} шагов",
-                onClick = { onNavigate(SettingsRoute.Agent) }
+                onClick = { onNavigate(SettingsRoute.Agent) },
+                icon = Icons.Outlined.Tune
             )
         }
 
@@ -251,7 +263,8 @@ private fun SettingsRoot(
                 label = "Доступ ко всем файлам",
                 value = if (hasStorage) "выдан" else "не выдан",
                 valueColor = if (hasStorage) StatusSuccess else StatusWarning,
-                onClick = { onNavigate(SettingsRoute.Access) }
+                onClick = { onNavigate(SettingsRoute.Access) },
+                icon = Icons.Outlined.FolderOpen
             )
         }
 
@@ -274,46 +287,13 @@ private fun SettingsRoot(
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RoundedCornerShape(10.dp)
-                        )
-                        .padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    AppSettings.TEXT_SCALES.forEach { scale ->
-                        val isSelected = scale == appSettings.textScale
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(
-                                    if (isSelected) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                                    } else {
-                                        Color.Transparent
-                                    }
-                                )
-                                .clickable {
-                                    viewModel.updateSettings(appSettings.copy(textScale = scale))
-                                }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${(scale * 100).roundToInt()}%",
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
+                SegmentedChips(
+                    options = AppSettings.TEXT_SCALES.map { scale ->
+                        scale to "${(scale * 100).roundToInt()}%"
+                    },
+                    selected = appSettings.textScale,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(textScale = it)) }
+                )
             }
             SettingsDivider()
             Row(
@@ -367,6 +347,35 @@ private fun SettingsRoot(
                     checked = appSettings.showStats,
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(showStats = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Планирование шагов",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Модель сначала составляет план, исполнение — после твоего подтверждения",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.planningEnabled,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(planningEnabled = it))
                     },
                     colors = runnerSwitchColors()
                 )
@@ -463,130 +472,26 @@ private fun SettingsRoot(
 
             SettingsDivider()
 
-            // 2. Кнопка «Проверить соединение»
+            // 2. Проверка соединения: статус и триггер — единый виджет.
+            // Тап по плашке запускает проверку заново, отдельная кнопка не нужна.
             Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = "Проверка связи",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
-                            color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.5.sp
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (connectionState.isTesting) MaterialTheme.colorScheme.surfaceContainerHighest
-                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            )
-                            .border(
-                                BorderStroke(
-                                    1.dp,
-                                    if (connectionState.isTesting) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                                ),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable(enabled = !connectionState.isTesting) {
-                                viewModel.testConnection()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (connectionState.isTesting) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(13.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "Проверка...",
-                                    color = MaterialTheme.colorScheme.outline,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = RunnerIcons.Activity,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "Проверить",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-
-                connectionState.result?.let { res ->
-                    Spacer(modifier = Modifier.height(10.dp))
-                    val errorColor = MaterialTheme.colorScheme.error
-                    val badgeBg = when {
-                        res.isSuccess -> StatusSuccess.copy(alpha = 0.12f)
-                        res.isReachable -> StatusWarning.copy(alpha = 0.12f)
-                        else -> errorColor.copy(alpha = 0.12f)
-                    }
-                    val badgeBorder = when {
-                        res.isSuccess -> StatusSuccess.copy(alpha = 0.35f)
-                        res.isReachable -> StatusWarning.copy(alpha = 0.35f)
-                        else -> errorColor.copy(alpha = 0.35f)
-                    }
-                    val badgeTextColor = when {
-                        res.isSuccess -> StatusSuccess
-                        res.isReachable -> StatusWarning
-                        else -> errorColor
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(badgeBg)
-                            .border(BorderStroke(1.dp, badgeBorder), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(badgeTextColor)
-                            )
-                            Text(
-                                text = res.message,
-                                color = badgeTextColor,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = "Проверка связи",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.5.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                ConnectionStatusWidget(
+                    isTesting = connectionState.isTesting,
+                    result = connectionState.result,
+                    onCheck = { viewModel.testConnection() }
+                )
             }
 
             SettingsDivider()
@@ -618,41 +523,11 @@ private fun SettingsRoot(
                     fontSize = 11.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RoundedCornerShape(10.dp)
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    AppSettings.CONNECT_TIMEOUT_PRESETS.forEach { sec ->
-                        val isSelected = sec == appSettings.connectTimeoutSeconds
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent
-                                )
-                                .clickable {
-                                    viewModel.updateSettings(appSettings.copy(connectTimeoutSeconds = sec))
-                                }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${sec}с",
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
+                SegmentedChips(
+                    options = AppSettings.CONNECT_TIMEOUT_PRESETS.map { sec -> sec to "${sec}с" },
+                    selected = appSettings.connectTimeoutSeconds,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(connectTimeoutSeconds = it)) }
+                )
             }
 
             SettingsDivider()
@@ -684,41 +559,11 @@ private fun SettingsRoot(
                     fontSize = 11.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RoundedCornerShape(10.dp)
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    AppSettings.RESPONSE_TIMEOUT_PRESETS.forEach { sec ->
-                        val isSelected = sec == appSettings.responseTimeoutSeconds
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent
-                                )
-                                .clickable {
-                                    viewModel.updateSettings(appSettings.copy(responseTimeoutSeconds = sec))
-                                }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${sec}с",
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
+                SegmentedChips(
+                    options = AppSettings.RESPONSE_TIMEOUT_PRESETS.map { sec -> sec to "${sec}с" },
+                    selected = appSettings.responseTimeoutSeconds,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(responseTimeoutSeconds = it)) }
+                )
             }
 
             SettingsDivider()
@@ -989,16 +834,18 @@ private fun AgentSettings(viewModel: MainViewModel) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        SystemPromptBlock(
-            prompt = appSettings.systemPrompt,
-            onPromptChange = { viewModel.updateSettings(appSettings.copy(systemPrompt = it)) },
-            onCopy = {
-                copyText(context, appSettings.systemPrompt, "Промпт")
-            },
-            onReset = { viewModel.resetSystemPrompt() }
-        )
-
         SettingsGroup {
+            SystemPromptBlock(
+                prompt = appSettings.systemPrompt,
+                onPromptChange = { viewModel.updateSettings(appSettings.copy(systemPrompt = it)) },
+                onCopy = {
+                    copyText(context, appSettings.systemPrompt, "Промпт")
+                },
+                onReset = { viewModel.resetSystemPrompt() }
+            )
+
+            SettingsDivider()
+
             Column(modifier = Modifier.padding(14.dp)) {
                 SliderHeader(
                     title = "Температура",
@@ -1020,9 +867,9 @@ private fun AgentSettings(viewModel: MainViewModel) {
                     fontSize = 11.5.sp
                 )
             }
-        }
 
-        SettingsGroup {
+            SettingsDivider()
+
             Column(modifier = Modifier.padding(14.dp)) {
                 SliderHeader(
                     title = "Лимит шагов",
@@ -1062,9 +909,13 @@ private fun SystemPromptBlock(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    SettingsGroup("Системный промпт") {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Box(
+    Column(modifier = Modifier.padding(14.dp)) {
+        SliderHeader(
+            title = "Системный промпт",
+            badge = "${prompt.length} символов"
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
@@ -1137,7 +988,6 @@ private fun SystemPromptBlock(
                 }
             }
         }
-    }
 }
 
 @Composable
@@ -1166,6 +1016,66 @@ private fun SliderHeader(title: String, badge: String) {
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium
             )
+        }
+    }
+}
+
+/**
+ * Компактный сегментный переключатель в духе Filter Chips: равные сегменты
+ * (~30dp высотой вместо ~40dp у старого контейнера), выбранный — тональная
+ * заливка, остальные — контурные. Один стиль на все пресеты настроек.
+ */
+@Composable
+private fun <T> SegmentedChips(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    isEnabled: (T) -> Boolean = { true }
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (value, label) ->
+            val active = value == selected
+            val enabled = isEnabled(value)
+            val shape = RoundedCornerShape(9.dp)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(shape)
+                    .background(
+                        when {
+                            active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+                        }
+                    )
+                    .border(
+                        BorderStroke(
+                            1.dp,
+                            when {
+                                active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            }
+                        ),
+                        shape
+                    )
+                    .clickable(enabled = enabled) { onSelect(value) }
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    color = when {
+                        !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                        active -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -1535,7 +1445,8 @@ private fun SettingsRow(
     value: String,
     onClick: () -> Unit,
     mono: Boolean = false,
-    valueColor: Color = Color.Unspecified
+    valueColor: Color = Color.Unspecified,
+    icon: ImageVector? = null
 ) {
     val resolvedValueColor = if (valueColor != Color.Unspecified) valueColor else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
@@ -1545,6 +1456,27 @@ private fun SettingsRow(
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (icon != null) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+                        RoundedCornerShape(10.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(2.dp))
@@ -1569,6 +1501,111 @@ private fun SettingsRow(
 @Composable
 private fun SettingsDivider() {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+}
+
+/**
+ * Статус проверки связи + триггер в одном виджете: тап по плашке запускает
+ * проверку заново. Состояния: ожидание (приглашение), тест (спиннер),
+ * результат (цветной бейдж — успех/доступен/ошибка вроде 403).
+ */
+@Composable
+private fun ConnectionStatusWidget(
+    isTesting: Boolean,
+    result: ConnectionTestResult?,
+    onCheck: () -> Unit
+) {
+    val errorColor = MaterialTheme.colorScheme.error
+    val bg = when {
+        isTesting -> MaterialTheme.colorScheme.surfaceContainerHighest
+        result == null -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        result.isSuccess -> StatusSuccess.copy(alpha = 0.12f)
+        result.isReachable -> StatusWarning.copy(alpha = 0.12f)
+        else -> errorColor.copy(alpha = 0.12f)
+    }
+    val border = when {
+        isTesting -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        result == null -> MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+        result.isSuccess -> StatusSuccess.copy(alpha = 0.35f)
+        result.isReachable -> StatusWarning.copy(alpha = 0.35f)
+        else -> errorColor.copy(alpha = 0.35f)
+    }
+    val accent = when {
+        isTesting -> MaterialTheme.colorScheme.outline
+        result == null -> MaterialTheme.colorScheme.primary
+        result.isSuccess -> StatusSuccess
+        result.isReachable -> StatusWarning
+        else -> errorColor
+    }
+    val shape = RoundedCornerShape(10.dp)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(bg)
+            .border(BorderStroke(1.dp, border), shape)
+            .clickable(enabled = !isTesting) { onCheck() }
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            when {
+                isTesting -> CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                result == null -> Icon(
+                    imageVector = RunnerIcons.Activity,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(15.dp)
+                )
+
+                else -> Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(accent)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = when {
+                        isTesting -> "Проверка..."
+                        result == null -> "Проверить связь"
+                        else -> result.message
+                    },
+                    color = if (result == null && !isTesting) MaterialTheme.colorScheme.onSurface else accent,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!isTesting && result == null) {
+                    Text(
+                        text = "Нажми, чтобы запустить тест пинга",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            if (!isTesting) {
+                Icon(
+                    imageVector = Icons.Outlined.Refresh,
+                    contentDescription = if (result == null) null else "Проверить заново",
+                    tint = accent.copy(alpha = 0.75f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+    }
 }
 
 private fun isValidHttpUrl(value: String): Boolean {
@@ -1622,46 +1659,15 @@ private fun ThemeSettingsContent(
             fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    RoundedCornerShape(10.dp)
-                )
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            val modes = listOf(
+        SegmentedChips(
+            options = listOf(
                 AppThemeMode.SYSTEM to "Системная",
                 AppThemeMode.LIGHT to "Светлая",
                 AppThemeMode.DARK to "Тёмная"
-            )
-            modes.forEach { (mode, label) ->
-                val isSelected = themeConfig.themeMode == mode
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(
-                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                            else Color.Transparent
-                        )
-                        .clickable { onModeChange(mode) }
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-                    )
-                }
-            }
-        }
+            ),
+            selected = themeConfig.themeMode,
+            onSelect = onModeChange
+        )
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -1673,73 +1679,16 @@ private fun ThemeSettingsContent(
             fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    RoundedCornerShape(10.dp)
-                )
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            // Опция "Обои"
-            val isDynamicSelected = themeConfig.colorSource == ColorSource.DYNAMIC
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(
-                        if (isDynamicSelected && isDynamicAvailable) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                        } else {
-                            Color.Transparent
-                        }
-                    )
-                    .clickable(enabled = isDynamicAvailable) {
-                        onSourceChange(ColorSource.DYNAMIC)
-                    }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Обои",
-                    color = when {
-                        !isDynamicAvailable -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                        isDynamicSelected -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    fontSize = 12.5.sp,
-                    fontWeight = if (isDynamicSelected && isDynamicAvailable) FontWeight.Medium else FontWeight.Normal
-                )
-            }
-
-            // Опция "Свой цвет"
-            val isCustomSelected = themeConfig.colorSource == ColorSource.CUSTOM || !isDynamicAvailable
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(
-                        if (isCustomSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                        else Color.Transparent
-                    )
-                    .clickable {
-                        onSourceChange(ColorSource.CUSTOM)
-                    }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Свой цвет",
-                    color = if (isCustomSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
-                    fontWeight = if (isCustomSelected) FontWeight.Medium else FontWeight.Normal
-                )
-            }
-        }
+        SegmentedChips(
+            options = listOf(
+                ColorSource.DYNAMIC to "Обои",
+                ColorSource.CUSTOM to "Свой цвет"
+            ),
+            // Без Android 12+ «Обои» недоступны — показываем выбранным «Свой цвет».
+            selected = if (isDynamicAvailable) themeConfig.colorSource else ColorSource.CUSTOM,
+            onSelect = onSourceChange,
+            isEnabled = { it != ColorSource.DYNAMIC || isDynamicAvailable }
+        )
 
         if (!isDynamicAvailable) {
             Spacer(modifier = Modifier.height(4.dp))

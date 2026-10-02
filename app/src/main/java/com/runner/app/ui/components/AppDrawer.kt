@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,6 +57,8 @@ import com.runner.app.ui.theme.MotionTokens
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Секции истории. Заголовки неброские — они разделяют, а не кричат. */
 private enum class SessionGroup(val title: String) {
@@ -73,6 +76,30 @@ private fun groupOf(timestamp: Long, zone: ZoneId): SessionGroup {
         date == today.minusDays(1) -> SessionGroup.YESTERDAY
         date.isAfter(today.minusDays(8)) -> SessionGroup.LAST_WEEK
         else -> SessionGroup.OLDER
+    }
+}
+
+private val ruLocale = Locale.forLanguageTag("ru-RU")
+
+/**
+ * Компактная метка времени для строки истории: сегодня — «14:32»,
+ * вчера — «Вчера», в пределах недели — день («пн»), в этом году — «5 мая»,
+ * старше — «12.03.24».
+ */
+private fun formatSessionTime(timestamp: Long, zone: ZoneId): String {
+    val zoned = Instant.ofEpochMilli(timestamp).atZone(zone)
+    val date = zoned.toLocalDate()
+    val today = LocalDate.now(zone)
+    return when {
+        date == today ->
+            DateTimeFormatter.ofPattern("HH:mm").withZone(zone).format(Instant.ofEpochMilli(timestamp))
+        date == today.minusDays(1) -> "Вчера"
+        date.isAfter(today.minusDays(8)) ->
+            DateTimeFormatter.ofPattern("EEE", ruLocale).withZone(zone).format(Instant.ofEpochMilli(timestamp))
+        date.year == today.year ->
+            DateTimeFormatter.ofPattern("d MMM", ruLocale).withZone(zone).format(Instant.ofEpochMilli(timestamp))
+        else ->
+            DateTimeFormatter.ofPattern("dd.MM.yy").withZone(zone).format(Instant.ofEpochMilli(timestamp))
     }
 }
 
@@ -180,6 +207,9 @@ fun AppDrawerContent(
                         SessionRow(
                             session = session,
                             isCurrent = session.id == currentSessionId,
+                            timeLabel = remember(session.id, session.updatedAt) {
+                                formatSessionTime(session.updatedAt, zone)
+                            },
                             onOpen = { onOpenSession(session.id) },
                             onRename = { sessionToRename = session },
                             onDelete = { sessionToDelete = session }
@@ -249,13 +279,16 @@ fun AppDrawerContent(
     }
 }
 
-/** Монолитная кнопка с тонким контуром и мягким затуханием при нажатии. */
+/**
+ * Главное целевое действие: прозрачный фон + акцентный контур и текст,
+ * чтобы считывалась primary-кнопкой на фоне нейтрального поля поиска.
+ */
 @Composable
 private fun NewChatButton(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val background by animateColorAsState(
-        targetValue = if (pressed) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+        targetValue = if (pressed) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent,
         animationSpec = MotionTokens.fluidTween(180),
         label = "new_chat_press"
     )
@@ -266,7 +299,7 @@ private fun NewChatButton(onClick: () -> Unit) {
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(background)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)), RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -278,15 +311,15 @@ private fun NewChatButton(onClick: () -> Unit) {
         Icon(
             imageVector = Icons.Outlined.Add,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = "Новый чат",
-            color = MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.primary,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.SemiBold
         )
     }
 }
@@ -297,6 +330,7 @@ private fun NewChatButton(onClick: () -> Unit) {
 private fun SessionRow(
     session: SessionEntity,
     isCurrent: Boolean,
+    timeLabel: String,
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -329,7 +363,16 @@ private fun SessionRow(
                 fontSize = 13.5.sp,
                 fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = timeLabel,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline,
+                fontSize = 10.5.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1
             )
         }
 

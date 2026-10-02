@@ -126,6 +126,7 @@ fun ChatScreen(
     val activeProviderId by viewModel.activeProviderId.collectAsState()
     val modelsLoadingFor by viewModel.modelsLoadingFor.collectAsState()
     val pendingConfirmation by viewModel.pendingConfirmation.collectAsState()
+    val pendingPlan by viewModel.pendingPlan.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
 
@@ -163,6 +164,17 @@ fun ChatScreen(
             request = request,
             onConfirm = { viewModel.resolveConfirmation(true) },
             onReject = { viewModel.resolveConfirmation(false) }
+        )
+    }
+
+    val showStoragePrompt by viewModel.showStoragePrompt.collectAsState()
+    if (showStoragePrompt) {
+        StoragePromptSheet(
+            onGrant = {
+                onOpenStorageSettings()
+                viewModel.dismissStoragePrompt()
+            },
+            onLater = { viewModel.dismissStoragePrompt() }
         )
     }
 
@@ -241,6 +253,9 @@ fun ChatScreen(
                                     message = message,
                                     showToolDetails = appSettings.showToolDetails,
                                     showStats = appSettings.showStats,
+                                    planAwaitingId = pendingPlan?.id,
+                                    onApprovePlan = { viewModel.resolvePlan(true) },
+                                    onRejectPlan = { viewModel.resolvePlan(false) },
                                     onAction = { action ->
                                         when (action) {
                                             MessageAction.OPEN_SETTINGS -> onOpenSettings()
@@ -527,6 +542,9 @@ private fun MessageItem(
     message: ChatMessage,
     showToolDetails: Boolean,
     showStats: Boolean,
+    planAwaitingId: String?,
+    onApprovePlan: () -> Unit,
+    onRejectPlan: () -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
@@ -576,6 +594,13 @@ private fun MessageItem(
             message = message,
             showDetails = showToolDetails,
             showStats = showStats
+        )
+
+        MessageRole.PLAN -> PlanCard(
+            message = message,
+            awaitingDecision = message.id == planAwaitingId,
+            onApprove = onApprovePlan,
+            onReject = onRejectPlan
         )
 
         MessageRole.SYSTEM_INFO -> NoticeBanner(
@@ -719,6 +744,133 @@ private fun StreamingBubble(text: String) {
     }
 }
 
+/** Абсолютные пути из результата тула (строки resolved_path[:_src|_dst]: ...). */
+private fun extractResolvedPaths(toolOutput: String): List<String> =
+    toolOutput.lineSequence()
+        .map { it.trim() }
+        .filter { it.startsWith("resolved_path") }
+        .mapNotNull { line ->
+            val value = line.substringAfter(':', missingDelimiterValue = "").trim()
+            value.takeIf { it.isNotBlank() }
+        }
+        .distinct()
+        .toList()
+
+/**
+ * Карточка плана шагов: нумерованные шаги + кнопки утверждения.
+ * После решения кнопки гаснут (awaitingDecision=false), карточка остаётся историей.
+ */
+@Composable
+private fun PlanCard(
+    message: ChatMessage,
+    awaitingDecision: Boolean,
+    onApprove: () -> Unit,
+    onReject: () -> Unit
+) {
+    val steps = remember(message.content) { parsePlanStepsUi(message.content) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "План действий",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${steps.size} шагов",
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (steps.isEmpty()) {
+                Text(
+                    text = message.content,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+            } else {
+                steps.forEachIndexed { i, step ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            text = "${i + 1}.",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.width(22.dp)
+                        )
+                        Text(
+                            text = step,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            if (awaitingDecision) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = onApprove,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Утвердить", fontSize = 13.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onReject,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Без плана", fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Те же правила, что у парсера модели: строки "N. ..." / "N) ...". */
+private fun parsePlanStepsUi(text: String): List<String> {
+    val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
+    return text.lines()
+        .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
+}
+
 /**
  * Свёрнутая строка вызова инструмента: «Сканирую Download · 143 файла».
  * Технические детали — только по нажатию.
@@ -736,27 +888,33 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
             !message.toolArgs.isNullOrBlank() || !message.toolOutput.isNullOrBlank()
             )
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
-        shape = RoundedCornerShape(10.dp),
+    // Лёгкая плашка-аккордеон: едва заметный фон, волосяная рамка,
+    // свернутый текст 12.5sp. Раскрытие — по тапу на всю строку.
+    val compactShape = RoundedCornerShape(9.dp)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(compactShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f))
+            .border(
+                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                compactShape
+            )
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable(enabled = hasDetails && !message.isRunning) { expanded = !expanded }
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ToolStatusIcon(message)
-                Spacer(modifier = Modifier.width(9.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Text(
                     text = message.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (message.isDeclined) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    color = if (message.isDeclined) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -766,7 +924,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                     Text(
                         text = "· ${message.toolSummary}",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         maxLines = 1,
                         modifier = Modifier.padding(start = 6.dp)
                     )
@@ -776,8 +934,8 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                 if (showStats && !message.isRunning && message.toolDurationMs != null) {
                     Text(
                         text = "· ${formatDuration(message.toolDurationMs)}",
-                        color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+                        fontSize = 10.5.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         modifier = Modifier.padding(start = 6.dp)
@@ -786,15 +944,15 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
 
                 // Раньше здесь стоял Spacer с weight(1f), а второй weight висел на заголовке —
                 // ширина делилась пополам, и статус обрезался на пустом месте.
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
                 if (hasDetails && !message.isRunning) {
                     Icon(
                         imageVector = Icons.Outlined.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
-                        tint = MaterialTheme.colorScheme.outline,
+                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                         modifier = Modifier
-                            .size(17.dp)
+                            .size(14.dp)
                             .graphicsLayer { rotationZ = rotation }
                     )
                 }
@@ -820,6 +978,27 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                         lineHeight = 15.sp,
                         color = MaterialTheme.colorScheme.outline
                     )
+                    Spacer(modifier = Modifier.height(9.dp))
+                }
+
+                val resolvedPaths = remember(message.toolOutput) { extractResolvedPaths(message.toolOutput.orEmpty()) }
+                if (resolvedPaths.isNotEmpty()) {
+                    Text(
+                        text = "Путь",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    resolvedPaths.forEach { path ->
+                        Text(
+                            text = path,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     Spacer(modifier = Modifier.height(9.dp))
                 }
 
@@ -863,33 +1042,28 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
 
 @Composable
 private fun ToolStatusIcon(message: ChatMessage) {
+    // Компактный статус: маленькая точка вместо иконки 15dp.
+    // Зелёная — успех, красная — ошибка, серая — отклонено/ожидание.
     when {
         message.isRunning -> CircularProgressIndicator(
-            modifier = Modifier.size(13.dp),
-            strokeWidth = 1.8.dp,
+            modifier = Modifier.size(11.dp),
+            strokeWidth = 1.6.dp,
             color = MaterialTheme.colorScheme.primary
         )
 
-        message.isDeclined -> Icon(
-            imageVector = Icons.Outlined.Block,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(15.dp)
-        )
-
-        message.isError -> Icon(
-            imageVector = Icons.Outlined.ErrorOutline,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(15.dp)
-        )
-
-        else -> Icon(
-            imageVector = Icons.Outlined.CheckCircle,
-            contentDescription = null,
-            tint = StatusSuccess,
-            modifier = Modifier.size(15.dp)
-        )
+        else -> {
+            val dotColor = when {
+                message.isDeclined -> MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                message.isError -> MaterialTheme.colorScheme.error
+                else -> StatusSuccess
+            }
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+        }
     }
 }
 
@@ -979,6 +1153,105 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
 /**
  * Подтверждение деструктивной операции с превью того, что именно будет затронуто.
  */
+/**
+ * First-run плашка разрешений: один раз при входе без прав предлагаем выдать
+ * «Доступ ко всем файлам» (системный экран — тумблер в приложении право не даёт).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StoragePromptSheet(
+    onGrant: () -> Unit,
+    onLater: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onLater,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(32.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(StatusWarning.copy(alpha = 0.12f))
+                        .border(
+                            BorderStroke(1.dp, StatusWarning.copy(alpha = 0.30f)),
+                            RoundedCornerShape(10.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.WarningAmber,
+                        contentDescription = null,
+                        tint = StatusWarning,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Доступ ко всем файлам",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Нужен, чтобы агент читал и раскладывал файлы",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 12.5.sp
+                    )
+                }
+            }
+
+            Text(
+                text = "Без него файловые инструменты не сработают. Право выдаётся только на системном экране — кнопка ниже его откроет.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                lineHeight = 19.sp
+            )
+
+            Button(
+                onClick = onGrant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(11.dp)
+            ) {
+                Text("Выдать доступ", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+
+            TextButton(
+                onClick = onLater,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Позже", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.5.sp)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfirmationBottomSheet(

@@ -64,11 +64,27 @@ object ToolDispatcher {
         // 4. get_folder_summary
         tools.put(createToolFunction(
             name = "get_folder_summary",
-            description = "Быстро сканирует директорию на устройстве и возвращает сводку: общее количество файлов, сколько картинок, документов, архивов, APK и топ-5 самых тяжелых файлов.",
+            description = "Быстро сканирует директорию на устройстве и возвращает сводку: общее количество файлов, сколько картинок, документов, архивов, APK и топ-5 самых тяжелых файлов (абсолютные пути).",
             properties = JSONObject().apply {
                 put("path", JSONObject().apply {
                     put("type", "string")
                     put("description", "Путь к папке (например, 'Download', 'Documents' или полный путь). По умолчанию 'Download'.")
+                })
+            }
+        ))
+
+        // 4b. list_dir
+        tools.put(createToolFunction(
+            name = "list_dir",
+            description = "Возвращает плоский список содержимого папки только абсолютными путями (корень /storage/emulated/0). Используй перед записью, чтобы проверить папку и не плодить Download/Download.",
+            properties = JSONObject().apply {
+                put("path", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Путь к папке (например, '/storage/emulated/0/Download'). По умолчанию 'Download'.")
+                })
+                put("limit", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Максимум элементов (по умолчанию 50, максимум 100).")
                 })
             }
         ))
@@ -93,7 +109,7 @@ object ToolDispatcher {
         // 3. write_file
         tools.put(createToolFunction(
             name = "write_file",
-            description = "Создает или перезаписывает текстовый файл, либо дописывает в него текст (append). Автоматически создает недостающие папки.",
+            description = "Создает или перезаписывает текстовый файл, либо дописывает в него текст (append). Если родительской папки нет — возвращает ошибку и ничего не создаёт; папку создай заранее тулом create_dir (перед записью проверь папку через list_dir).",
             properties = JSONObject().apply {
                 put("path", JSONObject().apply {
                     put("type", "string")
@@ -344,6 +360,12 @@ object ToolDispatcher {
                     getFolderSummary(path)
                 }
 
+                "list_dir" -> {
+                    val path = args.optString("path", "").trim()
+                    val limit = args.optInt("limit", 50)
+                    listDir(path, limit)
+                }
+
                 // File content operations
                 "read_file" -> {
                     val path = args.optString("path", "").trim()
@@ -444,9 +466,13 @@ object ToolDispatcher {
 
     fun readFile(rawPath: String, maxLines: Int): String {
         if (rawPath.isBlank()) return "Ошибка: путь к файлу не указан."
-        val file = resolveFile(rawPath)
-        if (!file.exists()) return "Файл '${file.absolutePath}' не существует."
-        if (file.isDirectory) return "Ошибка: '${file.absolutePath}' является папкой, а не файлом."
+        val file = try {
+            resolveFile(rawPath)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!file.exists()) return "resolved_path: ${file.absolutePath}\nФайл '${file.absolutePath}' не существует."
+        if (file.isDirectory) return "resolved_path: ${file.absolutePath}\nОшибка: '${file.absolutePath}' является папкой, а не файлом."
 
         val lines = mutableListOf<String>()
         var totalLinesCount = 0
@@ -466,6 +492,7 @@ object ToolDispatcher {
         }
 
         return buildString {
+            append("resolved_path: ${file.absolutePath}\n")
             append("Содержимое файла '${file.name}' (${formatFileSize(file.length())}):\n")
             append("```\n")
             append(lines.joinToString("\n"))
@@ -478,19 +505,25 @@ object ToolDispatcher {
 
     fun writeFile(rawPath: String, content: String, append: Boolean): String {
         if (rawPath.isBlank()) return "Ошибка: путь к файлу не указан."
-        val file = resolveFile(rawPath)
+        val file = try {
+            resolveFile(rawPath)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
 
-        file.parentFile?.let { parent ->
-            if (!parent.exists()) parent.mkdirs()
+        // Папки молча не создаём: их создаёт только явный тул create_dir.
+        val parent = file.parentFile
+        if (parent != null && !parent.exists()) {
+            return "resolved_path: ${file.absolutePath}\nОшибка: родительской папки нет: '${parent.absolutePath}'. Сначала проверь папку через list_dir и создай её тулом create_dir."
         }
 
         return try {
             if (append && file.exists()) {
                 file.appendText(content, Charsets.UTF_8)
-                "Текст успешно добавлен в конец файла: '${file.absolutePath}'. Новый размер: ${formatFileSize(file.length())}."
+                "resolved_path: ${file.absolutePath}\nТекст успешно добавлен в конец файла: '${file.absolutePath}'. Новый размер: ${formatFileSize(file.length())}."
             } else {
                 file.writeText(content, Charsets.UTF_8)
-                "Файл успешно записан: '${file.absolutePath}' (${formatFileSize(file.length())})."
+                "resolved_path: ${file.absolutePath}\nФайл успешно записан: '${file.absolutePath}' (${formatFileSize(file.length())})."
             }
         } catch (e: Exception) {
             "Ошибка записи в файл: ${e.localizedMessage}"
@@ -499,114 +532,149 @@ object ToolDispatcher {
 
     fun deleteFile(rawPath: String, recursive: Boolean): String {
         if (rawPath.isBlank()) return "Ошибка: путь для удаления не указан."
-        val file = resolveFile(rawPath)
-        if (!file.exists()) return "Файл или папка '${file.absolutePath}' не найден(а)."
+        val file = try {
+            resolveFile(rawPath)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!file.exists()) return "resolved_path: ${file.absolutePath}\nФайл или папка '${file.absolutePath}' не найден(а)."
 
         // Safety check: protect root and primary storage dirs
         val extRoot = Environment.getExternalStorageDirectory().canonicalPath
         val canonical = file.canonicalPath
         if (canonical == extRoot || canonical == "/" || canonical == "/storage/emulated/0") {
-            return "Защита безопасности: удаление корневой директории запрещено!"
+            return "resolved_path: ${file.absolutePath}\nЗащита безопасности: удаление корневой директории запрещено!"
         }
 
         return if (file.isDirectory) {
             val count = file.walkTopDown().count()
             if (recursive) {
                 if (file.deleteRecursively()) {
-                    "Папка '${file.name}' и все вложенные элементы ($count) успешно удалены."
+                    "resolved_path: ${file.absolutePath}\nПапка '${file.name}' и все вложенные элементы ($count) успешно удалены."
                 } else {
-                    "Не удалось полностью удалить папку '${file.absolutePath}'."
+                    "resolved_path: ${file.absolutePath}\nНе удалось полностью удалить папку '${file.absolutePath}'."
                 }
             } else {
                 val children = file.listFiles()
                 if (children.isNullOrEmpty()) {
-                    if (file.delete()) "Пустая папка '${file.name}' успешно удалена."
-                    else "Не удалось удалить папку."
+                    if (file.delete()) "resolved_path: ${file.absolutePath}\nПустая папка '${file.name}' успешно удалена."
+                    else "resolved_path: ${file.absolutePath}\nНе удалось удалить папку."
                 } else {
-                    "Папка '${file.name}' содержит элементы (${children.size}). Укажите recursive=true для подтверждения удаления всей папки."
+                    "resolved_path: ${file.absolutePath}\nПапка '${file.name}' содержит элементы (${children.size}). Укажите recursive=true для подтверждения удаления всей папки."
                 }
             }
         } else {
             val name = file.name
             if (file.delete()) {
-                "Файл '$name' успешно удален."
+                "resolved_path: ${file.absolutePath}\nФайл '$name' успешно удален."
             } else {
-                "Не удалось удалить файл '${file.absolutePath}'."
+                "resolved_path: ${file.absolutePath}\nНе удалось удалить файл '${file.absolutePath}'."
             }
         }
     }
 
     fun createDir(rawPath: String): String {
         if (rawPath.isBlank()) return "Ошибка: путь к папке не указан."
-        val dir = resolveFolder(rawPath)
+        val dir = try {
+            resolveFolder(rawPath)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        // create_dir — единственный тул, которому разрешено создавать папки.
         return if (dir.exists()) {
-            "Папка уже существует: '${dir.absolutePath}'."
+            "resolved_path: ${dir.absolutePath}\nПапка уже существует: '${dir.absolutePath}'."
         } else {
             if (dir.mkdirs()) {
-                "Папка успешно создана: '${dir.absolutePath}'."
+                "resolved_path: ${dir.absolutePath}\nПапка успешно создана: '${dir.absolutePath}'."
             } else {
-                "Не удалось создать папку '${dir.absolutePath}'."
+                "resolved_path: ${dir.absolutePath}\nНе удалось создать папку '${dir.absolutePath}'."
             }
         }
     }
 
     fun moveFile(rawSource: String, rawDest: String): String {
         if (rawSource.isBlank() || rawDest.isBlank()) return "Ошибка: укажите исходный и целевой пути."
-        val src = resolveFile(rawSource)
-        if (!src.exists()) return "Исходный файл '${src.absolutePath}' не существует."
+        val src = try {
+            resolveFile(rawSource)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!src.exists()) return "resolved_path_src: ${src.absolutePath}\nИсходный файл '${src.absolutePath}' не существует."
 
-        var dest = resolveFile(rawDest)
+        var dest = try {
+            resolveFile(rawDest)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
         if (dest.isDirectory) {
             dest = File(dest, src.name)
         } else {
-            dest.parentFile?.let { if (!it.exists()) it.mkdirs() }
+            val parent = dest.parentFile
+            if (parent != null && !parent.exists()) {
+                return "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nОшибка: родительской папки нет: '${parent.absolutePath}'. Сначала создай её тулом create_dir."
+            }
         }
 
         return try {
             if (src.renameTo(dest)) {
-                "Перемещено: '${src.name}' -> '${dest.absolutePath}'."
+                "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nresolved_path: ${dest.absolutePath}\nПеремещено: '${src.name}' -> '${dest.absolutePath}'."
             } else {
                 // Cross-device fallback
                 src.copyTo(dest, overwrite = true)
                 src.delete()
-                "Перемещено (через копирование): '${src.name}' -> '${dest.absolutePath}'."
+                "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nresolved_path: ${dest.absolutePath}\nПеремещено (через копирование): '${src.name}' -> '${dest.absolutePath}'."
             }
         } catch (e: Exception) {
-            "Ошибка при перемещении: ${e.localizedMessage}"
+            "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nОшибка при перемещении: ${e.localizedMessage}"
         }
     }
 
     fun copyFile(rawSource: String, rawDest: String): String {
         if (rawSource.isBlank() || rawDest.isBlank()) return "Ошибка: укажите исходный и целевой пути."
-        val src = resolveFile(rawSource)
-        if (!src.exists()) return "Исходный файл '${src.absolutePath}' не существует."
+        val src = try {
+            resolveFile(rawSource)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!src.exists()) return "resolved_path_src: ${src.absolutePath}\nИсходный файл '${src.absolutePath}' не существует."
 
-        var dest = resolveFile(rawDest)
+        var dest = try {
+            resolveFile(rawDest)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
         if (dest.isDirectory) {
             dest = File(dest, src.name)
         } else {
-            dest.parentFile?.let { if (!it.exists()) it.mkdirs() }
+            val parent = dest.parentFile
+            if (parent != null && !parent.exists()) {
+                return "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nОшибка: родительской папки нет: '${parent.absolutePath}'. Сначала создай её тулом create_dir."
+            }
         }
 
         return try {
             if (src.isDirectory) {
                 src.copyRecursively(dest, overwrite = true)
-                "Папка '${src.name}' успешно скопирована в '${dest.absolutePath}'."
+                "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nresolved_path: ${dest.absolutePath}\nПапка '${src.name}' успешно скопирована в '${dest.absolutePath}'."
             } else {
                 src.copyTo(dest, overwrite = true)
-                "Файл '${src.name}' успешно скопирован в '${dest.absolutePath}' (${formatFileSize(dest.length())})."
+                "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nresolved_path: ${dest.absolutePath}\nФайл '${src.name}' успешно скопирован в '${dest.absolutePath}' (${formatFileSize(dest.length())})."
             }
         } catch (e: Exception) {
-            "Ошибка при копировании: ${e.localizedMessage}"
+            "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nОшибка при копировании: ${e.localizedMessage}"
         }
     }
 
     // --- Search ---
 
     fun searchFiles(query: String, rawPath: String, extension: String): String {
-        val rootDir = resolveFolder(rawPath)
+        val rootDir = try {
+            resolveFolder(rawPath.ifBlank { "Download" })
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
         if (!rootDir.exists() || !rootDir.isDirectory) {
-            return "Папка для поиска '${rootDir.absolutePath}' не найдена."
+            return "resolved_path: ${rootDir.absolutePath}\nПапка для поиска '${rootDir.absolutePath}' не найдена."
         }
 
         val normQuery = query.lowercase().trim()
@@ -631,17 +699,53 @@ object ToolDispatcher {
         }
 
         if (results.isEmpty()) {
-            return "Файлов по запросу (query='$query', ext='$extension') в '${rootDir.name}' не найдено."
+            return "resolved_path: ${rootDir.absolutePath}\nФайлов по запросу (query='$query', ext='$extension') в '${rootDir.absolutePath}' не найдено."
         }
 
         val isTruncated = results.size > maxResults
         val displayList = results.take(maxResults)
 
         return buildString {
+            append("resolved_path: ${rootDir.absolutePath}\n")
             append("Найдено совпадений: ${displayList.size}${if (isTruncated) " (показаны первые $maxResults)" else ""}:\n")
             displayList.forEach { f ->
-                val rel = f.relativeToOrSelf(rootDir).path
-                append("  • $rel (${formatFileSize(f.length())})\n")
+                append("  • ${f.absolutePath} (${formatFileSize(f.length())})\n")
+            }
+        }
+    }
+
+    /**
+     * list_dir: плоский листинг папки. Возвращает только абсолютные пути,
+     * чтобы модель не конструировала относительные и не плодила Download/Download.
+     */
+    fun listDir(rawPath: String, limit: Int = 50): String {
+        val dir = try {
+            resolveFolder(rawPath.ifBlank { "Download" })
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!dir.exists()) return "resolved_path: ${dir.absolutePath}\nПапка '${dir.absolutePath}' не найдена."
+        if (!dir.isDirectory) return "resolved_path: ${dir.absolutePath}\n'${dir.absolutePath}' не является папкой."
+
+        val safeLimit = limit.coerceIn(1, 100)
+        val children = try {
+            dir.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
+        } catch (e: Exception) {
+            return "resolved_path: ${dir.absolutePath}\nНе удалось получить список файлов: ${e.localizedMessage}"
+        }
+
+        return buildString {
+            append("resolved_path: ${dir.absolutePath}\n")
+            append("Содержимое '${dir.absolutePath}' (папок: ${children.count { it.isDirectory }}, файлов: ${children.count { it.isFile }}):\n")
+            children.take(safeLimit + 1).take(safeLimit).forEach { f ->
+                if (f.isDirectory) {
+                    append("  • ${f.absolutePath}/\n")
+                } else {
+                    append("  • ${f.absolutePath} (${formatFileSize(f.length())})\n")
+                }
+            }
+            if (children.size > safeLimit) {
+                append("[Показаны первые $safeLimit из ${children.size}]")
             }
         }
     }
@@ -652,16 +756,29 @@ object ToolDispatcher {
         if (rawSourcePaths.isEmpty()) return "Ошибка: список файлов для архивации пуст."
         if (rawZipPath.isBlank()) return "Ошибка: путь к целевому zip-файлу не указан."
 
-        var targetZip = resolveFile(rawZipPath)
+        var targetZip = try {
+            resolveFile(rawZipPath)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
         if (!targetZip.name.endsWith(".zip", ignoreCase = true)) {
             targetZip = File(targetZip.parentFile ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "${targetZip.name}.zip")
         }
 
-        targetZip.parentFile?.let { if (!it.exists()) it.mkdirs() }
+        val zipParent = targetZip.parentFile
+        if (zipParent != null && !zipParent.exists()) {
+            return "resolved_path: ${targetZip.absolutePath}\nОшибка: родительской папки нет: '${zipParent.absolutePath}'. Сначала создай её тулом create_dir."
+        }
 
-        val sources = rawSourcePaths.map { resolveFile(it) }.filter { it.exists() }
+        val sources = rawSourcePaths.mapNotNull {
+            try {
+                resolveFile(it)
+            } catch (e: SecurityException) {
+                null
+            }
+        }.filter { it.exists() }
         if (sources.isEmpty()) {
-            return "Ни один из указанных исходных файлов не найден."
+            return "resolved_path: ${targetZip.absolutePath}\nНи один из указанных исходных файлов не найден."
         }
 
         return try {
@@ -673,33 +790,48 @@ object ToolDispatcher {
                     zip.addFile(item)
                 }
             }
-            "ZIP-архив успешно создан: '${targetZip.absolutePath}' (${formatFileSize(targetZip.length())}). Добавлено элементов: ${sources.size}."
+            "resolved_path: ${targetZip.absolutePath}\nZIP-архив успешно создан: '${targetZip.absolutePath}' (${formatFileSize(targetZip.length())}). Добавлено элементов: ${sources.size}."
         } catch (e: Exception) {
-            "Ошибка создания архива: ${e.localizedMessage}"
+            "resolved_path: ${targetZip.absolutePath}\nОшибка создания архива: ${e.localizedMessage}"
         }
     }
 
     fun extractArchive(rawZipPath: String, rawTargetDir: String): String {
-        val zipFile = resolveFile(rawZipPath)
-        if (!zipFile.exists() || !zipFile.isFile) return "Архив '${zipFile.absolutePath}' не найден."
+        val zipFile = try {
+            resolveFile(rawZipPath)
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!zipFile.exists() || !zipFile.isFile) return "resolved_path: ${zipFile.absolutePath}\nАрхив '${zipFile.absolutePath}' не найден."
 
-        val targetDir = if (rawTargetDir.isBlank()) {
-            val baseName = zipFile.nameWithoutExtension
-            File(zipFile.parentFile ?: Environment.getExternalStorageDirectory(), baseName)
-        } else {
-            resolveFolder(rawTargetDir)
+        val targetDir = try {
+            if (rawTargetDir.isBlank()) {
+                val baseName = zipFile.nameWithoutExtension
+                val auto = File(zipFile.parentFile ?: Environment.getExternalStorageDirectory(), baseName)
+                // Анти-дубль: архив Download/x.zip + target_dir "x" не должны дать x/x.
+                resolvePath(auto.absolutePath, base = zipFile.parentFile)
+            } else {
+                resolvePath(rawTargetDir, base = zipFile.parentFile)
+            }
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
         }
 
+        // Распаковке разрешено создать только саму целевую папку; её родитель обязан существовать.
+        val targetParent = targetDir.parentFile
+        if (targetParent != null && !targetParent.exists()) {
+            return "resolved_path: ${targetDir.absolutePath}\nОшибка: родительской папки нет: '${targetParent.absolutePath}'. Сначала создай её тулом create_dir."
+        }
         if (!targetDir.exists()) targetDir.mkdirs()
 
         return try {
             val zip = ZipFile(zipFile)
-            if (!zip.isValidZipFile) return "Файл '${zipFile.name}' поврежден или не является валидным ZIP-архивом."
+            if (!zip.isValidZipFile) return "resolved_path: ${targetDir.absolutePath}\nФайл '${zipFile.name}' поврежден или не является валидным ZIP-архивом."
             zip.extractAll(targetDir.absolutePath)
             val extractedCount = targetDir.walkTopDown().filter { it.isFile }.count()
-            "Архив '${zipFile.name}' успешно распакован в '${targetDir.absolutePath}'. Извлечено файлов: $extractedCount."
+            "resolved_path: ${targetDir.absolutePath}\nАрхив '${zipFile.name}' успешно распакован в '${targetDir.absolutePath}'. Извлечено файлов: $extractedCount."
         } catch (e: Exception) {
-            "Ошибка при распаковке архива: ${e.localizedMessage}"
+            "resolved_path: ${targetDir.absolutePath}\nОшибка при распаковке архива: ${e.localizedMessage}"
         }
     }
 
@@ -783,11 +915,15 @@ object ToolDispatcher {
     // --- Existing Utilities ---
 
     fun getFolderSummary(rawPath: String): String {
-        val dir = resolveFolder(rawPath)
-        if (!dir.exists()) return "Папка '${dir.absolutePath}' не найдена."
-        if (!dir.isDirectory) return "'${dir.absolutePath}' не является папкой."
+        val dir = try {
+            resolveFolder(rawPath.ifBlank { "Download" })
+        } catch (e: SecurityException) {
+            return "Ошибка: ${e.message}"
+        }
+        if (!dir.exists()) return "resolved_path: ${dir.absolutePath}\nПапка '${dir.absolutePath}' не найдена."
+        if (!dir.isDirectory) return "resolved_path: ${dir.absolutePath}\n'${dir.absolutePath}' не является папкой."
 
-        val allFiles = dir.listFiles() ?: return "Не удалось получить список файлов (нет доступа)."
+        val allFiles = dir.listFiles() ?: return "resolved_path: ${dir.absolutePath}\nНе удалось получить список файлов (нет доступа)."
 
         var totalFiles = 0
         var totalDirs = 0
@@ -819,12 +955,13 @@ object ToolDispatcher {
         val topHeaviest = fileList
             .sortedByDescending { it.length() }
             .take(5)
-            .joinToString("\n") { "  • ${it.name} (${formatFileSize(it.length())})" }
+            .joinToString("\n") { "  • ${it.absolutePath} (${formatFileSize(it.length())})" }
 
         val heaviestSection = if (topHeaviest.isNotEmpty()) "\nТоп-5 самых тяжелых файлов:\n$topHeaviest" else ""
 
         return buildString {
-            append("Сводка по папке '${dir.name}' (${dir.absolutePath}):\n")
+            append("resolved_path: ${dir.absolutePath}\n")
+            append("Сводка по папке '${dir.absolutePath}':\n")
             append("Всего файлов: $totalFiles, подпапок: $totalDirs.\n")
             append("Категории: Документы: $docsCount, Картинки: $imagesCount, Архивы: $archivesCount, APK: $apksCount, Другое: $othersCount.")
             append(heaviestSection)
@@ -899,39 +1036,73 @@ object ToolDispatcher {
         return dest
     }
 
-    private fun resolveFolder(path: String): File {
-        val trimmed = path.trim()
-        val defaultDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    /**
+     * Единая точка резолва всех файловых путей. Всегда возвращает абсолютный
+     * канонический путь внутри корня /storage/emulated/0.
+     *
+     * Правила:
+     * - Пустой ввод -> корень (вызывающие тулы проверяют пустоту отдельно).
+     * - Абсолютный путь внутри корня -> как есть (после canonical-проверки).
+     * - Относительный путь -> всегда от корня, НЕ от "текущей" папки и НЕ от Download.
+     * - Анти-дубль: если задан base и первый сегмент ввода совпадает с именем base
+     *   (например base=.../Download, ввод="Download/x"), а вложенного пути
+     *   base/ввод не существует — резолвим от родителя base (не создаём Download/Download).
+     * - Нормализация: обратные слэши, двойные слэши, хвостовые слэши, префикс file://.
+     * - Безопасность: через canonicalPath проверяем, что результат внутри корня,
+     *   иначе бросаем SecurityException (вызывающий тул превращает её в "Ошибка: ...").
+     */
+    fun resolvePath(input: String, base: File? = null): File {
+        val root = Environment.getExternalStorageDirectory().canonicalFile
+        val rootPath = root.canonicalPath
 
-        if (trimmed.isEmpty() || trimmed.equals("download", ignoreCase = true) || trimmed.equals("downloads", ignoreCase = true)) {
-            return defaultDownloads
+        var p = input.trim().replace('\\', '/')
+        if (p.startsWith("file://")) p = p.removePrefix("file://")
+        p = p.replace(Regex("/+"), "/")
+        if (p.length > 1) p = p.trimEnd('/')
+        if (p.isEmpty()) return root
+
+        // Короткие алиасы системных папок резолвятся в те же точки внутри корня.
+        val lower = p.lowercase()
+        if (lower == "download" || lower == "downloads") {
+            return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).canonicalFile
         }
-        if (trimmed.equals("documents", ignoreCase = true)) return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-        if (trimmed.equals("pictures", ignoreCase = true)) return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        if (trimmed.equals("dcim", ignoreCase = true)) return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
 
-        val directFile = File(trimmed)
-        if (directFile.isAbsolute) return directFile
+        val candidate: File = if (p.startsWith("/")) {
+            File(p)
+        } else {
+            val b = base?.takeIf { it.isAbsolute }?.canonicalFile ?: root
+            val firstSeg = p.substringBefore('/')
+            val nested = File(b, p)
+            if (b.canonicalPath != rootPath && firstSeg.equals(b.name, ignoreCase = true) && !nested.exists()) {
+                File(b.parentFile?.canonicalFile ?: root, p)
+            } else {
+                File(root, p)
+            }
+        }
 
-        val inDownloads = File(defaultDownloads, trimmed)
-        if (inDownloads.exists()) return inDownloads
-
-        return File(Environment.getExternalStorageDirectory(), trimmed)
+        val canonical = try {
+            candidate.canonicalPath
+        } catch (e: Exception) {
+            throw SecurityException("Некорректный путь: $input")
+        }
+        if (canonical != rootPath && !canonical.startsWith("$rootPath/")) {
+            throw SecurityException("Путь вне корня /storage/emulated/0: $input")
+        }
+        return File(canonical)
     }
 
-    private fun resolveFile(path: String): File {
+    /** Папка для файловых тулов. Историческое имя, внутри — resolvePath. */
+    private fun resolveFolder(path: String): File {
         val trimmed = path.trim()
-        val directFile = File(trimmed)
-        if (directFile.isAbsolute) return directFile
+        if (trimmed.isEmpty()) {
+            return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).canonicalFile
+        }
+        return resolvePath(trimmed)
+    }
 
-        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val inDownloads = File(downloads, trimmed)
-        if (inDownloads.exists()) return inDownloads
-
-        val inRoot = File(Environment.getExternalStorageDirectory(), trimmed)
-        if (inRoot.exists()) return inRoot
-
-        return inDownloads
+    /** Файл для файловых тулов. Историческое имя, внутри — resolvePath. */
+    private fun resolveFile(path: String): File {
+        return resolvePath(path.trim())
     }
 
     private fun formatFileSize(bytes: Long): String {
@@ -1032,8 +1203,7 @@ object ToolDispatcher {
         return buildString {
             append("Топ самых тяжелых файлов (>${minSizeMb} МБ):\n")
             displayList.forEachIndexed { i, file ->
-                val rel = file.relativeToOrSelf(root).path
-                append("${i + 1}. $rel — ${formatFileSize(file.length())}\n")
+                append("${i + 1}. ${file.absolutePath} — ${formatFileSize(file.length())}\n")
             }
             if (sorted.size > displayList.size) {
                 append("\n[Найдено еще ${sorted.size - displayList.size} тяжелых файлов. Увеличьте порог min_size_mb для точной выборки]")
@@ -1074,32 +1244,86 @@ object ToolDispatcher {
             }
         }
 
-        if (junkFiles.isEmpty() && emptyDirs.isEmpty()) {
-            return "Мусорные файлы (.tmp, .log, .crdownload) и пустые папки не обнаружены. Система чиста."
+        // Только отчёт: дубли вида Download/Download, Documents/Documents и т.п.
+        // Ничего не удаляем и не перемещаем — решение за пользователем.
+        val duplicates = findDuplicateDirs(scanFolders)
+
+        if (junkFiles.isEmpty() && emptyDirs.isEmpty() && duplicates.isEmpty()) {
+            return "Мусорные файлы (.tmp, .log, .crdownload), пустые папки и дубли вида Download/Download не обнаружены. Система чиста."
         }
 
         return buildString {
             append("Обнаружено мусорных данных:\n")
             append("• Временных файлов: ${junkFiles.size} (${formatFileSize(totalJunkBytes)})\n")
-            append("• Пустых папок: ${emptyDirs.size}\n\n")
+            append("• Пустых папок: ${emptyDirs.size}\n")
+            append("• Подозрений на дубли (X/X): ${duplicates.size}\n\n")
             if (junkFiles.isNotEmpty()) {
                 append("Файлы для возможной очистки (первые 20):\n")
                 junkFiles.take(20).forEach {
-                    append("  • ${it.name} (${formatFileSize(it.length())})\n")
+                    append("  • ${it.absolutePath} (${formatFileSize(it.length())})\n")
                 }
             }
             if (emptyDirs.isNotEmpty()) {
                 append("\nПустые папки:\n")
                 emptyDirs.take(10).forEach {
-                    append("  • ${it.name}/\n")
+                    append("  • ${it.absolutePath}/\n")
+                }
+            }
+            if (duplicates.isNotEmpty()) {
+                append("\nВозможные дубли папок (только для просмотра, ничего не удалено):\n")
+                duplicates.take(10).forEach {
+                    append("  • ${it.absolutePath}/\n")
                 }
             }
         }
     }
 
+    /**
+     * Read-only поиск дублей вида X/X (Download/Download, Documents/Documents):
+     * папка, внутри которой есть подпапка с тем же именем (регистр игнорируется).
+     * Ничего не трогает, только возвращает кандидатов абсолютными путями.
+     */
+    fun findDuplicateDirs(scanRoots: List<File>? = null): List<File> {
+        val root = Environment.getExternalStorageDirectory()
+        val roots = scanRoots ?: listOf(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
+            root
+        ).filter { it.exists() && it.isDirectory }
+
+        val result = mutableListOf<File>()
+        for (base in roots) {
+            try {
+                base.walkTopDown().maxDepth(3).forEach { dir ->
+                    if (!dir.isDirectory) return@forEach
+                    val child = File(dir, dir.name)
+                    val childCi = dir.listFiles()?.firstOrNull {
+                        it.isDirectory && it.name.equals(dir.name, ignoreCase = true)
+                    }
+                    if (childCi != null && (child.exists() || childCi.exists())) {
+                        result.add(childCi.canonicalFile)
+                    }
+                }
+            } catch (ignored: Exception) {
+            }
+        }
+        return result.distinctBy { it.canonicalPath }
+    }
+
     // --- Safety Truncation ---
 
     fun truncateOutput(text: String, maxBytes: Int = 3500, maxLines: Int = 35): String {
+        // resolved_path — первая строка результата; при обрезке не должна потеряться,
+        // иначе UI не покажет путь, а модель потеряет абсолютный путь.
+        val resolvedLines = text.lines().filter { it.startsWith("resolved_path") }
+        fun withPaths(body: String): String {
+            if (resolvedLines.isEmpty()) return body
+            val missing = resolvedLines.filter { !body.contains(it) }
+            return if (missing.isEmpty()) body else (missing + body).joinToString("\n")
+        }
+
         val bytes = text.toByteArray(Charsets.UTF_8)
         if (bytes.size <= maxBytes) {
             val lines = text.lines()
@@ -1107,7 +1331,7 @@ object ToolDispatcher {
                 return text
             }
             val truncatedLines = lines.take(maxLines).joinToString("\n")
-            return "$truncatedLines\n\n[Вывод сокращен: показано $maxLines из ${lines.size} строк. Для детального просмотра уточни запрос]"
+            return withPaths("$truncatedLines\n\n[Вывод сокращен: показано $maxLines из ${lines.size} строк. Для детального просмотра уточни запрос]")
         }
 
         var cutIndex = 0
@@ -1123,7 +1347,7 @@ object ToolDispatcher {
         val lastNewline = truncatedText.lastIndexOf('\n')
         val cleanCut = if (lastNewline > cutIndex / 2) truncatedText.substring(0, lastNewline) else truncatedText
 
-        return "$cleanCut\n\n[Вывод сокращен: размер превысил лимит ${formatFileSize(maxBytes.toLong())}. Для детального просмотра уточни запрос]"
+        return withPaths("$cleanCut\n\n[Вывод сокращен: размер превысил лимит ${formatFileSize(maxBytes.toLong())}. Для детального просмотра уточни запрос]")
     }
 
     // --- HITL Metadata ---
@@ -1239,6 +1463,7 @@ object ToolDispatcher {
             "find_largest_files" -> "Ищу тяжёлые файлы"
             "find_junk_files" -> "Ищу мусор и временные файлы"
             "get_folder_summary" -> "Сканирую ${shortName("path").ifBlank { "Download" }}"
+            "list_dir" -> "Открываю ${shortName("path").ifBlank { "Download" }}"
             "search_files" -> {
                 val query = args.optString("query", "").trim()
                 val extension = args.optString("extension", "").trim()
@@ -1318,7 +1543,7 @@ object ToolDispatcher {
     }
 
     private fun previewForPath(rawPath: String): String = try {
-        val file = if (File(rawPath.trim()).isAbsolute) File(rawPath.trim()) else resolveFile(rawPath)
+        val file = resolvePath(rawPath)
         if (!file.exists()) {
             "Объект не найден: ${file.absolutePath}"
         } else if (file.isFile) {
@@ -1336,7 +1561,7 @@ object ToolDispatcher {
     }
 
     private fun existingFileInfo(rawPath: String): String? = try {
-        val file = if (File(rawPath.trim()).isAbsolute) File(rawPath.trim()) else resolveFile(rawPath)
+        val file = resolvePath(rawPath)
         if (file.isFile) formatFileSize(file.length()) else null
     } catch (e: Exception) {
         null

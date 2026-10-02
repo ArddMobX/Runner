@@ -17,7 +17,9 @@ data class AppSettings(
     val textScale: Float = 1f,
     val showToolDetails: Boolean = true,
     /** Показывать тайминги, токены и скорость генерации. */
-    val showStats: Boolean = true
+    val showStats: Boolean = true,
+    /** Планирование: модель сначала составляет план шагов, исполнение — после подтверждения. */
+    val planningEnabled: Boolean = true
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -41,7 +43,7 @@ data class AppSettings(
         val DEFAULT_SYSTEM_PROMPT = """
             Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам:
             1. Аналитика: get_storage_summary, find_largest_files, find_junk_files, search_files.
-            2. Файлы: get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
+            2. Файлы: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
             3. Архивы: create_archive, extract_archive, organize_downloads.
             4. Система: clipboard_read, clipboard_write, run_shell_command.
 
@@ -49,6 +51,8 @@ data class AppSettings(
             - Для анализа памяти и файлов используй агрегаторы (get_storage_summary, find_largest_files,
               find_junk_files). Не перечисляй сотни файлов поштучно.
             - Вывод инструментов ограничен (до 35 элементов / 3.5 КБ). Уточняй запрос при необходимости.
+            - Всегда используй абсолютные пути из результатов list_dir. Корень: /storage/emulated/0. Перед записью проверь папку через list_dir.
+            - Не конструируй относительные пути и не дописывай имя папки к пути из list_dir — это даёт Download/Download.
             - Деструктивные операции (удаление, перемещение, запись, сортировка, shell) требуют
               подтверждения пользователя. Если операцию отклонили — предложи альтернативу или остановись.
             - Оформляй ответы в Markdown.
@@ -102,7 +106,8 @@ class SettingsStore(context: Context) {
             customHeaders = customHeaders,
             textScale = prefs.getFloat(KEY_TEXT_SCALE, 1f),
             showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
-            showStats = prefs.getBoolean(KEY_SHOW_STATS, true)
+            showStats = prefs.getBoolean(KEY_SHOW_STATS, true),
+            planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true)
         )
     }
 
@@ -119,6 +124,7 @@ class SettingsStore(context: Context) {
             .putFloat(KEY_TEXT_SCALE, settings.textScale)
             .putBoolean(KEY_SHOW_TOOL_DETAILS, settings.showToolDetails)
             .putBoolean(KEY_SHOW_STATS, settings.showStats)
+            .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -144,5 +150,6 @@ class SettingsStore(context: Context) {
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_SHOW_TOOL_DETAILS = "show_tool_details"
         const val KEY_SHOW_STATS = "show_stats"
+        const val KEY_PLANNING_ENABLED = "planning_enabled"
     }
 }

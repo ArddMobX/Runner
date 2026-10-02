@@ -39,11 +39,14 @@ fun RunnerTheme(
     val rawColorScheme: ColorScheme = if (useDynamic) {
         if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
+        // Neutral вместо TonalSpot: подложки — чистый серый без бежевого оттенка,
+        // акцент (primary) остаётся сочным цветом seed. Тумблеры, выделенные
+        // кнопки и статусы уже сидят на primary/status-цветах и станут контрастнее.
         dynamicColorScheme(
             seedColor = Color(themeConfig.customSeedColor),
             isDark = isDark,
             isAmoled = isDark && themeConfig.isAmoled,
-            style = PaletteStyle.TonalSpot
+            style = PaletteStyle.Neutral
         )
     }
 

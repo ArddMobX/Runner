@@ -214,7 +214,9 @@ class OpenAIClient {
         temperature: Double = 0.2,
         streaming: Boolean = true,
         listener: StreamListener? = null,
-        metrics: GenerationMetrics? = null
+        metrics: GenerationMetrics? = null,
+        /** false — планировочный запрос без тулов: модель отвечает только текстом. */
+        withTools: Boolean = true
     ): AIResponseResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             return@withContext AIResponseResult.Error(
@@ -237,8 +239,10 @@ class OpenAIClient {
             val requestBody = JSONObject().apply {
                 put("model", effectiveModel)
                 put("messages", sanitizedMessages)
-                put("tools", ToolDispatcher.getToolsJson())
-                put("tool_choice", "auto")
+                if (withTools) {
+                    put("tools", ToolDispatcher.getToolsJson())
+                    put("tool_choice", "auto")
+                }
                 put("temperature", temperature)
                 if (streaming) {
                     put("stream", true)
