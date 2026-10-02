@@ -22,6 +22,62 @@ data class ToolCall(
     val extraContent: JSONObject? = null
 )
 
+data class ConnectionTestResult(
+    val isSuccess: Boolean,
+    val isReachable: Boolean,
+    val statusCode: Int?,
+    val latencyMs: Long,
+    val message: String,
+    val targetEndpoint: String
+)
+
+/**
+ * Парсит строку кастомных заголовков.
+ * Поддерживает два формата:
+ * 1. JSON: { "Header-Name": "Value", ... }
+ * 2. Построчный: Header-Name: Value
+ */
+fun parseCustomHeaders(raw: String): Map<String, String> {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return emptyMap()
+
+    // 1. Попытка разобрать как JSON
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        try {
+            val json = JSONObject(trimmed)
+            val result = LinkedHashMap<String, String>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next().trim()
+                if (key.isNotEmpty()) {
+                    result[key] = json.optString(key, "")
+                }
+            }
+            if (result.isNotEmpty()) return result
+        } catch (_: Exception) {
+            // Игнорируем ошибку и пробуем построчный разбор
+        }
+    }
+
+    // 2. Построчный формат: "Header-Name: Value"
+    val result = LinkedHashMap<String, String>()
+    trimmed.lineSequence().forEach { line ->
+        val lineTrimmed = line.trim()
+        if (lineTrimmed.isEmpty() || lineTrimmed.startsWith("#") || lineTrimmed.startsWith("//")) {
+            return@forEach
+        }
+        val colonIndex = lineTrimmed.indexOf(':')
+        if (colonIndex > 0) {
+            val name = lineTrimmed.substring(0, colonIndex).trim()
+            val value = lineTrimmed.substring(colonIndex + 1).trim()
+            if (name.isNotEmpty()) {
+                result[name] = value
+            }
+        }
+    }
+    return result
+}
+
 sealed class AIResponseResult {
     data class TextResult(val text: String) : AIResponseResult()
     data class ToolCallsResult(
@@ -121,6 +177,15 @@ class OpenAIClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private fun clientWithTimeout(timeoutSeconds: Int): OkHttpClient {
+        val sec = timeoutSeconds.coerceIn(5, 300).toLong()
+        return client.newBuilder()
+            .connectTimeout(sec.coerceAtMost(30), TimeUnit.SECONDS)
+            .readTimeout(sec, TimeUnit.SECONDS)
+            .writeTimeout(sec.coerceAtMost(60), TimeUnit.SECONDS)
+            .build()
+    }
+
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     @Volatile
@@ -138,6 +203,8 @@ class OpenAIClient {
         modelName: String,
         messages: JSONArray,
         reverseProxyUrl: String = "",
+        timeoutSeconds: Int = 60,
+        customHeaders: String = "",
         temperature: Double = 0.2,
         streaming: Boolean = true,
         listener: StreamListener? = null,
@@ -180,16 +247,22 @@ class OpenAIClient {
                 }
             }
 
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(endpoint)
                 .addHeader("Authorization", "Bearer ${apiKey.trim()}")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
                 .addHeader("X-Title", "Runner Android Agent")
+
+            parseCustomHeaders(customHeaders).forEach { (name, value) ->
+                requestBuilder.header(name, value)
+            }
+
+            val request = requestBuilder
                 .post(requestBody.toString().toRequestBody(jsonMediaType))
                 .build()
 
-            val call = client.newCall(request)
+            val call = clientWithTimeout(timeoutSeconds).newCall(request)
             activeCall = call
             try {
                 val result = if (streaming) {
@@ -648,6 +721,201 @@ class OpenAIClient {
             trimmed.endsWith("/chat/completions") -> trimmed
             trimmed.endsWith("/v1") -> "$trimmed/chat/completions"
             else -> "$trimmed/chat/completions"
+        }
+    }
+
+    /**
+     * Проверка связи с прокси или официальным API.
+     * Замеряет пинг (latency), проверяет доступность хоста и валидность ключа/заголовков.
+     */
+    suspend fun testConnection(
+        targetUrl: String,
+        apiKey: String = "",
+        timeoutSeconds: Int = 30,
+        customHeaders: String = ""
+    ): ConnectionTestResult = withContext(Dispatchers.IO) {
+        val cleanUrl = targetUrl.trim()
+        if (cleanUrl.isBlank()) {
+            return@withContext ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = 0L,
+                message = "Адрес не указан",
+                targetEndpoint = ""
+            )
+        }
+
+        val testEndpoint = resolvePingUrl(cleanUrl)
+        val parsedHeaders = parseCustomHeaders(customHeaders)
+        val timeoutSec = timeoutSeconds.coerceIn(5, 120).toLong()
+
+        val testClient = client.newBuilder()
+            .connectTimeout(timeoutSec.coerceAtMost(30), TimeUnit.SECONDS)
+            .readTimeout(timeoutSec, TimeUnit.SECONDS)
+            .writeTimeout(timeoutSec.coerceAtMost(30), TimeUnit.SECONDS)
+            .callTimeout(timeoutSec + 2, TimeUnit.SECONDS)
+            .build()
+
+        val requestBuilder = try {
+            Request.Builder().url(testEndpoint)
+        } catch (e: Exception) {
+            return@withContext ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = 0L,
+                message = "Некорректный адрес URL: ${e.localizedMessage ?: cleanUrl}",
+                targetEndpoint = testEndpoint
+            )
+        }
+
+        requestBuilder.get()
+            .addHeader("Accept", "application/json")
+            .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
+            .addHeader("X-Title", "Runner Android Agent")
+
+        if (apiKey.isNotBlank()) {
+            requestBuilder.addHeader("Authorization", "Bearer ${apiKey.trim()}")
+        }
+
+        parsedHeaders.forEach { (name, value) ->
+            requestBuilder.header(name, value)
+        }
+
+        val start = System.currentTimeMillis()
+        try {
+            testClient.newCall(requestBuilder.build()).execute().use { response ->
+                val latencyMs = System.currentTimeMillis() - start
+                val code = response.code
+
+                when {
+                    code in 200..299 -> ConnectionTestResult(
+                        isSuccess = true,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Подключено · $code OK · $latencyMs мс",
+                        targetEndpoint = testEndpoint
+                    )
+                    code == 401 -> ConnectionTestResult(
+                        isSuccess = false,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Сервер ответил ($latencyMs мс) · 401 Unauthorized (проверьте ключ)",
+                        targetEndpoint = testEndpoint
+                    )
+                    code == 403 -> ConnectionTestResult(
+                        isSuccess = false,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Сервер ответил ($latencyMs мс) · 403 Forbidden (доступ ограничен)",
+                        targetEndpoint = testEndpoint
+                    )
+                    code == 404 -> ConnectionTestResult(
+                        isSuccess = true,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Сервер ответил · 404 Not Found · $latencyMs мс",
+                        targetEndpoint = testEndpoint
+                    )
+                    code == 405 -> ConnectionTestResult(
+                        isSuccess = true,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Сервер доступен · 405 Method · $latencyMs мс",
+                        targetEndpoint = testEndpoint
+                    )
+                    code == 429 -> ConnectionTestResult(
+                        isSuccess = false,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Сервер ответил ($latencyMs мс) · 429 Превышен лимит запросов",
+                        targetEndpoint = testEndpoint
+                    )
+                    else -> ConnectionTestResult(
+                        isSuccess = code < 500,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "Сервер ответил · HTTP $code · $latencyMs мс",
+                        targetEndpoint = testEndpoint
+                    )
+                }
+            }
+        } catch (e: java.net.SocketTimeoutException) {
+            val latencyMs = System.currentTimeMillis() - start
+            ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = latencyMs,
+                message = "Таймаут ($timeoutSeconds с) — сервер не ответил",
+                targetEndpoint = testEndpoint
+            )
+        } catch (e: java.net.UnknownHostException) {
+            ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = 0L,
+                message = "Ошибка DNS — хост не найден (${e.message ?: "недоступен"})",
+                targetEndpoint = testEndpoint
+            )
+        } catch (e: java.net.ConnectException) {
+            ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = 0L,
+                message = "Соединение отклонено сервером",
+                targetEndpoint = testEndpoint
+            )
+        } catch (e: javax.net.ssl.SSLException) {
+            ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = 0L,
+                message = "Ошибка SSL/TLS: ${e.localizedMessage ?: "не доверенный сертификат"}",
+                targetEndpoint = testEndpoint
+            )
+        } catch (e: IOException) {
+            val latencyMs = System.currentTimeMillis() - start
+            ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = latencyMs,
+                message = "Сетевая ошибка: ${e.localizedMessage ?: "сбой соединения"}",
+                targetEndpoint = testEndpoint
+            )
+        } catch (e: Exception) {
+            ConnectionTestResult(
+                isSuccess = false,
+                isReachable = false,
+                statusCode = null,
+                latencyMs = 0L,
+                message = "Ошибка: ${e.localizedMessage ?: "неизвестный сбой"}",
+                targetEndpoint = testEndpoint
+            )
+        }
+    }
+
+    private fun resolvePingUrl(target: String): String {
+        val trimmed = target.trim().trimEnd('/')
+        return when {
+            trimmed.endsWith("/chat/completions") -> trimmed
+            trimmed.endsWith("/models") -> trimmed
+            trimmed.endsWith("/v1") -> "$trimmed/models"
+            trimmed.endsWith("/openai") -> "$trimmed/models"
+            !trimmed.contains("/models") && !trimmed.contains("/chat/completions") -> "$trimmed/models"
+            else -> trimmed
         }
     }
 

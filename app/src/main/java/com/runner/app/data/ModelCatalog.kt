@@ -46,7 +46,9 @@ object ModelCatalog {
     suspend fun fetchModels(
         baseUrl: String,
         apiKey: String,
-        reverseProxyUrl: String = ""
+        reverseProxyUrl: String = "",
+        timeoutSeconds: Int = 30,
+        customHeaders: String = ""
     ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         val target = if (reverseProxyUrl.isNotBlank()) reverseProxyUrl.trim() else baseUrl.trim()
         if (target.isBlank()) {
@@ -54,7 +56,7 @@ object ModelCatalog {
         }
 
         val endpoint = target.trimEnd('/') + "/models"
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(endpoint)
             .get()
             .addHeader("Accept", "application/json")
@@ -63,10 +65,19 @@ object ModelCatalog {
                     addHeader("Authorization", "Bearer ${apiKey.trim()}")
                 }
             }
+
+        parseCustomHeaders(customHeaders).forEach { (name, value) ->
+            requestBuilder.header(name, value)
+        }
+
+        val request = requestBuilder.build()
+        val requestClient = client.newBuilder()
+            .connectTimeout(timeoutSeconds.coerceIn(5, 60).toLong().coerceAtMost(20), TimeUnit.SECONDS)
+            .readTimeout(timeoutSeconds.coerceIn(5, 120).toLong(), TimeUnit.SECONDS)
             .build()
 
         try {
-            client.newCall(request).execute().use { response ->
+            requestClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(

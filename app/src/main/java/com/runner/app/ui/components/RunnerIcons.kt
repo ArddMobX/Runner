@@ -64,4 +64,29 @@ object RunnerIcons {
             }
         }.build()
     }
+
+    /** Lucide activity / pulse line — пинг и проверка соединения. */
+    val Activity: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Activity",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = 2.2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(22f, 12f)
+                lineTo(18f, 12f)
+                lineTo(15f, 21f)
+                lineTo(9f, 3f)
+                lineTo(6f, 12f)
+                lineTo(2f, 12f)
+            }
+        }.build()
+    }
 }

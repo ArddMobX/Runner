@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
 import com.runner.app.data.ChatRepository
+import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
@@ -59,6 +60,11 @@ data class ConfirmationRequest(
     val warning: String,
     val preview: String = "",
     val onDecision: (Boolean) -> Unit
+)
+
+data class ConnectionTestState(
+    val isTesting: Boolean = false,
+    val result: ConnectionTestResult? = null
 )
 
 data class ChatMessage(
@@ -121,6 +127,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _settings = MutableStateFlow(settingsStore.load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+
+    private val _connectionTestState = MutableStateFlow(ConnectionTestState())
+    val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
 
     // --- История чатов ---
 
@@ -304,10 +313,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _modelsLoadingFor.value = providerId
         viewModelScope.launch {
+            val currentSettings = _settings.value
             val result = ModelCatalog.fetchModels(
                 baseUrl = baseUrl,
                 apiKey = apiKey,
-                reverseProxyUrl = _settings.value.reverseProxyUrl
+                reverseProxyUrl = currentSettings.reverseProxyUrl,
+                timeoutSeconds = currentSettings.timeoutSeconds,
+                customHeaders = currentSettings.customHeaders
             )
 
             result.onSuccess { models ->
@@ -347,6 +359,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetSystemPrompt() {
         updateSettings(_settings.value.copy(systemPrompt = AppSettings.DEFAULT_SYSTEM_PROMPT))
+    }
+
+    /**
+     * Проверка связи: пингует заданный reverse proxy или официальный baseUrl активного провайдера
+     * с учётом настроенного таймаута и кастомных заголовков.
+     */
+    fun testConnection() {
+        if (_connectionTestState.value.isTesting) return
+        val currentSettings = _settings.value
+        val targetUrl = currentSettings.reverseProxyUrl.ifBlank {
+            activeProvider.value?.baseUrl.orEmpty()
+        }
+        if (targetUrl.isBlank()) {
+            _connectionTestState.value = ConnectionTestState(
+                isTesting = false,
+                result = ConnectionTestResult(
+                    isSuccess = false,
+                    isReachable = false,
+                    statusCode = null,
+                    latencyMs = 0L,
+                    message = "Укажите адрес прокси или настройте провайдера",
+                    targetEndpoint = ""
+                )
+            )
+            return
+        }
+
+        val apiKey = activeProvider.value?.apiKey.orEmpty()
+        val timeout = currentSettings.timeoutSeconds
+        val customHeaders = currentSettings.customHeaders
+
+        _connectionTestState.value = ConnectionTestState(isTesting = true)
+        viewModelScope.launch {
+            val result = apiClient.testConnection(
+                targetUrl = targetUrl,
+                apiKey = apiKey,
+                timeoutSeconds = timeout,
+                customHeaders = customHeaders
+            )
+            _connectionTestState.value = ConnectionTestState(isTesting = false, result = result)
+        }
+    }
+
+    fun clearConnectionTestResult() {
+        _connectionTestState.value = ConnectionTestState()
     }
 
     // --- Агент ---
@@ -474,6 +531,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 modelName = model,
                 messages = conversationJson,
                 reverseProxyUrl = currentSettings.reverseProxyUrl,
+                timeoutSeconds = currentSettings.timeoutSeconds,
+                customHeaders = currentSettings.customHeaders,
                 temperature = currentSettings.temperature.toDouble(),
                 streaming = true,
                 listener = object : OpenAIClient.StreamListener {

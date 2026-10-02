@@ -46,6 +46,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -80,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.data.Provider
 import com.runner.app.ui.components.ProviderLogos
+import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.OutlineSubtle
 import com.runner.app.ui.theme.StatusError
@@ -200,6 +202,7 @@ private fun SettingsRoot(
     val activeProvider by viewModel.activeProvider.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
+    val connectionState by viewModel.connectionTestState.collectAsState()
     val context = LocalContext.current
 
     val proxyUrl = appSettings.reverseProxyUrl
@@ -368,6 +371,7 @@ private fun SettingsRoot(
         }
 
         SettingsGroup("Сеть и прокси") {
+            // 1. Поле Reverse Proxy
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
                     text = "Reverse proxy",
@@ -405,8 +409,7 @@ private fun SettingsRoot(
                                 innerTextField()
                             }
 
-                            // Точка появляется только когда есть что проверять:
-                            // серая точка на пустом поле читалась как «сломанный статус».
+                            // Точка статуса валидности адреса
                             if (proxyUrl.isNotBlank()) {
                                 Box(
                                     modifier = Modifier
@@ -443,11 +446,286 @@ private fun SettingsRoot(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = when {
-                        proxyUrl.isBlank() -> "Если задан, запросы идут через него вместо Base URL."
+                        proxyUrl.isBlank() -> "Если задан, запросы идут через него вместо прямого Base URL."
                         isValidProxy -> "Адрес корректен."
                         else -> "Нужен полный адрес вида https://host/path"
                     },
                     color = if (proxyUrl.isNotBlank() && !isValidProxy) StatusError else TextTertiary,
+                    fontSize = 11.5.sp
+                )
+            }
+
+            SettingsDivider()
+
+            // 2. Кнопка «Проверить соединение»
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = "Проверка связи",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = if (proxyUrl.isNotBlank()) "Тест пинга до reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
+                            color = TextTertiary,
+                            fontSize = 11.5.sp
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (connectionState.isTesting) SurfaceContainerHighest else AccentPrimary.copy(alpha = 0.12f)
+                            )
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (connectionState.isTesting) OutlineSubtle else AccentPrimary.copy(alpha = 0.35f)
+                                ),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable(enabled = !connectionState.isTesting) {
+                                viewModel.testConnection()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (connectionState.isTesting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(13.dp),
+                                    strokeWidth = 2.dp,
+                                    color = AccentPrimary
+                                )
+                                Text(
+                                    text = "Проверка...",
+                                    color = TextTertiary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = RunnerIcons.Activity,
+                                    contentDescription = null,
+                                    tint = AccentPrimary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "Проверить",
+                                    color = AccentPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                connectionState.result?.let { res ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    val badgeBg = when {
+                        res.isSuccess -> StatusSuccess.copy(alpha = 0.12f)
+                        res.isReachable -> StatusWarning.copy(alpha = 0.12f)
+                        else -> StatusError.copy(alpha = 0.12f)
+                    }
+                    val badgeBorder = when {
+                        res.isSuccess -> StatusSuccess.copy(alpha = 0.35f)
+                        res.isReachable -> StatusWarning.copy(alpha = 0.35f)
+                        else -> StatusError.copy(alpha = 0.35f)
+                    }
+                    val badgeTextColor = when {
+                        res.isSuccess -> StatusSuccess
+                        res.isReachable -> StatusWarning
+                        else -> StatusError
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(badgeBg)
+                            .border(BorderStroke(1.dp, badgeBorder), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(badgeTextColor)
+                            )
+                            Text(
+                                text = res.message,
+                                color = badgeTextColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            // 3. Таймаут ответа
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Таймаут ожидания",
+                        color = TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${appSettings.timeoutSeconds} с",
+                        color = AccentPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Таймаут подключения и генерации ответа моделью",
+                    color = TextTertiary,
+                    fontSize = 11.5.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceContainer)
+                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    AppSettings.TIMEOUT_PRESETS.forEach { sec ->
+                        val isSelected = sec == appSettings.timeoutSeconds
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(
+                                    if (isSelected) AccentPrimary.copy(alpha = 0.16f) else Color.Transparent
+                                )
+                                .clickable {
+                                    viewModel.updateSettings(appSettings.copy(timeoutSeconds = sec))
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${sec}с",
+                                color = if (isSelected) AccentPrimary else TextSecondary,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            // 4. Кастомные заголовки (Custom Headers)
+            val customHeaders = appSettings.customHeaders
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Кастомные заголовки (Headers)",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Cloudflare Access, X-Api-Key, кастомный auth",
+                            color = TextTertiary,
+                            fontSize = 11.5.sp
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            val text = readClipboard(context)
+                            if (text.isNotBlank()) {
+                                val current = if (customHeaders.isBlank()) text.trim() else "${customHeaders.trim()}\n${text.trim()}"
+                                viewModel.updateSettings(appSettings.copy(customHeaders = current))
+                            }
+                        },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentPaste,
+                            contentDescription = "Вставить заголовки из буфера",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                BasicTextField(
+                    value = customHeaders,
+                    onValueChange = {
+                        viewModel.updateSettings(appSettings.copy(customHeaders = it))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceContainer)
+                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    textStyle = TextStyle(
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 16.sp
+                    ),
+                    minLines = 3,
+                    maxLines = 6,
+                    cursorBrush = SolidColor(AccentPrimary),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (customHeaders.isEmpty()) {
+                                Text(
+                                    text = "CF-Access-Client-Id: xxx\nCF-Access-Client-Secret: yyy\nX-Custom-Auth: zzz",
+                                    color = TextTertiary.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Формат: Header: Value (по одной строке) или JSON объект.",
+                    color = TextTertiary,
                     fontSize = 11.5.sp
                 )
             }
