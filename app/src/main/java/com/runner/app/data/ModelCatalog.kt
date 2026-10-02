@@ -84,10 +84,14 @@ object ModelCatalog {
         }
 
         // 3. Скрываем embedding и прочие не-чат сервисы
+        // (эмбеддинги, TTS/музыка/видео, realtime, транскрипция, легаси).
         val blockedKeywords = listOf(
             "embed",
             "moderation",
             "tts",
+            "chirp",
+            "lyria",
+            "veo",
             "whisper",
             "dall-e",
             "imagen",
@@ -127,6 +131,11 @@ object ModelCatalog {
             .apply {
                 if (apiKey.isNotBlank()) {
                     addHeader("Authorization", "Bearer ${apiKey.trim()}")
+                    // Нативный Gemini-эндпоинт Bearer не принимает — ключ едет
+                    // в x-goog-api-key (остальные провайдеры лишний заголовок игнорят).
+                    if (target.contains("googleapis.com", ignoreCase = true)) {
+                        addHeader("x-goog-api-key", apiKey.trim())
+                    }
                 }
             }
 

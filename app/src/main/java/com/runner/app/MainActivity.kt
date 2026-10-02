@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
@@ -76,6 +77,12 @@ fun AppNavigation(viewModel: MainViewModel) {
     val sessions by viewModel.sessions.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val sessionsQuery by viewModel.sessionsQuery.collectAsState()
+
+    // Системный Back на экране настроек возвращает в чат, а не сворачивает приложение:
+    // без обработчика backstack пуст и система считает экран единственным.
+    BackHandler(enabled = currentScreen == Screen.SETTINGS) {
+        currentScreen = Screen.CHAT
+    }
 
     when (currentScreen) {
         Screen.CHAT -> ModalNavigationDrawer(

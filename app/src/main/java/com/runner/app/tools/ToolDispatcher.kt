@@ -289,11 +289,11 @@ object ToolDispatcher {
         // 14. run_shell_command
         tools.put(createToolFunction(
             name = "run_shell_command",
-            description = "Выполняет команду оболочки (sh) на устройстве Android и возвращает вывод stdout, stderr и код завершения.",
+            description = "Выполняет команду оболочки (sh, Android Toybox — только короткие флаги, длинных --флагов нет) и возвращает stdout, stderr и код завершения. Размер папок меряй тулом get_folder_summary, а не du.",
             properties = JSONObject().apply {
                 put("command", JSONObject().apply {
                     put("type", "string")
-                    put("description", "Команда шелла для выполнения (например, 'df -h', 'ls -la /sdcard/Download', 'uname -a').")
+                    put("description", "Команда шелла (например, 'df -h', 'du -d 1 /sdcard/Download', 'ls /sdcard'). GNU-флаги вроде --max-depth запрещены.")
                 })
                 put("timeout_seconds", JSONObject().apply {
                     put("type", "integer")

@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -304,6 +305,12 @@ class OpenAIClient {
                 return@withContext AIResponseResult.Error(
                     "Сетевая ошибка: ${e.localizedMessage ?: "не удалось подключиться к серверу"}"
                 )
+            } catch (e: JSONException) {
+                // Битый JSON от сервера — сырой текст исключения с куском
+                // ответа в чат не тащим, только понятное сообщение.
+                return@withContext AIResponseResult.Error(
+                    "Ответ сервера не распознан (битый JSON). Повтори запрос."
+                )
             } catch (e: Exception) {
                 return@withContext AIResponseResult.Error(
                     "Ошибка обработки ответа: ${e.localizedMessage}"
@@ -421,7 +428,7 @@ class OpenAIClient {
                                     listener?.onToolCallStarted(name)
                                 }
                             }
-                            (function.opt("arguments") as? String)?.takeIf { it.isNotEmpty() }?.let {
+                            functionArgsToString(function).takeIf { it != "{}" }?.let {
                                 accumulator.arguments.append(it)
                             }
                         }
@@ -538,11 +545,19 @@ class OpenAIClient {
                         item.put("thought_signature", sig)
                     }
 
+                    // Нормализуем id и записываем обратно в echo: пустой id
+                    // (Gemini такое присылает) роняет следующий запрос с
+                    // 400 function_response.name — echo и tool-ответ обязаны
+                    // нести один и тот же непустой id.
+                    val callId = (item.opt("id") as? String).orEmpty()
+                        .ifBlank { "call_${System.currentTimeMillis()}_$index" }
+                    item.put("id", callId)
+
                     calls.add(
                         ToolCall(
-                            id = item.optString("id", "call_${System.currentTimeMillis()}_$index"),
+                            id = callId,
                             name = function.getString("name"),
-                            arguments = function.optString("arguments", "{}"),
+                            arguments = functionArgsToString(function),
                             thoughtSignature = sig,
                             extraContent = item.optJSONObject("extra_content")
                         )
@@ -560,6 +575,18 @@ class OpenAIClient {
             }
 
             return AIResponseResult.TextResult(message.optString("content", ""))
+        }
+    }
+
+    /**
+     * Аргументы вызова в строку: Gemini иногда отдаёт arguments объектом,
+     * а не строкой — приводим к JSON-строке вместо потери.
+     */
+    private fun functionArgsToString(function: JSONObject): String {
+        return when (val args = function.opt("arguments")) {
+            is String -> args.ifBlank { "{}" }
+            is JSONObject, is JSONArray -> args.toString()
+            else -> "{}"
         }
     }
 
@@ -697,23 +724,41 @@ class OpenAIClient {
     private fun httpError(code: Int, body: String, call: Call): AIResponseResult {
         if (call.isCanceled()) return AIResponseResult.Cancelled
 
+        // Сырой JSON/HTML в плашку чата не вываливаем — только понятный текст.
         val details = try {
             val json = JSONObject(body)
             json.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
                 ?: json.optString("message").takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             null
-        } ?: body.take(300)
+        } ?: body.take(300).trim().takeIf {
+            it.isNotBlank() && !it.startsWith("{") && !it.startsWith("[") && !it.startsWith("<")
+        }
 
-        val isThoughtSignatureError = details.contains("thought_signature", ignoreCase = true)
+        val isThoughtSignatureError = details?.contains("thought_signature", ignoreCase = true) == true
 
         return when {
+            code == 400 && details != null ->
+                AIResponseResult.Error("Ошибка запроса (400): $details")
+            code == 400 ->
+                AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Повтори запрос.")
             code == 401 -> AIResponseResult.Error("Ошибка авторизации (401). Проверь API ключ провайдера.")
-            code == 403 -> AIResponseResult.Error("Доступ запрещён (403): $details")
-            code == 404 -> AIResponseResult.Error("Эндпоинт или модель не найдены (404): $details")
-            code == 429 -> AIResponseResult.Error("Лимит запросов (429): $details", retryable = true)
+            code == 403 -> AIResponseResult.Error(
+                if (details != null) "Доступ запрещён (403): $details"
+                else "Доступ запрещён (403). Проверь ключ и доступ модели."
+            )
+            code == 404 -> AIResponseResult.Error(
+                if (details != null) "Эндпоинт или модель не найдены (404): $details"
+                else "Эндпоинт или модель не найдены (404). Проверь Base URL и модель."
+            )
+            code == 429 -> AIResponseResult.Error(
+                if (details != null) "Лимит запросов (429): $details"
+                else "Лимит запросов (429). Подожди и повтори.",
+                retryable = true
+            )
             isThoughtSignatureError -> AIResponseResult.Error("Ошибка API ($code): $details", retryable = true)
-            else -> AIResponseResult.Error("Ошибка API ($code): $details")
+            details != null -> AIResponseResult.Error("Ошибка API ($code): $details")
+            else -> AIResponseResult.Error("Ошибка сервера ($code): ответ не распознан, повтори запрос")
         }
     }
 

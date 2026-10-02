@@ -100,6 +100,34 @@ private const val MAX_PLAN_STEPS = 12
 /** Сколько последних реплик диалога отдаём планировщику для контекста уточнений. */
 private const val PLAN_HISTORY_TAIL = 10
 
+/** Точные короткие реплики, на которые планировщик не триггерится. */
+private val NO_PLAN_EXACT = setOf(
+    "привет", "здравствуй", "здравствуйте", "добрый день", "добрый вечер",
+    "доброе утро", "спасибо", "пожалуйста", "пока", "до свидания",
+    "как дела", "как ты", "кто ты", "что ты умеешь", "что умеешь",
+    "помощь", "help", "hi", "hello", "hey", "thanks", "thank you", "bye",
+    "ок", "ok", "ага", "понятно", "ясно", "хорошо", "давай", "продолжай",
+    "ага", "угу"
+)
+
+/** Короткие приветственные маркеры внутри очень коротких сообщений. */
+private val NO_PLAN_CONTAINS = listOf(
+    "привет", "здравствуй", "здравствуйте", "добрый день", "добрый вечер",
+    "доброе утро", "спасибо", "благодарю", "hello", "hi there"
+)
+
+/**
+ * Гейт планировщика: приветствия, смолл-ток и общие вопросы идут
+ * напрямую в цикл без плашки плана. Планируем только системные задачи.
+ */
+private fun shouldPlan(text: String): Boolean {
+    val clean = text.trim().lowercase().replace(Regex("[!?.…]+$"), "").trim()
+    if (clean.isEmpty()) return false
+    if (clean in NO_PLAN_EXACT) return false
+    if (clean.length <= 20 && NO_PLAN_CONTAINS.any { clean.contains(it) }) return false
+    return true
+}
+
 /**
  * Деструктивные тулы: план с такими шагами всегда показываем на подтверждение.
  * Безопасные (поиск, чтение, листинги, сводки) исполняются молча.
@@ -618,7 +646,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Планирование: сначала план шагов + подтверждение, потом исполнение.
                 // Слабым моделям (Flash Lite и подобные) это сильно поднимает надёжность.
-                val planNote = if (_settings.value.planningEnabled) {
+                // На приветствия и смолл-ток планировщик не триггерим вообще.
+                val planNote = if (_settings.value.planningEnabled && shouldPlan(text)) {
                     requestPlanApproval(sessionId, provider, model)
                 } else {
                     null
