@@ -202,11 +202,6 @@ private fun SettingsRoot(
 
     val proxyUrl = appSettings.reverseProxyUrl
     val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
-    val dotColor = when {
-        proxyUrl.isBlank() -> TextTertiary
-        isValidProxy -> StatusSuccess
-        else -> StatusError
-    }
 
     Column(
         modifier = Modifier
@@ -224,8 +219,8 @@ private fun SettingsRoot(
             SettingsDivider()
             SettingsRow(
                 label = "Модель",
-                value = activeProvider?.activeModel.orEmpty().ifBlank { "не выбрана" },
-                mono = true,
+                // Показываем человеческое имя, технический ID живёт в списке выбора
+                value = formatModelName(activeProvider?.activeModel.orEmpty()),
                 onClick = { onNavigate(SettingsRoute.Providers) }
             )
         }
@@ -262,28 +257,40 @@ private fun SettingsRoot(
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
+                // Сегментированный переключатель: одна рамка на весь контрол,
+                // выбранный сегмент подсвечен мягкой заливкой.
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceContainer)
+                        .border(BorderStroke(1.dp, OutlineSubtle), RoundedCornerShape(10.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     AppSettings.TEXT_SCALES.forEach { scale ->
                         val isSelected = scale == appSettings.textScale
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) SurfaceContainerHigh else SurfaceContainer)
-                                .border(
-                                    BorderStroke(1.dp, if (isSelected) AccentPrimary else OutlineSubtle),
-                                    RoundedCornerShape(8.dp)
+                                .weight(1f)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(
+                                    if (isSelected) {
+                                        AccentPrimary.copy(alpha = 0.16f)
+                                    } else {
+                                        Color.Transparent
+                                    }
                                 )
                                 .clickable {
                                     viewModel.updateSettings(appSettings.copy(textScale = scale))
                                 }
-                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "${(scale * 100).roundToInt()}%",
-                                color = if (isSelected) AccentPrimary else TextPrimary,
-                                fontSize = 13.sp,
+                                color = if (isSelected) AccentPrimary else TextSecondary,
+                                fontSize = 12.5.sp,
                                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
                             )
                         }
@@ -348,16 +355,9 @@ private fun SettingsRoot(
                     cursorBrush = SolidColor(AccentPrimary),
                     decorationBox = { innerTextField ->
                         Row(
-                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(dotColor)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
                             Box(modifier = Modifier.weight(1f)) {
                                 if (proxyUrl.isEmpty()) {
                                     Text(
@@ -368,6 +368,21 @@ private fun SettingsRoot(
                                 }
                                 innerTextField()
                             }
+
+                            // Точка появляется только когда есть что проверять:
+                            // серая точка на пустом поле читалась как «сломанный статус».
+                            if (proxyUrl.isNotBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isValidProxy) StatusSuccess else StatusError
+                                        )
+                                )
+                            }
+
                             IconButton(
                                 onClick = {
                                     val text = readClipboard(context)
@@ -377,7 +392,7 @@ private fun SettingsRoot(
                                         )
                                     }
                                 },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.ContentPaste,
@@ -440,10 +455,9 @@ private fun ProvidersList(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = provider.activeModel.ifBlank { "модель не выбрана" },
+                            text = formatModelName(provider.activeModel),
                             color = TextTertiary,
                             fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -855,10 +869,12 @@ private fun SettingsGroup(
         if (title != null) {
             Text(
                 text = title,
-                color = TextTertiary,
-                fontSize = 11.5.sp,
+                // TextSecondary вместо TextTertiary: на чистом чёрном Tertiary почти растворяется
+                color = TextSecondary,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+                letterSpacing = 0.2.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
             )
         }
         Card(

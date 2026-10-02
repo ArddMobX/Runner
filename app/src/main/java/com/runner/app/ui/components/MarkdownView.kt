@@ -22,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
@@ -73,10 +72,25 @@ fun MarkdownView(
 
 @Composable
 private fun HeaderElement(element: MarkdownElement.Header) {
+    // Шкала сжата: заголовки не должны перекрикивать основной текст (15sp).
     val (style, topPadding) = when (element.level) {
-        1 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 19.sp) to 8.dp
-        2 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp) to 6.dp
-        else -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp) to 4.dp
+        1 -> MaterialTheme.typography.titleLarge.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 17.sp,
+            lineHeight = 23.sp
+        ) to 8.dp
+
+        2 -> MaterialTheme.typography.titleMedium.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+            lineHeight = 22.sp
+        ) to 6.dp
+
+        else -> MaterialTheme.typography.titleMedium.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            lineHeight = 21.sp
+        ) to 5.dp
     }
     Text(
         text = renderInlineMarkdown(element.content),
@@ -262,12 +276,13 @@ private fun BulletElement(element: MarkdownElement.BulletItem) {
         modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
+        // Маркер меньше текста, иначе список спорит по весу с обычным абзацем.
         Text(
             text = "•",
             color = AccentPrimary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-            modifier = Modifier.padding(end = 8.dp)
+            fontWeight = FontWeight.Medium,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 2.dp, end = 8.dp)
         )
         Text(
             text = renderInlineMarkdown(element.text),
@@ -283,12 +298,15 @@ private fun NumberedElement(element: MarkdownElement.NumberedItem) {
         modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
+        // Фиксированная ширина — чтобы двузначные номера не сдвигали текст.
         Text(
             text = "${element.number}.",
             color = AccentPrimary,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(end = 8.dp)
+            fontWeight = FontWeight.Medium,
+            fontSize = 12.5.sp,
+            modifier = Modifier
+                .width(20.dp)
+                .padding(top = 3.dp)
         )
         Text(
             text = renderInlineMarkdown(element.text),
@@ -466,14 +484,16 @@ fun renderInlineMarkdown(text: String): AnnotatedString {
                     pop()
                 }
 
-                // Inline code (`code`)
+                // Inline code (`code`) — мягкая акцентная подсветка вместо серого кирпича.
+                // Скруглить углы у SpanStyle нельзя, поэтому берём светлую заливку
+                // и воздух по бокам через пробелы.
                 token.startsWith("`") && token.endsWith("`") && token.length >= 2 -> {
                     pushStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
-                            background = SurfaceContainerHighest,
+                            background = AccentPrimary.copy(alpha = 0.13f),
                             color = AccentPrimary,
-                            fontSize = 12.sp
+                            fontSize = 13.sp
                         )
                     )
                     append(" ${token.substring(1, token.length - 1)} ")

@@ -40,7 +40,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -100,6 +99,7 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.RunnerIcons
+import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.OutlineSubtle
@@ -440,7 +440,8 @@ private fun InputBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            // Нижний отступ больше верхнего: панель не должна лежать на полоске навигации
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(SurfaceContainer)
             .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(24.dp))
@@ -799,7 +800,9 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean) {
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                // Раньше здесь стоял Spacer с weight(1f), а второй weight висел на заголовке —
+                // ширина делилась пополам, и статус обрезался на пустом месте.
+                Spacer(modifier = Modifier.width(8.dp))
 
                 if (hasDetails && !message.isRunning) {
                     Icon(
@@ -867,13 +870,7 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean) {
                         }
                     }
                     Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = message.toolOutput,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        color = TextTertiary
-                    )
+                    ToolOutputView(output = message.toolOutput)
                 }
             }
         }
