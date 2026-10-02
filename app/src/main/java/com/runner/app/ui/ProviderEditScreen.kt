@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Refresh
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.OutlineSubtle
 import com.runner.app.ui.theme.StatusError
@@ -114,6 +116,10 @@ fun ProviderEditScreen(
     val isDirty = name != provider.name || baseUrl != provider.baseUrl || apiKey != provider.apiKey
     val isLoadingModels = loadingFor == provider.id
 
+    val providerLogo = remember(provider.id, name) {
+        ProviderLogos.forProvider(provider.id, name)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -123,6 +129,71 @@ fun ProviderEditScreen(
     ) {
         SettingsCard {
             Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (isActive) AccentPrimary.copy(alpha = 0.12f) else SurfaceContainerHigh)
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (isActive) AccentPrimary.copy(alpha = 0.35f) else OutlineSubtle
+                                ),
+                                RoundedCornerShape(9.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = providerLogo ?: Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            tint = if (isActive) AccentPrimary else TextSecondary,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = name.ifBlank { "Провайдер" },
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (isActive) "Активный провайдер" else "Настройка провайдера",
+                            color = if (isActive) AccentPrimary else TextTertiary,
+                            fontSize = 11.5.sp
+                        )
+                    }
+
+                    if (isActive) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(StatusSuccess.copy(alpha = 0.12f))
+                                .border(BorderStroke(1.dp, StatusSuccess.copy(alpha = 0.25f)), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "Активен",
+                                color = StatusSuccess,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = OutlineSubtle, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(14.dp))
+
                 FieldLabel("Название")
                 TextField(
                     value = name,

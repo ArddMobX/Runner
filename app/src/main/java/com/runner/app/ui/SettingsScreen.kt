@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -78,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.data.Provider
+import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.OutlineSubtle
 import com.runner.app.ui.theme.StatusError
@@ -473,6 +475,10 @@ private fun ProvidersList(
         SettingsGroup {
             providers.forEachIndexed { index, provider ->
                 if (index > 0) SettingsDivider()
+                val providerLogo = remember(provider.id, provider.name) {
+                    ProviderLogos.forProvider(provider.id, provider.name)
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -480,6 +486,30 @@ private fun ProvidersList(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (provider.id == activeProviderId) AccentPrimary.copy(alpha = 0.12f) else SurfaceContainerHigh)
+                            .border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (provider.id == activeProviderId) AccentPrimary.copy(alpha = 0.35f) else OutlineSubtle
+                                ),
+                                RoundedCornerShape(8.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = providerLogo ?: Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            tint = if (provider.id == activeProviderId) AccentPrimary else TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = provider.name,

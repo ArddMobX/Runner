@@ -99,6 +99,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
+import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.theme.AccentPrimary
@@ -190,6 +191,7 @@ fun ChatScreen(
                 },
                 title = {
                     ModelChip(
+                        providerId = provider?.id.orEmpty(),
                         providerName = provider?.name ?: "Провайдер",
                         modelName = provider?.activeModel.orEmpty().ifBlank { "модель не выбрана" },
                         hasKey = provider?.apiKey?.isNotBlank() == true,
@@ -361,9 +363,10 @@ fun formatModelName(raw: String): String {
     return formatted.ifBlank { raw }
 }
 
-/** Компактный чип-селектор модели в шапке: иконка + форматированное имя + шеврон. */
+/** Компактный чип-селектор модели в шапке: фирменный логотип + форматированное имя + шеврон. */
 @Composable
 private fun ModelChip(
+    providerId: String,
     providerName: String,
     modelName: String,
     hasKey: Boolean,
@@ -371,6 +374,13 @@ private fun ModelChip(
     onClick: () -> Unit
 ) {
     val cleanModel = remember(modelName) { formatModelName(modelName) }
+    val brandLogo = remember(modelName, providerId, providerName) {
+        ProviderLogos.forModelOrProvider(
+            modelId = modelName,
+            providerId = providerId,
+            providerName = providerName
+        )
+    }
 
     Row(
         modifier = Modifier
@@ -382,9 +392,13 @@ private fun ModelChip(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Outlined.AutoAwesome,
+            imageVector = brandLogo ?: Icons.Outlined.AutoAwesome,
             contentDescription = null,
-            tint = if (hasKey) AccentPrimary else StatusWarning,
+            tint = when {
+                !hasKey -> StatusWarning
+                brandLogo != null -> TextPrimary
+                else -> AccentPrimary
+            },
             modifier = Modifier.size(15.dp)
         )
         Spacer(modifier = Modifier.width(7.dp))

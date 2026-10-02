@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
@@ -194,6 +195,10 @@ fun ModelPickerSheet(
             ) {
                 providers.forEach { item ->
                     val isSelected = item.id == provider?.id
+                    val providerLogo = remember(item.id, item.name) {
+                        ProviderLogos.forProvider(item.id, item.name)
+                    }
+
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -212,7 +217,15 @@ fun ModelPickerSheet(
                             .padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (item.apiKey.isBlank()) {
+                            if (providerLogo != null) {
+                                Icon(
+                                    imageVector = providerLogo,
+                                    contentDescription = null,
+                                    tint = if (isSelected) AccentPrimary else TextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            } else if (item.apiKey.isBlank()) {
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
@@ -311,6 +324,8 @@ fun ModelPickerSheet(
                     items(models, key = { it.id }) { model ->
                         ModelRow(
                             model = model,
+                            providerId = provider.id,
+                            providerName = provider.name,
                             isActive = provider.id == activeProviderId && model.id == provider.selectedModel,
                             onSelect = { onSelectModel(provider.id, model.id) },
                             onCopy = {
@@ -329,24 +344,58 @@ fun ModelPickerSheet(
 @Composable
 private fun ModelRow(
     model: ModelInfo,
+    providerId: String,
+    providerName: String,
     isActive: Boolean,
     onSelect: () -> Unit,
     onCopy: () -> Unit
 ) {
     val hasReadableName = model.name.isNotBlank()
+    val modelLogo = remember(model.id, providerId, providerName) {
+        ProviderLogos.forModelOrProvider(
+            modelId = model.id,
+            providerId = providerId,
+            providerName = providerName
+        )
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onSelect() }
-            .padding(start = 20.dp, end = 6.dp, top = 11.dp, bottom = 11.dp),
+            .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isActive) AccentPrimary.copy(alpha = 0.12f) else SurfaceContainerHigh)
+                .border(
+                    BorderStroke(
+                        1.dp,
+                        if (isActive) AccentPrimary.copy(alpha = 0.35f) else OutlineSubtle
+                    ),
+                    RoundedCornerShape(8.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = modelLogo ?: Icons.Outlined.AutoAwesome,
+                contentDescription = null,
+                tint = if (isActive) AccentPrimary else TextSecondary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = model.label,
                 color = if (isActive) AccentPrimary else TextPrimary,
                 fontSize = 13.5.sp,
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
