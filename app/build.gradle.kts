@@ -55,6 +55,59 @@ android {
     }
 }
 
+// Базовое имя архивов: Runner-*.apk / Runner-*.aab.
+// Полное имя с версией задаётся ниже через androidComponents (AGP 8 API).
+base {
+    archivesName.set("Runner")
+}
+
+// Переименование APK в Runner-<versionName>-<buildType>.apk.
+// Выбран официальный AGP 8 API: androidComponents.onVariants.
+// Причина: applicationVariants + BaseVariantOutputImpl — внутренний API и deprecated в AGP 8,
+// а один только base.archivesName даёт Runner-debug.apk без версии и не выполняет требование.
+androidComponents {
+    onVariants { variant ->
+        val buildTypeName = variant.buildType ?: "unknown"
+        // Flavor нет, versionName одинаков для всех вариантов — читаем из defaultConfig,
+        // чтобы не зависеть от различий variant.versionName API между минорными AGP 8.x.
+        val versionName = android.defaultConfig.versionName ?: "1.0"
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("Runner-${versionName}-${buildTypeName}.apk")
+        }
+    }
+}
+
+// Генерация <имя>.apk.sha256 после сборки (формат как у sha256sum: "<hash>  <filename>").
+tasks.register("generateApkSha256") {
+    group = "build"
+    description = "Генерирует .sha256 для каждого APK в build/outputs/apk"
+    mustRunAfter("assembleDebug", "assembleRelease", "assemble")
+    doLast {
+        val outputsDir = layout.buildDirectory.dir("outputs/apk").get().asFile
+        val apks = outputsDir.walkTopDown().filter { it.isFile && it.extension == "apk" }.toList()
+        check(apks.isNotEmpty()) { "APK не найдены в $outputsDir" }
+        apks.forEach { apk ->
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            apk.inputStream().use { input ->
+                val buf = ByteArray(8192)
+                var n: Int
+                while (input.read(buf).also { n = it } != -1) {
+                    digest.update(buf, 0, n)
+                }
+            }
+            val hash = digest.digest().joinToString("") { "%02x".format(it) }
+            val shaFile = java.io.File(apk.parentFile, "${apk.name}.sha256")
+            shaFile.writeText("$hash  ${apk.name}\n")
+            logger.lifecycle("SHA-256: ${apk.name} -> ${shaFile.name}")
+        }
+    }
+}
+
+// Чтобы ./gradlew assembleDebug / assembleRelease сразу давали и .sha256.
+tasks.matching { it.name == "assembleDebug" || it.name == "assembleRelease" }.configureEach {
+    finalizedBy("generateApkSha256")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")

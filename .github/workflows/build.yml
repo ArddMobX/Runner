@@ -37,7 +37,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+          ./gradlew assembleDebug generateApkSha256 --stacktrace 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit $status
@@ -76,9 +76,12 @@ jobs:
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Runner-Debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Runner-Debug-APK-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/debug/Runner-*.apk
+            app/build/outputs/apk/debug/*.sha256
           if-no-files-found: error
+          overwrite: false
 
       - name: Create GitHub Release
         if: steps.build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -87,7 +90,10 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: "Runner v1.0.${{ github.run_number }} APK"
           body: "Автоматическая сборка APK автономного ИИ-агента Runner для Android."
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: |
+            app/build/outputs/apk/debug/Runner-*.apk
+            app/build/outputs/apk/debug/*.sha256
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
