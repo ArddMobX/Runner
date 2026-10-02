@@ -29,7 +29,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -411,10 +410,7 @@ private fun MarkdownText(
                     }
                 }
 
-                is InlineSegment.Code -> InlineChip(
-                    text = segment.value,
-                    fontSize = style.fontSize
-                )
+                is InlineSegment.Code -> InlineChip(text = segment.value)
             }
         }
     }
@@ -422,7 +418,7 @@ private fun MarkdownText(
 
 /** Скруглённый чип для слова в бэктиках. */
 @Composable
-private fun InlineChip(text: String, fontSize: TextUnit) {
+private fun InlineChip(text: String) {
     val shape = RoundedCornerShape(7.dp)
     Box(
         modifier = Modifier
@@ -434,7 +430,7 @@ private fun InlineChip(text: String, fontSize: TextUnit) {
         Text(
             text = text,
             color = AccentPrimary,
-            fontSize = if (fontSize.isSpecified) fontSize * 0.92f else 12.5.sp,
+            fontSize = 13.5.sp,
             fontFamily = FontFamily.Monospace,
             maxLines = 1
         )
