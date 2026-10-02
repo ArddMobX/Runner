@@ -97,11 +97,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.ToolOutputView
+import com.runner.app.ui.components.rememberChatInputState
 import com.runner.app.ui.theme.AccentPrimary
 import com.runner.app.ui.theme.AccentSecondary
 import com.runner.app.ui.theme.MotionTokens
@@ -139,7 +141,7 @@ fun ChatScreen(
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
 
-    var inputText by remember { mutableStateOf("") }
+    val inputState = rememberChatInputState()
     var showModelPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
@@ -230,7 +232,7 @@ fun ChatScreen(
             if (isEmptyChat) {
                 EmptyChatState(
                     modifier = Modifier.weight(1f),
-                    onSuggestion = { inputText = it }
+                    onSuggestion = { inputState.setText(it) }
                 )
             } else {
                 Column(modifier = Modifier.weight(1f)) {
@@ -302,15 +304,10 @@ fun ChatScreen(
                 }
             }
 
-            InputBar(
-                value = inputText,
-                onValueChange = { inputText = it },
+            ChatInputBar(
+                inputState = inputState,
                 isRunning = isRunning,
-                onSend = {
-                    val text = inputText
-                    inputText = ""
-                    viewModel.sendMessage(text)
-                },
+                onSend = { text -> viewModel.sendMessage(text) },
                 onStop = { viewModel.stopGeneration() }
             )
         }
@@ -428,152 +425,6 @@ private fun ModelChip(
     }
 }
 
-/**
- * Нижняя панель: динамическая подсветка контура при фокусе и вводе,
- * поддержка ImeAction.Send с клавиатуры и гарантированная обработка отправки.
- */
-@Composable
-private fun InputBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    isRunning: Boolean,
-    onSend: () -> Unit,
-    onStop: () -> Unit
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    val canSend = value.isNotBlank() && !isRunning
-    val isActive = isFocused || value.isNotBlank()
-
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isRunning -> StatusError.copy(alpha = 0.4f)
-            isActive -> AccentPrimary.copy(alpha = 0.45f)
-            else -> OutlineSubtle
-        },
-        animationSpec = MotionTokens.fluidTween(200),
-        label = "input_border"
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // Нижний отступ больше верхнего: панель не должна лежать на полоске навигации
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(SurfaceContainer)
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(24.dp))
-            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 14.dp, end = 6.dp, top = 11.dp, bottom = 11.dp)
-                .onFocusChanged { isFocused = it.isFocused },
-            textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, lineHeight = 21.sp),
-            maxLines = 5,
-            minLines = 1,
-            cursorBrush = SolidColor(AccentPrimary),
-            keyboardOptions = KeyboardOptions(
-                imeAction = if (canSend) ImeAction.Send else ImeAction.Default
-            ),
-            keyboardActions = KeyboardActions(
-                onSend = {
-                    if (canSend) onSend()
-                }
-            ),
-            decorationBox = { innerTextField ->
-                Box {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = "Задать задачу",
-                            color = TextTertiary,
-                            fontSize = 15.sp,
-                            lineHeight = 21.sp
-                        )
-                    }
-                    innerTextField()
-                }
-            }
-        )
-
-        SendStopButton(
-            isRunning = isRunning,
-            canSend = canSend,
-            onSend = onSend,
-            onStop = onStop
-        )
-    }
-}
-
-/**
- * Круглая кнопка: плавно загорается акцентным синим при вводе текста,
- * пульсирует в стоп во время выполнения, корректно вызывает onSend/onStop.
- */
-@Composable
-private fun SendStopButton(
-    isRunning: Boolean,
-    canSend: Boolean,
-    onSend: () -> Unit,
-    onStop: () -> Unit
-) {
-    val enabled = isRunning || canSend
-
-    val background by animateColorAsState(
-        targetValue = when {
-            isRunning -> StatusError.copy(alpha = 0.18f)
-            canSend -> AccentPrimary
-            else -> SurfaceContainerHigh.copy(alpha = 0.6f)
-        },
-        animationSpec = MotionTokens.fluidTween(220),
-        label = "send_background"
-    )
-
-    val iconTint by animateColorAsState(
-        targetValue = when {
-            isRunning -> StatusError
-            canSend -> SurfaceDark
-            else -> TextTertiary
-        },
-        animationSpec = MotionTokens.fluidTween(220),
-        label = "send_tint"
-    )
-
-    val buttonScale by animateFloatAsState(
-        targetValue = if (canSend || isRunning) 1f else 0.92f,
-        animationSpec = MotionTokens.fluidSpring(),
-        label = "send_scale"
-    )
-
-    Box(
-        modifier = Modifier
-            .padding(bottom = 3.dp, end = 3.dp)
-            .size(38.dp)
-            .graphicsLayer {
-                scaleX = buttonScale
-                scaleY = buttonScale
-            }
-            .clip(CircleShape)
-            .background(background)
-            .bounceClick(enabled = enabled, scaleDown = 0.90f) {
-                if (isRunning) {
-                    onStop()
-                } else if (canSend) {
-                    onSend()
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = if (isRunning) RunnerIcons.StopSquare else RunnerIcons.ArrowUp,
-            contentDescription = if (isRunning) "Остановить" else "Отправить",
-            tint = iconTint,
-            modifier = Modifier.size(18.dp)
-        )
-    }
-}
 
 /**
  * Компактный экран пустого чата с аккуратной сеткой 2×2 быстрых действий.
