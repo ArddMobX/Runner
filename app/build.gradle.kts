@@ -1,3 +1,7 @@
+import com.android.build.gradle.internal.api.BaseVariantOutputImpl
+import java.io.File
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -56,24 +60,22 @@ android {
 }
 
 // Базовое имя архивов: Runner-*.apk / Runner-*.aab.
-// Полное имя с версией задаётся ниже через androidComponents (AGP 8 API).
+// Полное имя с версией задаётся ниже через applicationVariants.
 base {
     archivesName.set("Runner")
 }
 
 // Переименование APK в Runner-<versionName>-<buildType>.apk.
-// Выбран официальный AGP 8 API: androidComponents.onVariants.
-// Причина: applicationVariants + BaseVariantOutputImpl — внутренний API и deprecated в AGP 8,
-// а один только base.archivesName даёт Runner-debug.apk без версии и не выполняет требование.
-androidComponents {
-    onVariants { variant ->
-        val buildTypeName = variant.buildType ?: "unknown"
-        // Flavor нет, versionName одинаков для всех вариантов — читаем из defaultConfig,
-        // чтобы не зависеть от различий variant.versionName API между минорными AGP 8.x.
-        val versionName = android.defaultConfig.versionName ?: "1.0"
-        variant.outputs.forEach { output ->
-            output.outputFileName.set("Runner-${versionName}-${buildTypeName}.apk")
-        }
+// Способ: applicationVariants + outputFileName (работает на AGP 8.4.2; вариант
+// через androidComponents.onVariants/output.outputFileName в этой версии AGP
+// не компилируется). base.archivesName выше даёт базовое имя Runner,
+// здесь добавляем версию и тип сборки.
+android.applicationVariants.all {
+    val buildTypeName = buildType.name
+    val variantVersion = versionName ?: "1.0"
+    outputs.all {
+        (this as BaseVariantOutputImpl).outputFileName =
+            "Runner-${variantVersion}-${buildTypeName}.apk"
     }
 }
 
@@ -87,7 +89,7 @@ tasks.register("generateApkSha256") {
         val apks = outputsDir.walkTopDown().filter { it.isFile && it.extension == "apk" }.toList()
         check(apks.isNotEmpty()) { "APK не найдены в $outputsDir" }
         apks.forEach { apk ->
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val digest = MessageDigest.getInstance("SHA-256")
             apk.inputStream().use { input ->
                 val buf = ByteArray(8192)
                 var n: Int
@@ -96,7 +98,7 @@ tasks.register("generateApkSha256") {
                 }
             }
             val hash = digest.digest().joinToString("") { "%02x".format(it) }
-            val shaFile = java.io.File(apk.parentFile, "${apk.name}.sha256")
+            val shaFile = File(apk.parentFile, "${apk.name}.sha256")
             shaFile.writeText("$hash  ${apk.name}\n")
             logger.lifecycle("SHA-256: ${apk.name} -> ${shaFile.name}")
         }
