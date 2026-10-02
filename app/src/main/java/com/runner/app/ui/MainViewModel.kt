@@ -117,16 +117,30 @@ private val NO_PLAN_CONTAINS = listOf(
 )
 
 /**
- * Гейт планировщика: приветствия, смолл-ток и общие вопросы идут
- * напрямую в цикл без плашки плана. Планируем только системные задачи.
+ * Гейт планировщика: предварительный план составляется только для деструктивных
+ * или модифицирующих операций (удаление, перемещение, запись, сортировка, shell),
+ * либо когда пользователь явно просит составить план («составь план», «по шагам»).
+ * Безопасные запросы на чтение, аналитику и поиск (сводка памяти, поиск мусора,
+ * тяжелые файлы, чтение буфера) идут напрямую в агентский цикл — это сокращает время
+ * ответа модели вдвое, устраняя избыточный сетевой запрос планирования.
  */
 private fun shouldPlan(text: String): Boolean {
     val clean = text.trim().lowercase().replace(Regex("[!?.…]+$"), "").trim()
     if (clean.isEmpty()) return false
     if (clean in NO_PLAN_EXACT) return false
     if (clean.length <= 20 && NO_PLAN_CONTAINS.any { clean.contains(it) }) return false
-    return true
+    return PLAN_ACTION_HINTS.any { clean.contains(it) }
 }
+
+/** Действия, требующие предварительного планирования и подтверждения. */
+private val PLAN_ACTION_HINTS = listOf(
+    "план", "спланируй", "пошагово", "по шагам",
+    "удали", "удален", "стереть", "очист",
+    "перемест", "переимен", "скопир", "создай", "разбери", "сортиру",
+    "запиши", "перезапиши", "допиши",
+    "упаку", "распаку",
+    "shell", "терминал", "команд", "выполни", "запусти", "скрипт"
+)
 
 /**
  * Деструктивные тулы: план с такими шагами всегда показываем на подтверждение.
@@ -283,6 +297,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
 
+    /** Занято/всего для виджета хранилища на пустом экране (null — не удалось прочитать). */
+    private val _storageStats = MutableStateFlow<ToolDispatcher.StorageStats?>(null)
+    val storageStats: StateFlow<ToolDispatcher.StorageStats?> = _storageStats.asStateFlow()
+
+    /** Версия приложения для нижней панели шторки. */
+    val appVersion: String = try {
+        val pm = getApplication<Application>().packageManager
+        val pkg = getApplication<Application>().packageName
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(pkg, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(pkg, 0)
+        }
+        info.versionName ?: ""
+    } catch (e: Exception) {
+        ""
+    }
+
+    fun refreshStorageStats() {
+        viewModelScope.launch {
+            _storageStats.value = ToolDispatcher.getStorageStats()
+        }
+    }
+
     private var conversationJson = JSONArray()
 
     @Volatile
@@ -315,7 +354,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         _hasStoragePermission.value = granted
         // Право выдали на системном экране — first-run диалог больше не нужен.
-        if (granted) _showStoragePrompt.value = false
+        if (granted) {
+            _showStoragePrompt.value = false
+            refreshStorageStats()
+        }
     }
 
     /** Закрыть first-run диалог (в т.ч. кнопкой «Позже»). Больше не показываем. */
@@ -378,6 +420,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (_currentSessionId.value == sessionId) {
                 _currentSessionTitle.value = clean
             }
+        }
+    }
+
+    fun togglePinSession(sessionId: String, pinned: Boolean) {
+        viewModelScope.launch {
+            repository.setSessionPinned(sessionId, pinned)
         }
     }
 

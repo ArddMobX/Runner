@@ -25,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
@@ -32,6 +34,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -104,8 +107,8 @@ private fun formatSessionTime(timestamp: Long, zone: ZoneId): String {
 }
 
 /**
- * Боковое меню: новый чат, поиск, история по секциям, настройки внизу.
- * Удаление и переименование — через долгое нажатие на строку.
+ * Боковое меню: новый чат, поиск, закреплённые, история по секциям, настройки внизу.
+ * Удаление, переименование и закрепление — через долгое нажатие на строку.
  */
 @Composable
 fun AppDrawerContent(
@@ -117,14 +120,19 @@ fun AppDrawerContent(
     onOpenSession: (String) -> Unit,
     onRenameSession: (String, String) -> Unit,
     onDeleteSession: (String) -> Unit,
+    onTogglePinSession: (String, Boolean) -> Unit,
+    appVersion: String,
+    footerLabel: String,
     onOpenSettings: () -> Unit
 ) {
     var sessionToRename by remember { mutableStateOf<SessionEntity?>(null) }
     var sessionToDelete by remember { mutableStateOf<SessionEntity?>(null) }
 
     val zone = remember { ZoneId.systemDefault() }
-    val grouped = remember(sessions, zone) {
-        sessions.groupBy { groupOf(it.updatedAt, zone) }
+    val pinnedSessions = remember(sessions) { sessions.filter { it.isPinned } }
+    val restSessions = remember(sessions) { sessions.filterNot { it.isPinned } }
+    val grouped = remember(restSessions, zone) {
+        restSessions.groupBy { groupOf(it.updatedAt, zone) }
     }
 
     Column(
@@ -189,6 +197,32 @@ fun AppDrawerContent(
             }
         } else {
             LazyColumn(modifier = Modifier.weight(1f)) {
+                if (pinnedSessions.isNotEmpty()) {
+                    item(key = "header_pinned") {
+                        Text(
+                            text = "Закреплённые",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp)
+                        )
+                    }
+
+                    items(pinnedSessions, key = { "pinned_${it.id}" }) { session ->
+                        SessionRow(
+                            session = session,
+                            isCurrent = session.id == currentSessionId,
+                            timeLabel = remember(session.id, session.updatedAt) {
+                                formatSessionTime(session.updatedAt, zone)
+                            },
+                            onOpen = { onOpenSession(session.id) },
+                            onRename = { sessionToRename = session },
+                            onDelete = { sessionToDelete = session },
+                            onTogglePin = { onTogglePinSession(session.id, !session.isPinned) }
+                        )
+                    }
+                }
+
                 SessionGroup.values().forEach { group ->
                     val groupSessions = grouped[group].orEmpty()
                     if (groupSessions.isEmpty()) return@forEach
@@ -212,20 +246,24 @@ fun AppDrawerContent(
                             },
                             onOpen = { onOpenSession(session.id) },
                             onRename = { sessionToRename = session },
-                            onDelete = { sessionToDelete = session }
+                            onDelete = { sessionToDelete = session },
+                            onTogglePin = { onTogglePinSession(session.id, !session.isPinned) }
                         )
                     }
                 }
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            thickness = 0.5.dp
+        )
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onOpenSettings() }
-                .padding(horizontal = 20.dp, vertical = 15.dp),
+                .padding(horizontal = 20.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -237,6 +275,18 @@ fun AppDrawerContent(
             Spacer(modifier = Modifier.width(12.dp))
             Text(text = "Настройки", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
         }
+        Text(
+            text = buildString {
+                if (appVersion.isNotBlank()) append("v$appVersion")
+                if (appVersion.isNotBlank() && footerLabel.isNotBlank()) append(" · ")
+                append(footerLabel)
+            },
+            color = MaterialTheme.colorScheme.outline,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 20.dp, end = 16.dp, bottom = 14.dp)
+        )
     }
 
     sessionToRename?.let { session ->
@@ -280,15 +330,19 @@ fun AppDrawerContent(
 }
 
 /**
- * Главное целевое действие: прозрачный фон + акцентный контур и текст,
- * чтобы считывалась primary-кнопкой на фоне нейтрального поля поиска.
+ * Главное целевое действие: мягкая тональная заливка акцентным цветом темы,
+ * чтобы сразу считывалась primary-кнопкой и не спорила с рамкой поиска.
  */
 @Composable
 private fun NewChatButton(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val background by animateColorAsState(
-        targetValue = if (pressed) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent,
+        targetValue = if (pressed) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+        } else {
+            MaterialTheme.colorScheme.primaryContainer
+        },
         animationSpec = MotionTokens.fluidTween(180),
         label = "new_chat_press"
     )
@@ -299,7 +353,6 @@ private fun NewChatButton(onClick: () -> Unit) {
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(background)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)), RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -311,13 +364,13 @@ private fun NewChatButton(onClick: () -> Unit) {
         Icon(
             imageVector = Icons.Outlined.Add,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = "Новый чат",
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold
         )
@@ -333,7 +386,8 @@ private fun SessionRow(
     timeLabel: String,
     onOpen: () -> Unit,
     onRename: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onTogglePin: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -357,6 +411,15 @@ private fun SessionRow(
                 .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (session.isPinned) {
+                Icon(
+                    imageVector = Icons.Outlined.PushPin,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
             Text(
                 text = session.title.ifBlank { "Без названия" },
                 color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -374,12 +437,45 @@ private fun SessionRow(
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1
             )
+            Spacer(modifier = Modifier.width(4.dp))
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = Modifier.size(20.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.MoreVert,
+                    contentDescription = "Действия с чатом",
+                    tint = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
 
         DropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false }
         ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = if (session.isPinned) "Открепить" else "Закрепить",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.PushPin,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onTogglePin()
+                }
+            )
             DropdownMenuItem(
                 text = { Text("Переименовать", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp) },
                 leadingIcon = {

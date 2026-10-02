@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,6 +63,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -109,6 +112,7 @@ import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
+import com.runner.app.tools.ToolDispatcher
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,10 +140,30 @@ fun ChatScreen(
     val listState = rememberLazyListState()
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
+    val storageStats by viewModel.storageStats.collectAsState()
 
-    LaunchedEffect(messages.size, streamingText, currentStatus) {
-        val target = messages.size + if (streamingText.isNotBlank()) 1 else 0
-        if (target > 0) listState.animateScrollToItem(target - 1)
+    LaunchedEffect(isEmptyChat) {
+        if (isEmptyChat) viewModel.refreshStorageStats()
+    }
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    var lastStreamingScrollPos by remember { mutableStateOf(0) }
+    LaunchedEffect(streamingText) {
+        if (streamingText.isNotEmpty()) {
+            val delta = streamingText.length - lastStreamingScrollPos
+            if (delta >= 40 || lastStreamingScrollPos == 0) {
+                lastStreamingScrollPos = streamingText.length
+                val target = messages.size
+                if (target >= 0) listState.scrollToItem(target)
+            }
+        } else {
+            lastStreamingScrollPos = 0
+        }
     }
 
     if (showModelPicker && pendingConfirmation == null) {
@@ -241,6 +265,7 @@ fun ChatScreen(
             if (isEmptyChat) {
                 EmptyChatState(
                     modifier = Modifier.weight(1f),
+                    storageStats = storageStats,
                     onSuggestion = { inputState.setText(it) }
                 )
             } else {
@@ -458,41 +483,69 @@ private fun ModelChip(
 
 
 /**
- * Компактный экран пустого чата с аккуратной сеткой 2×2 быстрых действий.
+ * Экран пустого чата: блок прижат к низу (ближе к пальцу и полю ввода),
+ * сверху — свободное пространство. Живой виджет хранилища задаёт контекст
+ * системной утилиты, сетка 2×2 — короткие сценарии с описаниями.
  */
 @Composable
 private fun EmptyChatState(
     modifier: Modifier = Modifier,
+    storageStats: ToolDispatcher.StorageStats?,
     onSuggestion: (String) -> Unit
 ) {
     val suggestions = listOf(
-        Triple(Icons.Outlined.Storage, "Сводка памяти", "Сделай сводку по памяти устройства"),
-        Triple(Icons.Outlined.FolderOpen, "Папка Download", "Покажи сводку по папке Download"),
-        Triple(Icons.Outlined.WarningAmber, "Найти мусор", "Найди временные и мусорные файлы"),
-        Triple(Icons.Outlined.Info, "Свободное место", "Сколько свободного место на устройстве?")
+        Suggestion(
+            Icons.Outlined.FolderOpen, "Папка Download",
+            "Разобрать архивы и свежие файлы",
+            "Разбери папку Download: архивы и свежие файлы"
+        ),
+        Suggestion(
+            Icons.Outlined.WarningAmber, "Найти мусор",
+            "Кэш, пустые папки и тяжелые логи",
+            "Найди мусор: кэш, пустые папки и тяжелые логи"
+        ),
+        Suggestion(
+            Icons.Outlined.VideoLibrary, "Тяжелые файлы",
+            "Видео и музыка от 50 МБ",
+            "Найди файлы тяжелее 50 МБ: видео и музыку"
+        ),
+        Suggestion(
+            Icons.Outlined.ContentPaste, "Буфер обмена",
+            "Прочитать текст или сохранить в файл",
+            "Прочитай буфер обмена"
+        )
     )
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.Center
+            .padding(horizontal = 20.dp)
+            .padding(top = 12.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.Bottom
     ) {
         Text(
-            text = "Runner",
+            text = "Чем помочь?",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 24.sp,
+            fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = (-0.5).sp
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Агент для работы с файлами, памятью и терминалом прямо на телефоне.",
+            text = "Агент для работы с файлами, памятью и терминалом.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.5.sp,
-            lineHeight = 20.sp
+            fontSize = 13.sp,
+            lineHeight = 18.sp
         )
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        StorageWidget(
+            stats = storageStats,
+            onClick = { onSuggestion("Сделай сводку по памяти устройства") }
+        )
+        if (storageStats?.totalBytes ?: 0L > 0L) {
+            Spacer(modifier = Modifier.height(10.dp))
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -500,15 +553,13 @@ private fun EmptyChatState(
         ) {
             SuggestionCard(
                 modifier = Modifier.weight(1f),
-                icon = suggestions[0].first,
-                title = suggestions[0].second,
-                onClick = { onSuggestion(suggestions[0].third) }
+                suggestion = suggestions[0],
+                onClick = { onSuggestion(suggestions[0].prompt) }
             )
             SuggestionCard(
                 modifier = Modifier.weight(1f),
-                icon = suggestions[1].first,
-                title = suggestions[1].second,
-                onClick = { onSuggestion(suggestions[1].third) }
+                suggestion = suggestions[1],
+                onClick = { onSuggestion(suggestions[1].prompt) }
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
@@ -518,50 +569,138 @@ private fun EmptyChatState(
         ) {
             SuggestionCard(
                 modifier = Modifier.weight(1f),
-                icon = suggestions[2].first,
-                title = suggestions[2].second,
-                onClick = { onSuggestion(suggestions[2].third) }
+                suggestion = suggestions[2],
+                onClick = { onSuggestion(suggestions[2].prompt) }
             )
             SuggestionCard(
                 modifier = Modifier.weight(1f),
-                icon = suggestions[3].first,
-                title = suggestions[3].second,
-                onClick = { onSuggestion(suggestions[3].third) }
+                suggestion = suggestions[3],
+                onClick = { onSuggestion(suggestions[3].prompt) }
             )
         }
+    }
+}
+
+private data class Suggestion(
+    val icon: ImageVector,
+    val title: String,
+    val description: String,
+    val prompt: String
+)
+
+/**
+ * Живой виджет хранилища: тонкий прогресс-бар и подпись
+ * «Занято X из Y (N%)». Тап по карточке запускает анализ памяти.
+ */
+@Composable
+private fun StorageWidget(
+    stats: ToolDispatcher.StorageStats?,
+    onClick: (() -> Unit)? = null
+) {
+    if (stats == null || stats.totalBytes <= 0L) return
+    val ratio = (stats.usedBytes.toFloat() / stats.totalBytes).coerceIn(0f, 1f)
+    val percent = (ratio * 100).toInt()
+    val barColor = when {
+        percent >= 90 -> MaterialTheme.colorScheme.error
+        percent >= 75 -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(12.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Хранилище устройства",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "$percent%",
+                color = barColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        LinearProgressIndicator(
+            progress = ratio,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp)),
+            color = barColor,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        )
+        Text(
+            text = "Занято ${ToolDispatcher.formatFileSize(stats.usedBytes)} " +
+                    "из ${ToolDispatcher.formatFileSize(stats.totalBytes)} ($percent%)",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+        )
     }
 }
 
 @Composable
 private fun SuggestionCard(
     modifier: Modifier = Modifier,
-    icon: ImageVector,
-    title: String,
+    suggestion: Suggestion,
     onClick: () -> Unit
 ) {
-    Column(
+    Row(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(12.dp))
             .bounceClick(onClick = onClick)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(12.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp)
-        )
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            lineHeight = 18.sp,
-            maxLines = 2
-        )
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = suggestion.icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = suggestion.title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 17.sp,
+                maxLines = 1
+            )
+            Text(
+                text = suggestion.description,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

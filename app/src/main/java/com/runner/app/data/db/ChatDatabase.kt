@@ -24,6 +24,8 @@ data class SessionEntity(
     val title: String,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Закреплённые висят в отдельной секции сверху, вне хронологии. */
+    val isPinned: Boolean = false,
     /**
      * Полный контекст диалога (JSON-массив сообщений OpenAI).
      * Хранится как есть, иначе после перезапуска нельзя восстановить
@@ -74,7 +76,7 @@ interface ChatDao {
     @Query("""
         SELECT s.* FROM sessions s
         WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
-        ORDER BY s.updatedAt DESC
+        ORDER BY s.isPinned DESC, s.updatedAt DESC
     """)
     fun observeSessions(): Flow<List<SessionEntity>>
 
@@ -82,7 +84,7 @@ interface ChatDao {
         SELECT s.* FROM sessions s
         WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
           AND s.title LIKE '%' || :query || '%'
-        ORDER BY s.updatedAt DESC
+        ORDER BY s.isPinned DESC, s.updatedAt DESC
     """)
     fun searchSessions(query: String): Flow<List<SessionEntity>>
 
@@ -113,6 +115,9 @@ interface ChatDao {
     @Query("UPDATE sessions SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateSessionTitle(id: String, title: String, updatedAt: Long)
 
+    @Query("UPDATE sessions SET isPinned = :pinned WHERE id = :id")
+    suspend fun setSessionPinned(id: String, pinned: Boolean)
+
     @Query("UPDATE sessions SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchSession(id: String, updatedAt: Long)
 
@@ -131,7 +136,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -159,6 +164,16 @@ abstract class ChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 → v3: закрепление чатов. Колонка NOT NULL с дефолтом —
+         * существующие сессии становятся незакреплёнными.
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): ChatDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -166,7 +181,7 @@ abstract class ChatDatabase : RoomDatabase() {
                     ChatDatabase::class.java,
                     "runner_chat.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

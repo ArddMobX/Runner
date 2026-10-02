@@ -1105,7 +1105,7 @@ object ToolDispatcher {
         return resolvePath(path.trim())
     }
 
-    private fun formatFileSize(bytes: Long): String {
+    fun formatFileSize(bytes: Long): String {
         if (bytes <= 0) return "0 B"
         val units = arrayOf("B", "KB", "MB", "GB", "TB")
         val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
@@ -1114,6 +1114,24 @@ object ToolDispatcher {
     }
 
     // --- Storage aggregators ---
+
+    /** Занято/всего по StatFs без сканирования: быстро, подходит для виджета. */
+    data class StorageStats(val usedBytes: Long, val totalBytes: Long)
+
+    fun getStorageStats(): StorageStats? {
+        return try {
+            val extDir = Environment.getExternalStorageDirectory()
+            val stat = StatFs(extDir.path)
+            val totalBytes = stat.blockCountLong * stat.blockSizeLong
+            val availableBytes = stat.availableBlocksLong * stat.blockSizeLong
+            StorageStats(
+                usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L),
+                totalBytes = totalBytes
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     fun getStorageSummary(): String {
         return try {

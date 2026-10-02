@@ -45,6 +45,10 @@ class ChatRepository(private val dao: ChatDao) {
         dao.updateSessionTitle(sessionId, title.take(MAX_TITLE_LENGTH), System.currentTimeMillis())
     }
 
+    suspend fun setSessionPinned(sessionId: String, pinned: Boolean) {
+        dao.setSessionPinned(sessionId, pinned)
+    }
+
     suspend fun deleteSession(sessionId: String) {
         dao.deleteSessionCascade(sessionId)
     }

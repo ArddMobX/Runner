@@ -77,6 +77,12 @@ fun AppNavigation(viewModel: MainViewModel) {
     val sessions by viewModel.sessions.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val sessionsQuery by viewModel.sessionsQuery.collectAsState()
+    val drawerProvider by viewModel.activeProvider.collectAsState()
+    val drawerFooter = if (drawerProvider != null && drawerProvider.apiKey.isNotBlank()) {
+        "${drawerProvider.name} · ${drawerProvider.activeModel.ifBlank { "модель не выбрана" }}"
+    } else {
+        "Провайдер не настроен"
+    }
 
     // Системный Back на экране настроек возвращает в чат, а не сворачивает приложение:
     // без обработчика backstack пуст и система считает экран единственным.
@@ -109,6 +115,11 @@ fun AppNavigation(viewModel: MainViewModel) {
                             viewModel.renameSession(sessionId, title)
                         },
                         onDeleteSession = { viewModel.deleteSession(it) },
+                        onTogglePinSession = { sessionId, pinned ->
+                            viewModel.togglePinSession(sessionId, pinned)
+                        },
+                        appVersion = viewModel.appVersion,
+                        footerLabel = drawerFooter,
                         onOpenSettings = {
                             scope.launch { drawerState.close() }
                             currentScreen = Screen.SETTINGS
