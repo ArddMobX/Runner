@@ -10,6 +10,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
@@ -105,13 +110,22 @@ fun AppNavigation(viewModel: MainViewModel) {
         )
     }
 
-    when (currentScreen) {
-        Screen.CHAT -> ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                ModalDrawerSheet(
-                    drawerContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    drawerTonalElevation = 6.dp,
+    // Плавная смена экранов. Только прозрачность: слайд вместе с ящиком
+    // и шторками даёт дёргание, а на плотном контенте кроссфейд незаметен
+    AnimatedContent(
+        targetState = currentScreen,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(150))
+        },
+        label = "screen_fade"
+    ) { screen ->
+        when (screen) {
+            Screen.CHAT -> ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    ModalDrawerSheet(
+                        drawerContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        drawerTonalElevation = 6.dp,
                     drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
                     modifier = Modifier
                         .width(310.dp)
@@ -161,11 +175,12 @@ fun AppNavigation(viewModel: MainViewModel) {
             )
         }
 
-        Screen.SETTINGS -> SettingsScreen(
-            viewModel = viewModel,
-            onBackClick = { currentScreen = Screen.CHAT },
-            onOpenStorageSettings = { openStorageSettings(context) }
-        )
+            Screen.SETTINGS -> SettingsScreen(
+                viewModel = viewModel,
+                onBackClick = { currentScreen = Screen.CHAT },
+                onOpenStorageSettings = { openStorageSettings(context) }
+            )
+        }
     }
 }
 

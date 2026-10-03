@@ -312,30 +312,39 @@ fun ChatScreen(
                                     }
                                 }
                             ) { item ->
-                                when (item) {
-                                    is ChatListItem.Single -> MessageItem(
-                                        message = item.message,
-                                        showToolDetails = appSettings.showToolDetails,
-                                        showStats = appSettings.showStats,
-                                        planAwaitingId = pendingPlan?.id,
-                                        onApprovePlan = { viewModel.resolvePlan(true) },
-                                        onRejectPlan = { viewModel.resolvePlan(false) },
-                                        onEditMessage = { inputState.setText(it) },
-                                        onRetryMessage = { viewModel.retryFromUserMessage(it) },
-                                        onOpenPreview = { previewSource = it },
-                                        onAction = { action ->
-                                            when (action) {
-                                                MessageAction.OPEN_SETTINGS -> onOpenSettings()
-                                                MessageAction.OPEN_MODELS -> showModelPicker = true
-                                                MessageAction.GRANT_STORAGE -> onOpenStorageSettings()
+                                // animateItemPlacement вместо мгновенного скачка:
+                                // когда выше появляется новая плашка, остальные
+                                // разъезжаются, а не прыгают на новое место
+                                Box(
+                                    modifier = Modifier.animateItemPlacement(
+                                        animationSpec = MotionTokens.fluidSpring()
+                                    )
+                                ) {
+                                    when (item) {
+                                        is ChatListItem.Single -> MessageItem(
+                                            message = item.message,
+                                            showToolDetails = appSettings.showToolDetails,
+                                            showStats = appSettings.showStats,
+                                            planAwaitingId = pendingPlan?.id,
+                                            onApprovePlan = { viewModel.resolvePlan(true) },
+                                            onRejectPlan = { viewModel.resolvePlan(false) },
+                                            onEditMessage = { inputState.setText(it) },
+                                            onRetryMessage = { viewModel.retryFromUserMessage(it) },
+                                            onOpenPreview = { previewSource = it },
+                                            onAction = { action ->
+                                                when (action) {
+                                                    MessageAction.OPEN_SETTINGS -> onOpenSettings()
+                                                    MessageAction.OPEN_MODELS -> showModelPicker = true
+                                                    MessageAction.GRANT_STORAGE -> onOpenStorageSettings()
+                                                }
                                             }
-                                        }
-                                    )
+                                        )
 
-                                    is ChatListItem.ToolGroup -> ToolGroupCard(
-                                        messages = item.messages,
-                                        onOpenPreview = { previewSource = it }
-                                    )
+                                        is ChatListItem.ToolGroup -> ToolGroupCard(
+                                            messages = item.messages,
+                                            onOpenPreview = { previewSource = it }
+                                        )
+                                    }
                                 }
                             }
 
@@ -622,7 +631,14 @@ private fun StorageWidget(
 ) {
     if (stats == null || stats.totalBytes <= 0L) return
     val ratio = (stats.usedBytes.toFloat() / stats.totalBytes).coerceIn(0f, 1f)
-    val percent = (ratio * 100).toInt()
+
+    // Полоса заливается плавно: при первом показе цифры прыгали с нуля
+    val animatedRatio by animateFloatAsState(
+        targetValue = ratio,
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        label = "storage_ratio"
+    )
+    val percent = (animatedRatio * 100).toInt()
     val barColor = when {
         percent >= 90 -> MaterialTheme.colorScheme.error
         percent >= 75 -> MaterialTheme.colorScheme.tertiary
@@ -656,7 +672,7 @@ private fun StorageWidget(
             )
         }
         LinearProgressIndicator(
-            progress = ratio,
+            progress = animatedRatio,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp)

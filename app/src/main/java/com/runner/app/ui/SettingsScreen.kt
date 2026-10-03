@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,9 +17,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,10 +54,6 @@ import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,9 +83,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1056,39 +1057,50 @@ private fun <T> SegmentedChips(
             val active = value == selected
             val enabled = isEnabled(value)
             val shape = RoundedCornerShape(9.dp)
+
+            // Перетекание цвета вместо рывка: переключатель читается как один
+            // контрол, а не как набор независимых кнопок
+            val background by animateColorAsState(
+                targetValue = when {
+                    !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f)
+                    active -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+                },
+                animationSpec = MotionTokens.fluidTween(200),
+                label = "segment_background"
+            )
+            val labelColor by animateColorAsState(
+                targetValue = when {
+                    !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                    active -> MaterialTheme.colorScheme.onPrimary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                animationSpec = MotionTokens.fluidTween(200),
+                label = "segment_label"
+            )
+            val borderColor by animateColorAsState(
+                targetValue = when {
+                    !enabled -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                    active -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                },
+                animationSpec = MotionTokens.fluidTween(200),
+                label = "segment_border"
+            )
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(shape)
-                    .background(
-                        when {
-                            !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f)
-                            active -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
-                        }
-                    )
-                    .border(
-                        BorderStroke(
-                            1.dp,
-                            when {
-                                !enabled -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                active -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                            }
-                        ),
-                        shape
-                    )
+                    .background(background)
+                    .border(BorderStroke(1.dp, borderColor), shape)
                     .clickable(enabled = enabled) { onSelect(value) }
                     .padding(vertical = 7.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = label,
-                    color = when {
-                        !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                        active -> MaterialTheme.colorScheme.onPrimary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    color = labelColor,
                     fontSize = 12.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1

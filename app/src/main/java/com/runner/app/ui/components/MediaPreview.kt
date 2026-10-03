@@ -3,6 +3,14 @@ package com.runner.app.ui.components
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.runner.app.ui.theme.MotionTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -162,17 +171,30 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
     val isActive = path != null && AudioPreviewPlayer.activePath == path
     val isPlaying = isActive && AudioPreviewPlayer.isPlaying
 
+    val background by animateColorAsState(
+        targetValue = if (isActive) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = MotionTokens.fluidTween(180),
+        label = "play_background"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = when {
+            !enabled || path == null -> MaterialTheme.colorScheme.outline
+            isActive -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = MotionTokens.fluidTween(180),
+        label = "play_tint"
+    )
+
     Box(
         modifier = Modifier
             .size(34.dp)
             .clip(CircleShape)
-            .background(
-                if (isActive) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHighest
-                }
-            )
+            .background(background)
             .clickable(enabled = enabled && path != null) {
                 if (path != null) {
                     AudioPreviewPlayer.toggle(path)
@@ -184,16 +206,25 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
             },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-            contentDescription = if (isPlaying) "Пауза" else "Воспроизвести",
-            tint = when {
-                !enabled || path == null -> MaterialTheme.colorScheme.outline
-                isActive -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
+        // Иконка меняется через масштаб, а не подменой: глаз успевает
+        // заметить, что состояние переключилось
+        AnimatedContent(
+            targetState = isPlaying,
+            transitionSpec = {
+                (scaleIn(initialScale = 0.7f, animationSpec = MotionTokens.fluidSpring()) +
+                        fadeIn(animationSpec = tween(140))) togetherWith
+                        (scaleOut(targetScale = 0.7f, animationSpec = tween(110)) +
+                                fadeOut(animationSpec = tween(110)))
             },
-            modifier = Modifier.size(18.dp)
-        )
+            label = "play_pause_icon"
+        ) { playing ->
+            Icon(
+                imageVector = if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                contentDescription = if (playing) "Пауза" else "Воспроизвести",
+                tint = iconTint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
