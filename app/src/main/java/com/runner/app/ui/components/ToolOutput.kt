@@ -21,7 +21,8 @@ import androidx.compose.ui.unit.sp
 data class FileEntry(
     val name: String,
     val folder: String?,
-    val size: String?
+    val size: String?,
+    val isDirectory: Boolean = false
 )
 
 /**

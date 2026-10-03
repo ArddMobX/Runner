@@ -104,9 +104,14 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
+import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.ToolOutputView
+import com.runner.app.ui.components.WebPreviewDialog
+import com.runner.app.ui.components.WebPreviewSource
+import com.runner.app.ui.components.findWebPreviewInMarkdown
+import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
@@ -139,6 +144,9 @@ fun ChatScreen(
     val inputState = rememberChatInputState()
     var showModelPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    // Живое превью HTML/SVG: источник появляется из ответа модели или из write_file
+    var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
     val storageStats by viewModel.storageStats.collectAsState()
@@ -201,6 +209,13 @@ fun ChatScreen(
                 viewModel.dismissStoragePrompt()
             },
             onLater = { viewModel.dismissStoragePrompt() }
+        )
+    }
+
+    previewSource?.let { source ->
+        WebPreviewDialog(
+            source = source,
+            onDismiss = { previewSource = null }
         )
     }
 
@@ -290,6 +305,7 @@ fun ChatScreen(
                                         planAwaitingId = pendingPlan?.id,
                                         onApprovePlan = { viewModel.resolvePlan(true) },
                                         onRejectPlan = { viewModel.resolvePlan(false) },
+                                        onOpenPreview = { previewSource = it },
                                         onAction = { action ->
                                             when (action) {
                                                 MessageAction.OPEN_SETTINGS -> onOpenSettings()
@@ -299,7 +315,10 @@ fun ChatScreen(
                                         }
                                     )
 
-                                    is ChatListItem.ToolGroup -> ToolGroupCard(messages = item.messages)
+                                    is ChatListItem.ToolGroup -> ToolGroupCard(
+                                        messages = item.messages,
+                                        onOpenPreview = { previewSource = it }
+                                    )
                                 }
                             }
 
@@ -687,6 +706,7 @@ private fun MessageItem(
     planAwaitingId: String?,
     onApprovePlan: () -> Unit,
     onRejectPlan: () -> Unit,
+    onOpenPreview: (WebPreviewSource) -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
@@ -726,6 +746,18 @@ private fun MessageItem(
 
                 MarkdownView(text = message.content)
 
+                // Если в ответе есть готовая HTML/SVG-разметка — показываем её живьём
+                val preview = remember(message.content) {
+                    findWebPreviewInMarkdown(message.content)
+                }
+                if (preview != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PreviewButton(
+                        label = "Открыть превью ${preview.title}",
+                        onClick = { onOpenPreview(preview) }
+                    )
+                }
+
                 if (showStats) {
                     ResponseStats(message)
                 }
@@ -735,7 +767,8 @@ private fun MessageItem(
         MessageRole.TOOL_EXECUTION -> ToolCard(
             message = message,
             showDetails = showToolDetails,
-            showStats = showStats
+            showStats = showStats,
+            onOpenPreview = onOpenPreview
         )
 
         MessageRole.PLAN -> PlanCard(
@@ -1073,7 +1106,10 @@ private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
  * Внутри — заголовок и вывод каждого вызова, стиль как у лёгкой тул-плашки.
  */
 @Composable
-private fun ToolGroupCard(messages: List<ChatMessage>) {
+private fun ToolGroupCard(
+    messages: List<ChatMessage>,
+    onOpenPreview: (WebPreviewSource) -> Unit
+) {
     var expanded by remember(messages.first().id) { mutableStateOf(false) }
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -1160,6 +1196,20 @@ private fun ToolGroupCard(messages: List<ChatMessage>) {
                         Spacer(modifier = Modifier.height(3.dp))
                         ToolOutputView(output = m.toolOutput)
                     }
+                    val preview = remember(m.toolArgs, m.toolOutput) {
+                        findWebPreviewInToolCall(
+                            toolName = m.toolName.orEmpty(),
+                            args = m.toolArgs,
+                            output = m.toolOutput
+                        )
+                    }
+                    if (preview != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        PreviewButton(
+                            label = "Открыть превью ${preview.title}",
+                            onClick = { onOpenPreview(preview) }
+                        )
+                    }
                 }
             }
         }
@@ -1171,7 +1221,12 @@ private fun ToolGroupCard(messages: List<ChatMessage>) {
  * Технические детали — только по нажатию.
  */
 @Composable
-private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Boolean) {
+private fun ToolCard(
+    message: ChatMessage,
+    showDetails: Boolean,
+    showStats: Boolean,
+    onOpenPreview: (WebPreviewSource) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val rotation by animateFloatAsState(
@@ -1309,6 +1364,23 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                     Spacer(modifier = Modifier.height(3.dp))
                     ToolOutputView(output = message.toolOutput)
                 }
+            }
+
+            // Превью показываем и в свёрнутой карточке: агент только что создал
+            // страницу, и лишний тап для её открытия ни к чему
+            val preview = remember(message.toolArgs, message.toolOutput) {
+                findWebPreviewInToolCall(
+                    toolName = message.toolName.orEmpty(),
+                    args = message.toolArgs,
+                    output = message.toolOutput
+                )
+            }
+            if (preview != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                PreviewButton(
+                    label = "Открыть превью ${preview.title}",
+                    onClick = { onOpenPreview(preview) }
+                )
             }
         }
     }
