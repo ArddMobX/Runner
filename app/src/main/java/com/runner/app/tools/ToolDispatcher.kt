@@ -1012,9 +1012,11 @@ object ToolDispatcher {
 
         return buildString {
             append("resolved_path: ${dir.absolutePath}\n")
-            append("Сводка по папке '${dir.absolutePath}':\n")
+            // Явно указываем охват: search_files ходит рекурсивно, и без этой пометки
+            // модель подавала «12 картинок» и «найдено 13» как одно и то же число.
+            append("Сводка по папке '${dir.absolutePath}' (только файлы верхнего уровня, вложенные папки не считаются):\n")
             append("Всего файлов: $totalFiles, подпапок: $totalDirs.\n")
-            append("Категории: Документы: $docsCount, Картинки: $imagesCount, Архивы: $archivesCount, APK: $apksCount, Другое: $othersCount.")
+            append("Категории (верхний уровень): Документы: $docsCount, Картинки: $imagesCount, Архивы: $archivesCount, APK: $apksCount, Другое: $othersCount.")
             append(heaviestSection)
         }
     }

@@ -167,20 +167,34 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                 }
             }
 
-            // Code content
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(12.dp)
-            ) {
-                Text(
-                    text = element.code,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+            // Список файлов рендерим строками, а не блоком кода с горизонтальной
+            // прокруткой: в прокрутке длинный путь обрезается по правому краю,
+            // и в списке остаются одинаковые строки без имён файлов.
+            val isFileList = remember(element.code) { looksLikeFileList(element.code) }
+
+            if (isFileList) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    ToolOutputView(output = element.code)
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = element.code,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
     }
