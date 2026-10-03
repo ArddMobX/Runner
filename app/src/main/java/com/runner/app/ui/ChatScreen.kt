@@ -130,8 +130,7 @@ import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
 
-@OptIn(ExperimentalMaterial3Api::class)
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     viewModel: MainViewModel,
