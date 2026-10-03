@@ -309,7 +309,7 @@ private fun SettingsRoot(
                     )
                     Text(
                         text = "Показывать аргументы и вывод тулов",
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.5.sp
                     )
                 }
@@ -338,7 +338,7 @@ private fun SettingsRoot(
                     )
                     Text(
                         text = "Тайминги, токены и скорость ответа",
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.5.sp
                     )
                 }
@@ -367,7 +367,7 @@ private fun SettingsRoot(
                     )
                     Text(
                         text = "Модель сначала составляет план, исполнение - после подтверждения",
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.5.sp
                     )
                 }
@@ -416,7 +416,7 @@ private fun SettingsRoot(
                                 if (proxyUrl.isEmpty()) {
                                     Text(
                                         text = "https://my-proxy.workers.dev/v1",
-                                        color = MaterialTheme.colorScheme.outline,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 13.sp
                                     )
                                 }
@@ -482,7 +482,7 @@ private fun SettingsRoot(
                 )
                 Text(
                     text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -518,7 +518,7 @@ private fun SettingsRoot(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Время на установку сетевого соединения с сервером",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -554,7 +554,7 @@ private fun SettingsRoot(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Ожидание ответа и генерации токенов моделью",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -586,7 +586,7 @@ private fun SettingsRoot(
                         )
                         Text(
                             text = "Cloudflare Access, X-Api-Key, кастомный auth",
-                            color = MaterialTheme.colorScheme.outline,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.5.sp
                         )
                     }
@@ -640,7 +640,8 @@ private fun SettingsRoot(
                         )
                         .padding(12.dp),
                     textStyle = TextStyle(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // Свой текст ярче подсказки: это содержимое, а не подпись
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         lineHeight = 16.sp
@@ -653,7 +654,7 @@ private fun SettingsRoot(
                             if (customHeaders.isEmpty()) {
                                 Text(
                                     text = "CF-Access-Client-Id: xxx\nCF-Access-Client-Secret: yyy\nX-Custom-Auth: zzz",
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     lineHeight = 16.sp
@@ -666,7 +667,7 @@ private fun SettingsRoot(
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Формат: Header: Value (по одной строке) или JSON объект.",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
             }
@@ -743,7 +744,7 @@ private fun ProvidersList(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = formatModelName(provider.activeModel),
-                            color = MaterialTheme.colorScheme.outline,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.5.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -778,7 +779,7 @@ private fun ProvidersList(
                         ) {
                             Text(
                                 text = "Не настроен",
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp
                             )
                         }
@@ -794,18 +795,28 @@ private fun ProvidersList(
             }
         }
 
+        // Кнопка в стиле карточек списка: та же ширина, фон и рамка.
+        // Голая строка без фона терялась в пустоте под списком.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(50.dp)
                 .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .border(
+                    BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                    ),
+                    RoundedCornerShape(12.dp)
+                )
                 .clickable {
                     val id = "custom_${System.currentTimeMillis()}"
                     viewModel.saveProvider(
                         Provider(id = id, name = "Новый провайдер", baseUrl = "")
                     )
                     onEdit(id)
-                }
-                .padding(vertical = 12.dp),
+                },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -813,10 +824,15 @@ private fun ProvidersList(
                 imageVector = Icons.Outlined.Add,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(17.dp)
+                modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "Добавить провайдера", color = MaterialTheme.colorScheme.primary, fontSize = 13.5.sp)
+            Text(
+                text = "Добавить провайдера",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -841,23 +857,30 @@ private fun AgentSettings(viewModel: MainViewModel) {
             SettingsDivider()
 
             Column(modifier = Modifier.padding(14.dp)) {
-                SliderHeader(
-                    title = "Температура",
-                    badge = String.format(Locale.US, "%.1f", appSettings.temperature)
+                Text(
+                    text = "Температура",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                MinimalSlider(
+                SettingSlider(
                     value = appSettings.temperature,
                     onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(temperature = it))
+                        // Округляем до десятых: 0.1 в float даёт хвост вида 0.30000000000000004
+                        viewModel.updateSettings(
+                            appSettings.copy(temperature = (it * 10).roundToInt() / 10f)
+                        )
                     },
                     valueRange = AppSettings.TEMPERATURE_RANGE,
-                    steps = 14
+                    steps = 14,
+                    valueLabel = { String.format(Locale.US, "%.1f", it) },
+                    endDecimals = 1
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Ниже - предсказуемее, выше - креативнее.",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
             }
@@ -865,22 +888,29 @@ private fun AgentSettings(viewModel: MainViewModel) {
             SettingsDivider()
 
             Column(modifier = Modifier.padding(14.dp)) {
-                SliderHeader(
-                    title = "Лимит шагов",
-                    badge = "${appSettings.maxSteps}"
+                Text(
+                    text = "Лимит шагов",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                DiscreteStepsSlider(
-                    value = appSettings.maxSteps,
+                SettingSlider(
+                    value = appSettings.maxSteps.toFloat(),
                     onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(maxSteps = it))
+                        viewModel.updateSettings(appSettings.copy(maxSteps = it.roundToInt()))
                     },
-                    range = AppSettings.STEPS_RANGE
+                    valueRange = AppSettings.STEPS_RANGE.first.toFloat()..
+                            AppSettings.STEPS_RANGE.last.toFloat(),
+                    // 12 значений = 11 интервалов, в терминах слайдера это steps = 10
+                    steps = AppSettings.STEPS_RANGE.last - AppSettings.STEPS_RANGE.first - 1,
+                    valueLabel = { PluralUtils.steps(it.roundToInt()) },
+                    endDecimals = 0
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Сколько раз модель может вызвать инструменты в одной задаче (хватает на scan → unpack → sort).",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
             }
@@ -905,7 +935,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
                         } else {
                             "Только опасные действия"
                         },
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.5.sp
                     )
                 }
@@ -920,7 +950,7 @@ private fun AgentSettings(viewModel: MainViewModel) {
             if (appSettings.confirmEveryStep) {
                 Text(
                     text = "Безопасные чтение и поиск тоже будут ждать подтверждения.",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
@@ -994,7 +1024,7 @@ private fun UserInstructionsField(
                     if (instructions.isEmpty()) {
                         Text(
                             text = "Задайте стиль общения, язык или дополнительные правила поведения агента...",
-                            color = MaterialTheme.colorScheme.outline,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             lineHeight = 19.sp
                         )
@@ -1006,202 +1036,57 @@ private fun UserInstructionsField(
     }
 }
 
-@Composable
-private fun SliderHeader(title: String, badge: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    RoundedCornerShape(6.dp)
-                )
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = badge,
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
 /**
- * Компактный сегментный переключатель в духе Filter Chips: равные сегменты
- * (~30dp высотой вместо ~40dp у старого контейнера), выбранный — тональная
- * заливка, остальные — контурные. Один стиль на все пресеты настроек.
+ * Единый слайдер настроек: трек 3dp с засечками по шагам, бегунок 14dp
+ * с кольцом цвета фона, снизу — границы диапазона и текущее значение по центру.
+ *
+ * Раньше температура и лимит шагов выглядели по-разному (гладкая полоска против
+ * засечек, значение сбоку против подписи снизу), хотя это один и тот же контрол.
  */
 @Composable
-private fun <T> SegmentedChips(
-    options: List<Pair<T, String>>,
-    selected: T,
-    onSelect: (T) -> Unit,
-    isEnabled: (T) -> Boolean = { true }
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        options.forEach { (value, label) ->
-            val active = value == selected
-            val enabled = isEnabled(value)
-            val shape = RoundedCornerShape(9.dp)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(shape)
-                    .background(
-                        when {
-                            active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
-                        }
-                    )
-                    .border(
-                        BorderStroke(
-                            1.dp,
-                            when {
-                                active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                            }
-                        ),
-                        shape
-                    )
-                    .clickable(enabled = enabled) { onSelect(value) }
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    color = when {
-                        !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                        active -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-/**
- * Минималистичный слайдер: трек 2dp и бегунок 12dp вместо громоздкого M3-ползунка.
- * Тап и протяжка обрабатываются одним жестом, чтобы не конфликтовали.
- */
-@Composable
-private fun MinimalSlider(
+private fun SettingSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int = 0
+    steps: Int,
+    valueLabel: (Float) -> String,
+    endDecimals: Int = 0
 ) {
     val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
+    val intervals = (steps + 1).coerceAtLeast(1)
+    val stepSize = span / intervals
     val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
-    val thumbSize = 12.dp
+    val thumbSize = 14.dp
 
     fun snap(raw: Float): Float {
         val clamped = raw.coerceIn(valueRange.start, valueRange.endInclusive)
-        if (steps <= 0) return clamped
-        val step = span / (steps + 1)
-        val snapped = valueRange.start + Math.round((clamped - valueRange.start) / step) * step
+        val snapped = valueRange.start +
+                Math.round((clamped - valueRange.start) / stepSize) * stepSize
         return snapped.coerceIn(valueRange.start, valueRange.endInclusive)
     }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(30.dp)
-            .pointerInput(valueRange, steps) {
-                val trackWidth = size.width.toFloat().coerceAtLeast(1f)
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    onValueChange(snap(valueRange.start + (down.position.x / trackWidth) * span))
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull() ?: break
-                        if (!change.pressed) break
-                        onValueChange(
-                            snap(valueRange.start + (change.position.x / trackWidth) * span)
-                        )
-                        change.consume()
-                    }
-                }
-            },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-        )
-
-        Box(
-            modifier = Modifier
-                .width((maxWidth - thumbSize) * fraction + thumbSize / 2)
-                .height(2.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-        )
-
-        Box(
-            modifier = Modifier
-                .offset(x = (maxWidth - thumbSize) * fraction)
-                .size(thumbSize)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-        )
-    }
-}
-
-/**
- * Дискретный слайдер для лимита шагов:
- * - С засечками (делениями) на шкале под каждый целый шаг.
- * - Принудительно целые значения с плавной привязкой (snap).
- * - Текущее число и диапазон выводятся прямо под шкалой.
- */
-@Composable
-private fun DiscreteStepsSlider(
-    value: Int,
-    onValueChange: (Int) -> Unit,
-    range: IntRange = AppSettings.STEPS_RANGE
-) {
-    val totalSteps = (range.last - range.first).coerceAtLeast(1)
-    val fraction = ((value - range.first).toFloat() / totalSteps).coerceIn(0f, 1f)
-    val thumbSize = 14.dp
+    fun formatEnd(edge: Float): String =
+        String.format(Locale.US, "%.${endDecimals}f", edge)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(30.dp)
-                .pointerInput(range) {
+                .pointerInput(valueRange, steps) {
                     val trackWidth = size.width.toFloat().coerceAtLeast(1f)
                     awaitEachGesture {
                         val down = awaitFirstDown()
-                        val rawRatio = (down.position.x / trackWidth).coerceIn(0f, 1f)
-                        val stepVal = (range.first + (rawRatio * totalSteps).roundToInt()).coerceIn(range.first, range.last)
-                        onValueChange(stepVal)
+                        onValueChange(
+                            snap(valueRange.start + (down.position.x / trackWidth) * span)
+                        )
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: break
                             if (!change.pressed) break
-                            val dragRatio = (change.position.x / trackWidth).coerceIn(0f, 1f)
-                            val dragVal = (range.first + (dragRatio * totalSteps).roundToInt()).coerceIn(range.first, range.last)
-                            onValueChange(dragVal)
+                            onValueChange(
+                                snap(valueRange.start + (change.position.x / trackWidth) * span)
+                            )
                             change.consume()
                         }
                     }
@@ -1210,7 +1095,6 @@ private fun DiscreteStepsSlider(
         ) {
             val availableWidth = maxWidth - thumbSize
 
-            // Базовый трек
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1219,7 +1103,6 @@ private fun DiscreteStepsSlider(
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             )
 
-            // Активный трек
             Box(
                 modifier = Modifier
                     .width(availableWidth * fraction + thumbSize / 2)
@@ -1228,24 +1111,26 @@ private fun DiscreteStepsSlider(
                     .background(MaterialTheme.colorScheme.primary)
             )
 
-            // Деления (tick marks) по всей длине трека
-            for (step in range) {
-                val stepFraction = (step - range.first).toFloat() / totalSteps
-                val isPassed = step <= value
-                val isMajor = step % 5 == 0 || step == range.first || step == range.last
+            // Засечки по каждому шагу: короткие обычные, длинные — каждые пять
+            for (index in 0..intervals) {
+                val tickFraction = index.toFloat() / intervals
+                val isPassed = tickFraction <= fraction + 0.001f
+                val isMajor = index == 0 || index == intervals || index % 5 == 0
                 Box(
                     modifier = Modifier
-                        .offset(x = availableWidth * stepFraction + (thumbSize - 2.dp) / 2)
+                        .offset(x = availableWidth * tickFraction + (thumbSize - 2.dp) / 2)
                         .size(width = 2.dp, height = if (isMajor) 9.dp else 5.dp)
                         .clip(RoundedCornerShape(1.dp))
                         .background(
-                            if (isPassed) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            if (isPassed) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            }
                         )
                 )
             }
 
-            // Бегунок (Thumb)
             Box(
                 modifier = Modifier
                     .offset(x = availableWidth * fraction)
@@ -1256,7 +1141,6 @@ private fun DiscreteStepsSlider(
             )
         }
 
-        // Подписи диапазона и текущее число рядом
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1265,20 +1149,20 @@ private fun DiscreteStepsSlider(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${range.first}",
-                color = MaterialTheme.colorScheme.outline,
+                text = formatEnd(valueRange.start),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )
             Text(
-                text = PluralUtils.steps(value),
+                text = valueLabel(value),
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "${range.last}",
-                color = MaterialTheme.colorScheme.outline,
+                text = formatEnd(valueRange.endInclusive),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )
@@ -1606,7 +1490,7 @@ private fun ConnectionStatusWidget(
                 if (!isTesting && result == null) {
                     Text(
                         text = "Нажмите, чтобы запустить тест пинга",
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp
                     )
                 }
@@ -1704,7 +1588,7 @@ private fun ThemeSettingsContent(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "«Обои» недоступны: требуется Android 12+",
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.5.sp
             )
         }
@@ -1797,7 +1681,7 @@ private fun ThemeSettingsContent(
             )
             Text(
                 text = "В тёмной теме чистый чёрный фон (#000000)",
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.5.sp
             )
         }

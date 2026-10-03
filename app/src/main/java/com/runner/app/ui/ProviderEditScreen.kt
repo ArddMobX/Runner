@@ -216,7 +216,7 @@ fun ProviderEditScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
-                        Text("https://api.groq.com/openai/v1", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
+                        Text("https://api.groq.com/openai/v1", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -242,7 +242,7 @@ fun ProviderEditScreen(
                             provider.id.contains("openai", ignoreCase = true) -> "sk-..."
                             else -> "Введите API-ключ..."
                         }
-                        Text(keyPlaceholder, color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
+                        Text(keyPlaceholder, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     },
                     singleLine = true,
                     visualTransformation = if (keyVisible) {
@@ -270,7 +270,7 @@ fun ProviderEditScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Ключ шифруется ключом Android Keystore и наружу не уходит.",
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     lineHeight = 15.sp
                 )
@@ -357,7 +357,7 @@ fun ProviderEditScreen(
                         )
                         Text(
                             text = "${PluralUtils.models(provider.models.size)} в списке",
-                            color = MaterialTheme.colorScheme.outline,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.5.sp
                         )
                     }
@@ -395,7 +395,7 @@ fun ProviderEditScreen(
                             "Список пуст. Модели подтянутся сами после ввода ключа, " +
                                     "либо нажми обновление."
                         },
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
@@ -432,7 +432,7 @@ fun ProviderEditScreen(
                                             Spacer(modifier = Modifier.height(1.dp))
                                             Text(
                                                 text = model.id,
-                                                color = MaterialTheme.colorScheme.outline,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 10.5.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 maxLines = 1,
