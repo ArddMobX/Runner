@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -33,27 +34,29 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -61,6 +64,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -79,6 +84,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -103,7 +109,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.DisposableEffect
+import com.runner.app.tools.ToolDispatcher
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
@@ -122,7 +128,6 @@ import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
-import com.runner.app.tools.ToolDispatcher
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,7 +211,7 @@ fun ChatScreen(
     pendingConfirmation?.let { request ->
         ConfirmationBottomSheet(
             request = request,
-            onConfirm = { viewModel.resolveConfirmation(true) },
+            onConfirm = { selected -> viewModel.resolveConfirmation(true, selected) },
             onReject = { viewModel.resolveConfirmation(false) }
         )
     }
@@ -1665,10 +1670,17 @@ private fun StoragePromptSheet(
 @Composable
 private fun ConfirmationBottomSheet(
     request: ConfirmationRequest,
-    onConfirm: () -> Unit,
+    onConfirm: (Set<String>?) -> Unit,
     onReject: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Список объектов с галочками: по умолчанию отмечено всё
+    var selectedIds by remember(request.id) {
+        mutableStateOf(request.items.map { it.id }.toSet())
+    }
+    val hasItems = request.items.isNotEmpty()
+    val allSelected = !hasItems || selectedIds.size == request.items.size
 
     ModalBottomSheet(
         onDismissRequest = onReject,
@@ -1761,6 +1773,91 @@ private fun ConfirmationBottomSheet(
                 )
             }
 
+            // Список с галочками: пользователь снимает то, что удалять не нужно
+            if (hasItems) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Что удалить",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "${selectedIds.size} из ${request.items.size}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 260.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        request.items.forEach { item ->
+                            val checked = item.id in selectedIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedIds = if (checked) {
+                                            selectedIds - item.id
+                                        } else {
+                                            selectedIds + item.id
+                                        }
+                                    }
+                                    .padding(end = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { isChecked ->
+                                        selectedIds = if (isChecked) {
+                                            selectedIds + item.id
+                                        } else {
+                                            selectedIds - item.id
+                                        }
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = MaterialTheme.colorScheme.primary,
+                                        checkmarkColor = MaterialTheme.colorScheme.onPrimary,
+                                        uncheckedColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.label,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (item.detail.isNotBlank()) {
+                                        Text(
+                                            text = item.detail,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = onReject,
@@ -1778,17 +1875,28 @@ private fun ConfirmationBottomSheet(
                 }
 
                 Button(
-                    onClick = onConfirm,
+                    onClick = { onConfirm(if (hasItems) selectedIds else null) },
+                    enabled = !hasItems || selectedIds.isNotEmpty(),
                     modifier = Modifier
                         .weight(1f)
                         .height(44.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        disabledContentColor = MaterialTheme.colorScheme.outline
                     ),
                     shape = RoundedCornerShape(11.dp)
                 ) {
-                    Text("Разрешить", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = when {
+                            !hasItems -> "Разрешить"
+                            allSelected -> "Удалить все"
+                            else -> "Удалить ${PluralUtils.files(selectedIds.size)}"
+                        },
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }

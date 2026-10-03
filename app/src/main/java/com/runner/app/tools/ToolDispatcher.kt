@@ -1429,12 +1429,27 @@ object ToolDispatcher {
 
     // --- HITL Metadata ---
 
+    /**
+     * Объект операции, который пользователь может снять галочкой.
+     * id — абсолютный путь: по нему потом удаляем выбранное.
+     */
+    data class ActionItem(
+        val id: String,
+        val label: String,
+        val detail: String = ""
+    )
+
     data class CriticalActionInfo(
         val title: String,
         val details: String,
         val warning: String,
         /** Факты о цели операции: размер, количество файлов. Может быть пустым. */
-        val preview: String = ""
+        val preview: String = "",
+        /**
+         * Для операций над набором файлов: что именно попадёт под нож.
+         * Пустой список означает, что дробить нечего и подтверждаем целиком.
+         */
+        val items: List<ActionItem> = emptyList()
     )
 
     /** Операции, которые меняют данные на устройстве. Всегда требуют подтверждения. */
@@ -1461,11 +1476,22 @@ object ToolDispatcher {
             "delete_file" -> {
                 val path = args.optString("path", "").trim()
                 val recursive = args.optBoolean("recursive", false)
+                val target = try {
+                    resolvePath(path)
+                } catch (e: Exception) {
+                    null
+                }
+                val items = if (target != null && target.isDirectory) {
+                    collectActionItems(target)
+                } else {
+                    emptyList()
+                }
                 CriticalActionInfo(
                     title = "Удаление данных",
                     details = "Объект: $path${if (recursive) " (рекурсивно, включая вложенные файлы)" else ""}",
                     warning = "Удалённые файлы не попадают в корзину, восстановить не получится.",
-                    preview = previewForPath(path)
+                    preview = previewForPath(path),
+                    items = items
                 )
             }
             "write_file" -> {
@@ -1642,6 +1668,88 @@ object ToolDispatcher {
         if (file.isFile) formatFileSize(file.length()) else null
     } catch (e: Exception) {
         null
+    }
+
+    /**
+     * Файлы внутри папки для списка с галочками. Обход ограничен, чтобы диалог
+     * не строился минуту на гигантской папке.
+     *
+     * Если файлов больше лимита, возвращаем пустой список: выбирать по галочкам
+     * из сотни пунктов бессмысленно, а кнопка «удалить все» удалила бы больше,
+     * чем показано. В этом случае пользователь подтверждает операцию целиком.
+     */
+    private fun collectActionItems(root: File, limit: Int = 60): List<ActionItem> {
+        val items = mutableListOf<ActionItem>()
+        val stack = ArrayDeque<File>()
+        stack.addLast(root)
+
+        while (stack.isNotEmpty() && items.size <= limit) {
+            val directory = stack.removeLast()
+            val children = directory.listFiles() ?: continue
+            for (child in children.sortedBy { it.name }) {
+                if (items.size > limit) break
+                if (child.isDirectory) {
+                    stack.addLast(child)
+                } else {
+                    items.add(
+                        ActionItem(
+                            id = child.absolutePath,
+                            label = child.name,
+                            detail = formatFileSize(child.length())
+                        )
+                    )
+                }
+            }
+        }
+        return if (items.size > limit) emptyList() else items
+    }
+
+    /**
+     * Удаляет только отмеченные файлы. Папки не трогаем: галочки снимают
+     * именно для того, чтобы часть содержимого осталась на месте.
+     */
+    fun deleteSelectedFiles(paths: List<String>): String {
+        if (paths.isEmpty()) return "Ничего не отмечено, удалять нечего."
+
+        val deleted = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+        val root = try {
+            Environment.getExternalStorageDirectory().canonicalPath
+        } catch (e: Exception) {
+            ""
+        }
+
+        for (raw in paths) {
+            val file = try {
+                resolvePath(raw)
+            } catch (e: Exception) {
+                failed.add(raw)
+                continue
+            }
+            val canonical = try {
+                file.canonicalPath
+            } catch (e: Exception) {
+                failed.add(raw)
+                continue
+            }
+            // Корень и папки не удаляем: список приходит только из файлов,
+            // но защита от подмены лишней не бывает
+            if (canonical == root || file.isDirectory) {
+                failed.add(file.name)
+                continue
+            }
+            if (!file.exists()) continue
+            if (file.delete()) deleted.add(file.name) else failed.add(file.name)
+        }
+
+        return buildString {
+            append("Удалено файлов: ${deleted.size} из ${paths.size}.\n")
+            deleted.take(20).forEach { append("  • $it\n") }
+            if (failed.isNotEmpty()) {
+                append("Не удалось удалить (${failed.size}): ${failed.take(10).joinToString(", ")}\n")
+            }
+            append("Папки не удалялись, поэтому пустые каталоги могли остаться.")
+        }
     }
 
     private fun previewForDownloads(category: String): String {

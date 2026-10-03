@@ -59,6 +59,16 @@ enum class MessageAction {
     GRANT_STORAGE
 }
 
+/**
+ * Решение пользователя по опасной операции.
+ * selectedIds заполняется только для операций со списком объектов:
+ * null означает «подтверждено целиком».
+ */
+data class ConfirmationDecision(
+    val approved: Boolean,
+    val selectedIds: Set<String>? = null
+)
+
 data class ConfirmationRequest(
     val id: String = UUID.randomUUID().toString(),
     val toolName: String,
@@ -66,7 +76,9 @@ data class ConfirmationRequest(
     val details: String,
     val warning: String,
     val preview: String = "",
-    val onDecision: (Boolean) -> Unit
+    /** Файлы, которые можно снять галочкой. Пусто — дробить нечего. */
+    val items: List<ToolDispatcher.ActionItem> = emptyList(),
+    val onDecision: (ConfirmationDecision) -> Unit
 )
 
 data class ConnectionTestState(
@@ -612,10 +624,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Агент ---
 
-    fun resolveConfirmation(confirmed: Boolean) {
+    fun resolveConfirmation(confirmed: Boolean, selectedIds: Set<String>? = null) {
         val current = _pendingConfirmation.value
         _pendingConfirmation.value = null
-        current?.onDecision?.invoke(confirmed)
+        current?.onDecision?.invoke(ConfirmationDecision(confirmed, selectedIds))
     }
 
     /** Решение пользователя по плану шагов. */
@@ -1090,6 +1102,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.saveMessage(updated.toEntity(sessionId))
     }
 
+    /**
+     * Выполняет подтверждённую операцию. Если это удаление папки и пользователь
+     * снял часть галочек, удаляем только выбранные файлы, а саму папку не трогаем.
+     */
+    private fun runConfirmedOperation(
+        call: ToolCall,
+        info: ToolDispatcher.CriticalActionInfo,
+        decision: ConfirmationDecision
+    ): String {
+        val cleanName = call.name.substringAfterLast(":")
+        val allIds = info.items.map { it.id }
+        val selected = decision.selectedIds
+
+        if (cleanName == "delete_file" &&
+            allIds.isNotEmpty() &&
+            selected != null &&
+            selected.size < allIds.size
+        ) {
+            return ToolDispatcher.deleteSelectedFiles(allIds.filter { it in selected })
+        }
+        return ToolDispatcher.execute(call.name, call.arguments, getApplication())
+    }
+
     private suspend fun executeToolCall(sessionId: String, call: ToolCall) {
         val title = ToolDispatcher.actionTitle(call.name, call.arguments)
         _currentStatus.value = title
@@ -1119,29 +1154,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
 
-            val approved = suspendCancellableCoroutine { continuation ->
+            val decision = suspendCancellableCoroutine { continuation ->
                 _pendingConfirmation.value = ConfirmationRequest(
                     toolName = call.name,
                     title = info.title,
                     details = info.details,
                     warning = info.warning,
                     preview = info.preview,
-                    onDecision = { decision ->
-                        if (continuation.isActive) continuation.resume(decision)
+                    items = info.items,
+                    onDecision = { userDecision ->
+                        if (continuation.isActive) continuation.resume(userDecision)
                     }
                 )
             }
             _pendingConfirmation.value = null
 
-            if (approved && !stopRequested) {
-                _currentStatus.value = title
-                val startedAt = System.currentTimeMillis()
-                val result = ToolDispatcher.execute(call.name, call.arguments, getApplication())
-                toolDurationMs = System.currentTimeMillis() - startedAt
-                result
-            } else {
+            if (!decision.approved || stopRequested) {
                 declined = true
                 "Пользователь отклонил операцию. Предложи альтернативу или остановись."
+            } else if (info.items.isNotEmpty() && decision.selectedIds?.isEmpty() == true) {
+                declined = true
+                "Пользователь снял все галочки, удалять нечего. Не повторяй операцию без новой просьбы."
+            } else {
+                _currentStatus.value = title
+                val startedAt = System.currentTimeMillis()
+                val result = runConfirmedOperation(call, info, decision)
+                toolDurationMs = System.currentTimeMillis() - startedAt
+                result
             }
         } else {
             val startedAt = System.currentTimeMillis()
