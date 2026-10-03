@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
@@ -234,19 +235,6 @@ fun ChatScreen(
                         onClick = { showModelPicker = true }
                     )
                 },
-                actions = {
-                    IconButton(
-                        onClick = { viewModel.startNewChat() },
-                        modifier = Modifier.bounceClick { viewModel.startNewChat() }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Add,
-                            contentDescription = "Новый чат",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -382,7 +370,7 @@ fun formatModelName(raw: String): String {
     name = name.removeSuffix("-preview")
     name = name.removeSuffix("-latest")
 
-    val parts = name.split('-', '_')
+    val parts = name.split('-', '_', ' ').filter { it.isNotBlank() }
     val formatted = parts.map { part ->
         when (part.lowercase()) {
             "gpt" -> "GPT"
@@ -425,7 +413,8 @@ private fun ModelChip(
     displayName: String = ""
 ) {
     val cleanModel = remember(displayName, modelName) {
-        displayName.ifBlank { formatModelName(modelName) }
+        val raw = displayName.ifBlank { modelName }
+        formatModelName(raw)
     }
     val brandLogo = remember(modelName, providerId, providerName) {
         ProviderLogos.forModelOrProvider(
@@ -438,8 +427,8 @@ private fun ModelChip(
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -495,23 +484,19 @@ private fun EmptyChatState(
 ) {
     val suggestions = listOf(
         Suggestion(
-            Icons.Outlined.FolderOpen, "Папка Download",
-            "Разобрать архивы и свежие файлы",
+            Icons.Outlined.FolderOpen, "Разобрать Download",
             "Разбери папку Download: архивы и свежие файлы"
         ),
         Suggestion(
-            Icons.Outlined.WarningAmber, "Найти мусор",
-            "Кэш, пустые папки и тяжелые логи",
+            Icons.Outlined.DeleteOutline, "Очистить мусор",
             "Найди мусор: кэш, пустые папки и тяжелые логи"
         ),
         Suggestion(
-            Icons.Outlined.VideoLibrary, "Тяжелые файлы",
-            "Видео и музыка от 50 МБ",
+            Icons.Outlined.VideoLibrary, "Тяжёлые файлы",
             "Найди файлы тяжелее 50 МБ: видео и музыку"
         ),
         Suggestion(
             Icons.Outlined.ContentPaste, "Буфер обмена",
-            "Прочитать текст или сохранить в файл",
             "Прочитай буфер обмена"
         )
     )
@@ -519,14 +504,15 @@ private fun EmptyChatState(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(top = 12.dp, bottom = 10.dp),
-        verticalArrangement = Arrangement.Bottom
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.Start
     ) {
+        Spacer(modifier = Modifier.weight(0.4f))
+
         Text(
             text = "Чем помочь?",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 20.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = (-0.5).sp
         )
@@ -534,17 +520,17 @@ private fun EmptyChatState(
         Text(
             text = "Агент для работы с файлами, памятью и терминалом.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp,
+            fontSize = 13.5.sp,
             lineHeight = 18.sp
         )
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         StorageWidget(
             stats = storageStats,
             onClick = { onSuggestion("Сделай сводку по памяти устройства") }
         )
         if (storageStats?.totalBytes ?: 0L > 0L) {
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
         Row(
@@ -578,13 +564,14 @@ private fun EmptyChatState(
                 onClick = { onSuggestion(suggestions[3].prompt) }
             )
         }
+
+        Spacer(modifier = Modifier.weight(0.6f))
     }
 }
 
 private data class Suggestion(
     val icon: ImageVector,
     val title: String,
-    val description: String,
     val prompt: String
 )
 
@@ -660,16 +647,16 @@ private fun SuggestionCard(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(12.dp))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)), RoundedCornerShape(12.dp))
             .bounceClick(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.Top
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -680,27 +667,15 @@ private fun SuggestionCard(
             )
         }
         Spacer(modifier = Modifier.width(10.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = suggestion.title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                lineHeight = 17.sp,
-                maxLines = 1
-            )
-            Text(
-                text = suggestion.description,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
-                lineHeight = 15.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        Text(
+            text = suggestion.title,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 

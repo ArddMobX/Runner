@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -138,7 +139,7 @@ fun AppDrawerContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Text(
             text = "Runner",
@@ -155,8 +156,7 @@ fun AppDrawerContent(
             onValueChange = onQueryChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp)),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             placeholder = { Text("Поиск по чатам", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp) },
             leadingIcon = {
                 Icon(
@@ -170,8 +170,8 @@ fun AppDrawerContent(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             shape = RoundedCornerShape(10.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 cursorColor = MaterialTheme.colorScheme.primary,
@@ -180,7 +180,7 @@ fun AppDrawerContent(
             )
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         if (sessions.isEmpty()) {
             Box(
@@ -285,7 +285,9 @@ fun AppDrawerContent(
             fontSize = 11.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 20.dp, end = 16.dp, bottom = 14.dp)
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(start = 20.dp, end = 16.dp, top = 2.dp, bottom = 18.dp)
         )
     }
 
@@ -339,9 +341,9 @@ private fun NewChatButton(onClick: () -> Unit) {
     val pressed by interactionSource.collectIsPressedAsState()
     val background by animateColorAsState(
         targetValue = if (pressed) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
         } else {
-            MaterialTheme.colorScheme.primaryContainer
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
         },
         animationSpec = MotionTokens.fluidTween(180),
         label = "new_chat_press"
@@ -358,7 +360,7 @@ private fun NewChatButton(onClick: () -> Unit) {
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(

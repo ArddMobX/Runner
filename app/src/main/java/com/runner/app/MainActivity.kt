@@ -10,8 +10,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -96,8 +99,18 @@ fun AppNavigation(viewModel: MainViewModel) {
             drawerState = drawerState,
             drawerContent = {
                 ModalDrawerSheet(
-                    drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.width(300.dp)
+                    drawerContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    drawerTonalElevation = 6.dp,
+                    drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
+                    modifier = Modifier
+                        .width(310.dp)
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            ),
+                            RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+                        )
                 ) {
                     AppDrawerContent(
                         sessions = sessions,
