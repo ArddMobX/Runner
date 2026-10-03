@@ -1,21 +1,24 @@
 package com.runner.app.tools
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import net.lingala.zip4j.ZipFile
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.text.DecimalFormat
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import net.lingala.zip4j.ZipFile
+import org.json.JSONArray
+import org.json.JSONObject
 
 object ToolDispatcher {
 
@@ -304,6 +307,37 @@ object ToolDispatcher {
             required = listOf("command")
         ))
 
+        // 15. open_app
+        tools.put(createToolFunction(
+            name = "open_app",
+            description = "Открывает установленное приложение по названию или пакету. " +
+                    "Если точного совпадения нет, вернёт список похожих приложений — " +
+                    "выбери из него и вызови тул снова.",
+            properties = JSONObject().apply {
+                put("app", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Название приложения («YouTube», «Телеграм») или пакет (org.telegram.messenger).")
+                })
+            },
+            required = listOf("app")
+        ))
+
+        // 16. open_url
+        tools.put(createToolFunction(
+            name = "open_url",
+            description = "Открывает ссылку в браузере или в приложении, которое её обрабатывает. " +
+                    "Годится и для поиска: например, https://www.youtube.com/results?search_query=котики " +
+                    "сразу откроет YouTube с готовым поиском. Поддерживает схемы tg://, whatsapp://, " +
+                    "market://, mailto:, tel:.",
+            properties = JSONObject().apply {
+                put("url", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Ссылка целиком. Если схема не указана, подставится https://")
+                })
+            },
+            required = listOf("url")
+        ))
+
         return tools
     }
 
@@ -446,6 +480,11 @@ object ToolDispatcher {
                     val text = args.optString("text", "")
                     clipboardWrite(text, context)
                 }
+
+                // Запуск приложений и ссылок
+                "open_app" -> openApp(args.optString("app", ""), context)
+
+                "open_url" -> openUrl(args.optString("url", ""), context)
 
                 // Shell
                 "run_shell_command" -> {
@@ -915,6 +954,162 @@ object ToolDispatcher {
             "Текст (${text.length} симв.) успешно скопирован в буфер обмена."
         } catch (e: Exception) {
             "Не удалось записать в буфер обмена: ${e.localizedMessage}"
+        }
+    }
+
+    // --- Запуск приложений и ссылок ---
+
+    /**
+     * Частые приложения по пакету. Нужен, чтобы «открой ютуб» работало
+     * без перебора всех установленных приложений.
+     */
+    private val APP_ALIASES = mapOf(
+        "youtube" to "com.google.android.youtube",
+        "ютуб" to "com.google.android.youtube",
+        "youtube music" to "com.google.android.apps.youtube.music",
+        "telegram" to "org.telegram.messenger",
+        "телеграм" to "org.telegram.messenger",
+        "телеграмм" to "org.telegram.messenger",
+        "whatsapp" to "com.whatsapp",
+        "ватсап" to "com.whatsapp",
+        "chrome" to "com.android.chrome",
+        "хром" to "com.android.chrome",
+        "maps" to "com.google.android.apps.maps",
+        "карты" to "com.google.android.apps.maps",
+        "gmail" to "com.google.android.gm",
+        "почта" to "com.google.android.gm",
+        "spotify" to "com.spotify.music",
+        "instagram" to "com.instagram.android",
+        "инстаграм" to "com.instagram.android",
+        "vkontakte" to "com.vkontakte.android",
+        "вконтакте" to "com.vkontakte.android",
+        "vk" to "com.vkontakte.android",
+        "camera" to "com.android.camera2",
+        "камера" to "com.android.camera2",
+        "clock" to "com.google.android.deskclock",
+        "часы" to "com.google.android.deskclock",
+        "settings" to "com.android.settings",
+        "настройки" to "com.android.settings"
+    )
+
+    /** Приложения с иконкой в лончере: то, что пользователь и имеет в виду. */
+    private fun launcherApps(context: Context): List<Pair<String, String>> {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val pm = context.packageManager
+        return pm.queryIntentActivities(intent, 0)
+            .mapNotNull { info ->
+                val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+                val label = info.loadLabel(pm).toString()
+                label to pkg
+            }
+            .distinctBy { it.second }
+            .sortedBy { it.first.lowercase() }
+    }
+
+    suspend fun openApp(query: String, context: Context): String =
+        withContext(Dispatchers.Main) { openAppInternal(query, context) }
+
+    /** Запуск идёт на главном потоке: startActivity из фонового не гарантирован. */
+    private fun openAppInternal(query: String, context: Context): String {
+        val raw = query.trim()
+        if (raw.isBlank()) return "Ошибка: не указано приложение."
+
+        val pm = context.packageManager
+
+        fun launch(pkg: String, label: String? = null): String? {
+            val intent = pm.getLaunchIntentForPackage(pkg)
+                ?: return "Пакет '$pkg' установлен, но запустить его нечем: у приложения нет иконки в меню."
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            return try {
+                context.startActivity(intent)
+                "Открыл ${label ?: pkg}."
+            } catch (e: Exception) {
+                "Не удалось открыть '$pkg': ${e.localizedMessage}"
+            }
+        }
+
+        // 1. Явный пакет. Проверяем, что он вообще установлен: иначе «youtube.com»
+        //    уйдёт сюда и вернёт сообщение про отсутствующую иконку вместо поиска
+        if (raw.contains('.') && !raw.contains(' ')) {
+            val installed = try {
+                pm.getPackageInfo(raw, 0)
+                true
+            } catch (e: Exception) {
+                false
+            }
+            if (installed) launch(raw)?.let { return it }
+        }
+
+        // 2. Известный алиас
+        APP_ALIASES[raw.lowercase()]?.let { pkg ->
+            launch(pkg, raw)?.let { return it }
+        }
+
+        // 3. Поиск по названию среди установленных
+        val apps = launcherApps(context)
+        val needle = raw.lowercase()
+        val exact = apps.filter { it.first.lowercase() == needle }
+        val partial = apps.filter { it.first.lowercase().contains(needle) }
+
+        val match = exact.firstOrNull() ?: partial.singleOrNull()
+        if (match != null) {
+            launch(match.second, match.first)?.let { return it }
+        }
+
+        return if (partial.size > 1) {
+            buildString {
+                append("Под '$raw' подходит несколько приложений. Уточни, какое именно:\n")
+                partial.take(15).forEach { append("  • ${it.first} (${it.second})\n") }
+            }
+        } else {
+            buildString {
+                append("Приложение '$raw' не найдено.\n")
+                if (apps.isNotEmpty()) {
+                    append("Установленные приложения (первые 40):\n")
+                    apps.take(40).forEach { append("  • ${it.first}\n") }
+                }
+            }
+        }
+    }
+
+    /** Схемы, которыми можно запустить чужое приложение или открыть файл на исполнение. */
+    private val BLOCKED_URL_SCHEMES = setOf("javascript", "data", "file", "content")
+
+    suspend fun openUrl(rawUrl: String, context: Context): String = withContext(Dispatchers.Main) {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isBlank()) return@withContext "Ошибка: ссылка не указана."
+
+        val withScheme = if (trimmed.contains("://") || trimmed.startsWith("mailto:") ||
+            trimmed.startsWith("tel:") || trimmed.startsWith("sms:")
+        ) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+
+        val scheme = withScheme.substringBefore(':').lowercase()
+        if (scheme in BLOCKED_URL_SCHEMES) {
+            return@withContext "Схему '$scheme:' открывать нельзя: она выполнит код или отдаст файл наружу."
+        }
+
+        // Кириллица и пробелы в запросе должны уехать в браузер закодированными,
+        // иначе поиск вида ...?search_query=котики ломается
+        val target = if (withScheme.any { it.code > 127 }) {
+            Uri.encode(withScheme, ":/?#[]@!\$&'()*+,;=")
+        } else {
+            withScheme
+        }
+
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        try {
+            context.startActivity(intent)
+            "Открыл $target"
+        } catch (e: ActivityNotFoundException) {
+            "Ни одно приложение на устройстве не берётся открывать такую ссылку."
+        } catch (e: Exception) {
+            "Не удалось открыть ссылку: ${e.localizedMessage}"
         }
     }
 
@@ -1587,6 +1782,8 @@ object ToolDispatcher {
             "organize_downloads" -> "Раскладываю Download по папкам"
             "clipboard_read" -> "Читаю буфер обмена"
             "clipboard_write" -> "Пишу в буфер обмена"
+            "open_app" -> "Открываю ${args.optString("app", "").trim().ifBlank { "приложение" }}"
+            "open_url" -> "Открываю ссылку"
             "run_shell_command" -> "Выполняю команду"
             else -> cleanToolName
         }

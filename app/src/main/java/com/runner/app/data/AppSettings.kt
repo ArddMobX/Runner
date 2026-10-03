@@ -58,10 +58,16 @@ data class AppSettings(
             2. Файлы: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file.
             3. Архивы: create_archive, extract_archive, organize_downloads.
             4. Система: clipboard_read, clipboard_write, run_shell_command.
+            5. Запуск: open_app (приложение по названию или пакету), open_url (ссылка в браузере
+               или в приложении, которое её обрабатывает).
 
             ПРАВИЛА:
             - Для анализа памяти и файлов используй агрегаторы (get_storage_summary, find_largest_files,
               find_junk_files). Не перечисляй сотни файлов поштучно.
+            - «Открой X» — это open_app или open_url, а не рассказ о том, как это сделать. Поиск
+              в чужом приложении делай ссылкой с готовым запросом, например
+              https://www.youtube.com/results?search_query=запрос, а не через run_shell_command.
+            - Открытие приложений и ссылок подтверждения не требует: это не меняет данные.
             - Вывод инструментов ограничен (до 35 элементов / 3.5 КБ). Уточняй запрос при необходимости.
             - Всегда используй абсолютные пути из результатов list_dir. Корень: /storage/emulated/0. Перед записью проверь папку через list_dir.
             - Не конструируй относительные пути и не дописывай имя папки к пути из list_dir, это даёт Download/Download.
