@@ -887,17 +887,6 @@ private fun StreamingBubble(text: String) {
 }
 
 /** Абсолютные пути из результата тула (строки resolved_path[:_src|_dst]: ...). */
-private fun extractResolvedPaths(toolOutput: String): List<String> =
-    toolOutput.lineSequence()
-        .map { it.trim() }
-        .filter { it.startsWith("resolved_path") }
-        .mapNotNull { line ->
-            val value = line.substringAfter(':', missingDelimiterValue = "").trim()
-            value.takeIf { it.isNotBlank() }
-        }
-        .distinct()
-        .toList()
-
 /**
  * Карточка плана шагов: нумерованные шаги + кнопки утверждения.
  * После решения кнопки гаснут (awaitingDecision=false), карточка остаётся историей.
@@ -911,14 +900,33 @@ private fun PlanCard(
 ) {
     val steps = remember(message.content) { parsePlanStepsUi(message.content) }
 
+    // Пока план ждёт решения — раскрыт, иначе его нельзя осознанно утвердить.
+    // После решения сворачивается в одну строку, чтобы не занимать пол-экрана.
+    var expanded by remember(message.id) { mutableStateOf(awaitingDecision) }
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MotionTokens.fluidSpring(),
+        label = "plan_chevron"
+    )
+    LaunchedEffect(awaitingDecision) {
+        if (!awaitingDecision) expanded = false
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = MotionTokens.fluidSpring())
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.AutoAwesome,
                     contentDescription = null,
@@ -939,42 +947,53 @@ private fun PlanCard(
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
                 )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Свернуть" else "Показать шаги",
+                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(14.dp)
+                        .graphicsLayer { rotationZ = rotation }
+                )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(8.dp))
+            if (expanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(8.dp))
 
-            if (steps.isEmpty()) {
-                Text(
-                    text = message.content,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp
-                )
-            } else {
-                steps.forEachIndexed { i, step ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Text(
-                            text = "${i + 1}.",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(22.dp)
-                        )
-                        Text(
-                            text = step,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 12.5.sp,
-                            lineHeight = 18.sp,
-                            modifier = Modifier.weight(1f)
-                        )
+                if (steps.isEmpty()) {
+                    Text(
+                        text = message.content,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp
+                    )
+                } else {
+                    steps.forEachIndexed { i, step ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = "${i + 1}.",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.width(22.dp)
+                            )
+                            Text(
+                                text = step,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 12.5.sp,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
@@ -1023,9 +1042,10 @@ private sealed interface ChatListItem {
 }
 
 /**
- * Схлопывает идущие подряд завершённые вызовы одного и того же тула
- * («Выполняю команду...» × N) в единую группу. Живые (isRunning) и
- * одиночные вызовы не трогаем.
+ * Схлопывает ЛЮБУЮ идущую подряд серию завершённых вызовов в одну карточку,
+ * а не только одинаковые тулы: иначе после каждого шага агента в ленте
+ * плодятся отдельные плашки и полезный ответ в них тонет.
+ * Живые (isRunning) вызовы и одиночные не группируем.
  */
 private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
     val out = mutableListOf<ChatListItem>()
@@ -1036,17 +1056,12 @@ private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
         run = mutableListOf()
     }
     for (m in messages) {
-        val continues = m.role == MessageRole.TOOL_EXECUTION && !m.isRunning &&
-                m.toolName != null && (run.isEmpty() || run.last().toolName == m.toolName)
-        if (continues) {
+        val isFinishedTool = m.role == MessageRole.TOOL_EXECUTION && !m.isRunning && m.toolName != null
+        if (isFinishedTool) {
             run += m
         } else {
             flush()
-            if (m.role == MessageRole.TOOL_EXECUTION && !m.isRunning && m.toolName != null) {
-                run += m
-            } else {
-                out += ChatListItem.Single(m)
-            }
+            out += ChatListItem.Single(m)
         }
     }
     flush()
@@ -1258,27 +1273,6 @@ private fun ToolCard(message: ChatMessage, showDetails: Boolean, showStats: Bool
                         lineHeight = 15.sp,
                         color = MaterialTheme.colorScheme.outline
                     )
-                    Spacer(modifier = Modifier.height(9.dp))
-                }
-
-                val resolvedPaths = remember(message.toolOutput) { extractResolvedPaths(message.toolOutput.orEmpty()) }
-                if (resolvedPaths.isNotEmpty()) {
-                    Text(
-                        text = "Путь",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    resolvedPaths.forEach { path ->
-                        Text(
-                            text = path,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
                     Spacer(modifier = Modifier.height(9.dp))
                 }
 

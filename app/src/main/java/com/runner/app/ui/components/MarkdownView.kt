@@ -457,13 +457,19 @@ private fun InlineChip(text: String) {
     Box(
         modifier = Modifier
             .clip(shape)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)), shape)
+            // Нейтральная подложка вместо тонированной акцентом: при тёплом seed-цвете
+            // акцентная заливка давала коричневую плашку с бледным текстом, и пути
+            // читались плохо. Контраст здесь важнее цветности.
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .border(
+                BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                shape
+            )
             .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Text(
             text = text,
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.5.sp,
             fontFamily = FontFamily.Monospace,
             maxLines = 1

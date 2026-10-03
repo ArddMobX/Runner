@@ -3,10 +3,8 @@ package com.runner.app.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -33,6 +31,9 @@ private val NUMBERED_ENTRY = Regex("""^\d+\.\s+(.+?)\s+[—–-]\s+($SIZE_PATTER
 
 /** «• DCIM/Camera/lv_0_2026.mp4 (2.4 GB)» */
 private val BULLETED_ENTRY = Regex("""^[•\-*]\s+(.+?)\s+\(($SIZE_PATTERN)\)$""")
+
+/** Хвостовой размер в скобках у строки-пути. */
+private val TRAILING_SIZE = Regex("""\s*\(($SIZE_PATTERN)\)$""")
 
 /**
  * Похоже ли это на путь к файлу, а не на строку статистики.
@@ -66,6 +67,45 @@ fun parseFileEntry(rawLine: String): FileEntry? {
     return FileEntry(name = name, folder = folder, size = size)
 }
 
+/**
+ * Строка — просто путь без разделителя с размером (например, resolved_path
+ * из вывода тула). Отсекаем обычные фразы вроде «и/или что-то ещё».
+ */
+private fun parseBarePath(rawLine: String): FileEntry? {
+    var line = rawLine.trim()
+        .removePrefix("resolved_path:")
+        .trim()
+        .trimEnd('/')
+    if (line.length < 4 || line.endsWith(":") || line.contains(": ")) return null
+
+    // Отделяем хвостовой размер: «/path/file.apk (12.4 MB)»
+    var size: String? = null
+    TRAILING_SIZE.find(line)?.let { match ->
+        size = match.groupValues[1].trim()
+        line = line.substring(0, match.range.first).trim()
+    }
+
+    val slashes = line.count { it == '/' }
+    val lastSegment = line.substringAfterLast('/')
+    val hasExtension = lastSegment.substringAfterLast('.', "").let { it.length in 1..5 }
+
+    val looksLikePath = line.startsWith("/") ||
+            line.startsWith("storage/") ||
+            line.startsWith("sdcard/") ||
+            slashes >= 2 ||
+            (slashes == 1 && hasExtension)
+    if (!looksLikePath) return null
+
+    val name = line.substringAfterLast('/')
+    if (name.isBlank() || name.length > 120) return null
+
+    val folder = line.substringBeforeLast('/', "")
+        .trim('/')
+        .takeIf { it.isNotBlank() }
+
+    return FileEntry(name = name, folder = folder, size = size)
+}
+
 private sealed interface OutputLine {
     data class File(val entry: FileEntry) : OutputLine
     data class Plain(val value: String, val isHeading: Boolean) : OutputLine
@@ -75,11 +115,8 @@ private fun parseOutput(output: String): List<OutputLine> =
     output.lineSequence()
         .map { it.trim() }
         .filter { it.isNotEmpty() }
-        // resolved_path показывает отдельной секцией карточка вызова (ToolCard),
-        // здесь скрываем, чтобы путь не дублировался в общем списке.
-        .filter { !it.startsWith("resolved_path") }
         .map { line ->
-            val entry = parseFileEntry(line)
+            val entry = parseFileEntry(line) ?: parseBarePath(line)
             if (entry != null) {
                 OutputLine.File(entry)
             } else {
@@ -90,7 +127,7 @@ private fun parseOutput(output: String): List<OutputLine> =
 
 /**
  * Вывод инструмента в читаемом виде: списки файлов превращаются в строки
- * «имя — папка — размер», остальной текст идёт обычным шрифтом, а не серым кирпичом.
+ * «имя (размер)» с путём мелким шрифтом, остальной текст идёт обычным шрифтом.
  */
 @Composable
 fun ToolOutputView(
@@ -101,7 +138,7 @@ fun ToolOutputView(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         lines.forEach { line ->
             when (line) {
@@ -109,7 +146,11 @@ fun ToolOutputView(
 
                 is OutputLine.Plain -> Text(
                     text = line.value,
-                    color = if (line.isHeading) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (line.isHeading) {
+                        MaterialTheme.colorScheme.outline
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     fontSize = if (line.isHeading) 11.sp else 12.5.sp,
                     fontWeight = if (line.isHeading) FontWeight.Medium else FontWeight.Normal,
                     lineHeight = 17.sp
@@ -119,42 +160,48 @@ fun ToolOutputView(
     }
 }
 
-/** Имя файла обычным шрифтом, папка мелким приглушённым, размер справа. */
+/**
+ * Имя файла обычным текстом с размером в скобках рядом, путь — мелким ниже.
+ * Раньше размер висел справа по центру двух строк и читался как отдельная
+ * третья строка, а имя терялось за длинным путём.
+ */
 @Composable
 private fun FileRow(entry: FileEntry) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 1.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 text = entry.name,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 18.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
-            entry.folder?.let { folder ->
+            entry.size?.let { size ->
                 Text(
-                    text = folder,
-                    color = MaterialTheme.colorScheme.outline,
-                    fontSize = 10.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = " ($size)",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1
                 )
             }
         }
 
-        entry.size?.let { size ->
-            Spacer(modifier = Modifier.width(10.dp))
+        entry.folder?.let { folder ->
             Text(
-                text = size,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1
+                text = folder,
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

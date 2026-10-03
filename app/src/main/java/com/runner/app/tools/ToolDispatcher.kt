@@ -530,6 +530,43 @@ object ToolDispatcher {
         }
     }
 
+    /**
+     * File.delete() возвращает false без причины. Разбираем типичные случаи,
+     * чтобы в чате было видно, что именно мешает, а не сухое «не удалось».
+     */
+    private fun explainDeleteFailure(file: File): String {
+        val reasons = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            !Environment.isExternalStorageManager()
+        ) {
+            reasons += "нет разрешения «Доступ ко всем файлам» — включи его в системных настройках"
+        }
+
+        val parent = file.parentFile
+        if (parent != null && parent.exists() && !parent.canWrite()) {
+            reasons += "нет прав на запись в папку ${parent.absolutePath}"
+        }
+
+        if (file.exists() && !file.canWrite()) {
+            reasons += "файл помечен «только для чтения»"
+        }
+
+        if (file.isDirectory) {
+            val children = file.listFiles()
+            if (!children.isNullOrEmpty()) {
+                reasons += "папка не пуста (${children.size} элементов) — нужен recursive=true"
+            }
+        }
+
+        return if (reasons.isEmpty()) {
+            "Файл держит другое приложение или система. Закрой проводник, плеер или " +
+                    "установщик, который мог его открыть, и повтори удаление."
+        } else {
+            reasons.joinToString("; ").replaceFirstChar { it.uppercase() } + "."
+        }
+    }
+
     fun deleteFile(rawPath: String, recursive: Boolean): String {
         if (rawPath.isBlank()) return "Ошибка: путь для удаления не указан."
         val file = try {
@@ -537,7 +574,11 @@ object ToolDispatcher {
         } catch (e: SecurityException) {
             return "Ошибка: ${e.message}"
         }
-        if (!file.exists()) return "resolved_path: ${file.absolutePath}\nФайл или папка '${file.absolutePath}' не найден(а)."
+        if (!file.exists()) {
+            return "resolved_path: ${file.absolutePath}\n" +
+                    "Файл или папка '${file.absolutePath}' не найден(а). " +
+                    "Проверь путь или выдай доступ ко всем файлам в системных настройках."
+        }
 
         // Safety check: protect root and primary storage dirs
         val extRoot = Environment.getExternalStorageDirectory().canonicalPath
@@ -552,13 +593,20 @@ object ToolDispatcher {
                 if (file.deleteRecursively()) {
                     "resolved_path: ${file.absolutePath}\nПапка '${file.name}' и все вложенные элементы ($count) успешно удалены."
                 } else {
-                    "resolved_path: ${file.absolutePath}\nНе удалось полностью удалить папку '${file.absolutePath}'."
+                    "resolved_path: ${file.absolutePath}\n" +
+                            "Не удалось полностью удалить папку '${file.name}': " +
+                            explainDeleteFailure(file)
                 }
             } else {
                 val children = file.listFiles()
                 if (children.isNullOrEmpty()) {
-                    if (file.delete()) "resolved_path: ${file.absolutePath}\nПустая папка '${file.name}' успешно удалена."
-                    else "resolved_path: ${file.absolutePath}\nНе удалось удалить папку."
+                    if (file.delete()) {
+                        "resolved_path: ${file.absolutePath}\nПустая папка '${file.name}' успешно удалена."
+                    } else {
+                        "resolved_path: ${file.absolutePath}\n" +
+                                "Не удалось удалить папку '${file.name}': " +
+                                explainDeleteFailure(file)
+                    }
                 } else {
                     "resolved_path: ${file.absolutePath}\nПапка '${file.name}' содержит элементы (${children.size}). Укажите recursive=true для подтверждения удаления всей папки."
                 }
@@ -568,7 +616,9 @@ object ToolDispatcher {
             if (file.delete()) {
                 "resolved_path: ${file.absolutePath}\nФайл '$name' успешно удален."
             } else {
-                "resolved_path: ${file.absolutePath}\nНе удалось удалить файл '${file.absolutePath}'."
+                "resolved_path: ${file.absolutePath}\n" +
+                        "Не удалось удалить файл '$name': " +
+                        explainDeleteFailure(file)
             }
         }
     }
@@ -1083,10 +1133,16 @@ object ToolDispatcher {
         val canonical = try {
             candidate.canonicalPath
         } catch (e: Exception) {
-            throw SecurityException("Некорректный путь: $input")
+            throw SecurityException(
+                "Путь «$input» разобрать не удалось: в нём недопустимые символы. " +
+                        "Укажи обычный путь внутри /storage/emulated/0."
+            )
         }
         if (canonical != rootPath && !canonical.startsWith("$rootPath/")) {
-            throw SecurityException("Путь вне корня /storage/emulated/0: $input")
+            throw SecurityException(
+                "Путь «$input» ведёт за пределы общей памяти. Агент работает только " +
+                        "внутри /storage/emulated/0, системные разделы недоступны."
+            )
         }
         return File(canonical)
     }
