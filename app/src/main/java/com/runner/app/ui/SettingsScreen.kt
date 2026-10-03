@@ -1037,6 +1037,68 @@ private fun UserInstructionsField(
 }
 
 /**
+ * Компактный сегментный переключатель: равные сегменты, выбранный залит
+ * сплошным primary с текстом onPrimary. Раньше активный отличался только
+ * тонкой рамкой и оттенком 14% — на свету было не понять, что включено.
+ */
+@Composable
+private fun <T> SegmentedChips(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    isEnabled: (T) -> Boolean = { true }
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (value, label) ->
+            val active = value == selected
+            val enabled = isEnabled(value)
+            val shape = RoundedCornerShape(9.dp)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(shape)
+                    .background(
+                        when {
+                            !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f)
+                            active -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+                        }
+                    )
+                    .border(
+                        BorderStroke(
+                            1.dp,
+                            when {
+                                !enabled -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                active -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            }
+                        ),
+                        shape
+                    )
+                    .clickable(enabled = enabled) { onSelect(value) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    color = when {
+                        !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                        active -> MaterialTheme.colorScheme.onPrimary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/**
  * Единый слайдер настроек: трек 3dp с засечками по шагам, бегунок 14dp
  * с кольцом цвета фона, снизу — границы диапазона и текущее значение по центру.
  *
