@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -264,46 +266,63 @@ fun ToolOutputView(
 /**
  * Имя файла крупным текстом, размер рядом бледнее, путь — мелким подстрочником
  * и только если папка не показана общим заголовком.
+ * У картинок и звука слева появляется управление: миниатюра или кнопка play.
  */
 @Composable
 private fun FileRow(entry: FileEntry, showFolder: Boolean) {
-    Column(
+    val kind = remember(entry.name) { mediaKindOf(entry.name) }
+    val path = remember(entry.name, entry.folder) { entry.absolutePath }
+    val hasMedia = kind == MediaKind.IMAGE || kind == MediaKind.AUDIO || kind == MediaKind.VIDEO
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = entry.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                lineHeight = 19.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            entry.size?.let { size ->
-                Text(
-                    text = "  $size",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1
-                )
+        if (hasMedia) {
+            when (kind) {
+                MediaKind.IMAGE -> ImageThumbnail(path = path)
+                MediaKind.AUDIO -> AudioPlayButton(path = path, enabled = true)
+                else -> MediaKindBadge(kind)
             }
+            Spacer(modifier = Modifier.width(10.dp))
         }
 
-        if (showFolder) {
-            entry.folder?.let { folder ->
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    text = folder,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                    fontSize = 10.5.sp,
-                    lineHeight = 14.sp,
+                    text = entry.name,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 19.sp,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                entry.size?.let { size ->
+                    Text(
+                        text = "  $size",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            if (showFolder) {
+                entry.folder?.let { folder ->
+                    Text(
+                        text = folder,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

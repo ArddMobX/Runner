@@ -103,6 +103,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.DisposableEffect
+import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
@@ -155,6 +157,12 @@ fun ChatScreen(
 
     LaunchedEffect(isEmptyChat) {
         if (isEmptyChat) viewModel.refreshStorageStats()
+    }
+
+    // Плеер живёт в синглтоне, поэтому его надо глушить при уходе с экрана:
+    // иначе трек продолжит играть поверх настроек и в фоне
+    DisposableEffect(Unit) {
+        onDispose { AudioPreviewPlayer.stop() }
     }
 
     LaunchedEffect(messages.size) {
