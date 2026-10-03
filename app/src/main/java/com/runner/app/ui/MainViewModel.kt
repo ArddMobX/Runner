@@ -753,6 +753,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * null = исполнять цикл как обычно без плана (план выключен, не нужен,
      * не распознан, отклонён или остановка).
      */
+    /**
+     * «Заново»: убирает ответ на указанное сообщение пользователя и запускает
+     * генерацию ещё раз. Контекст диалога обрезается до того же места, иначе
+     * модель получила бы историю, которой в ленте уже нет.
+     */
+    fun retryFromUserMessage(messageId: String) {
+        if (_isRunning.value) return
+
+        val target = _messages.value.firstOrNull { it.id == messageId } ?: return
+        if (target.role != MessageRole.USER) return
+
+        val provider = activeProvider.value
+        if (provider == null || provider.apiKey.isBlank()) {
+            appendSystemInfo(
+                "Ключ провайдера не задан, модель не ответит. Необходимо указать API-ключ в настройках.",
+                MessageAction.OPEN_SETTINGS
+            )
+            return
+        }
+        val model = provider.activeModel
+        if (model.isBlank()) {
+            appendSystemInfo(
+                "У провайдера ${provider.name} не выбрана модель.",
+                MessageAction.OPEN_MODELS
+            )
+            return
+        }
+
+        val sessionId = _currentSessionId.value ?: return
+        val index = _messages.value.indexOfFirst { it.id == messageId }
+        if (index < 0) return
+
+        _messages.value = _messages.value.take(index + 1)
+        stopRequested = false
+        approvedPlanTools = null
+        _streamingText.value = ""
+        _isRunning.value = true
+
+        viewModelScope.launch {
+            try {
+                repository.deleteMessagesAfter(sessionId, target.timestamp)
+                trimContextToUser(target.content)
+                persistContext(sessionId)
+                runAgentLoop(sessionId, provider, model)
+            } finally {
+                _isRunning.value = false
+                _currentStatus.value = null
+                _streamingText.value = ""
+                apiClient.cancelActive()
+            }
+        }
+    }
+
+    /** Обрезает контекст по последнему совпадению с текстом пользователя. */
+    private fun trimContextToUser(text: String) {
+        val trimmed = JSONArray()
+        for (i in 0 until conversationJson.length()) {
+            val item = conversationJson.optJSONObject(i) ?: continue
+            trimmed.put(item)
+            if (item.optString("role") == "user" && item.optString("content") == text) break
+        }
+        conversationJson = trimmed
+    }
+
     private suspend fun requestPlanApproval(
         sessionId: String,
         provider: Provider,

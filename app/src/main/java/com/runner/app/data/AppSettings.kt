@@ -25,7 +25,9 @@ data class AppSettings(
      * Подтверждение каждого шага: false = «Только опасные действия» (по умолчанию,
      * безопасные чтение/поиск выполняются молча), true = «Спрашивать каждый шаг».
      */
-    val confirmEveryStep: Boolean = false
+    val confirmEveryStep: Boolean = false,
+    /** Пользователь принял предупреждение о рисках при первом запуске. */
+    val disclaimerAccepted: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -155,6 +157,7 @@ class SettingsStore(context: Context) {
             textScale = prefs.getFloat(KEY_TEXT_SCALE, 1f),
             showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
             showStats = prefs.getBoolean(KEY_SHOW_STATS, true),
+            disclaimerAccepted = prefs.getBoolean(KEY_DISCLAIMER_ACCEPTED, false),
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false)
         )
@@ -173,6 +176,7 @@ class SettingsStore(context: Context) {
             .putFloat(KEY_TEXT_SCALE, settings.textScale)
             .putBoolean(KEY_SHOW_TOOL_DETAILS, settings.showToolDetails)
             .putBoolean(KEY_SHOW_STATS, settings.showStats)
+            .putBoolean(KEY_DISCLAIMER_ACCEPTED, settings.disclaimerAccepted)
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
             .putBoolean(KEY_CONFIRM_EVERY_STEP, settings.confirmEveryStep)
 
@@ -200,6 +204,7 @@ class SettingsStore(context: Context) {
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_SHOW_TOOL_DETAILS = "show_tool_details"
         const val KEY_SHOW_STATS = "show_stats"
+        const val KEY_DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         const val KEY_PLANNING_ENABLED = "planning_enabled"
         const val KEY_CONFIRM_EVERY_STEP = "confirm_every_step"
     }

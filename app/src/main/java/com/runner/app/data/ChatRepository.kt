@@ -53,6 +53,11 @@ class ChatRepository(private val dao: ChatDao) {
         dao.deleteSessionCascade(sessionId)
     }
 
+    /** Убирает всё, что появилось в сессии после указанного момента. */
+    suspend fun deleteMessagesAfter(sessionId: String, timestamp: Long) {
+        dao.deleteMessagesAfter(sessionId, timestamp)
+    }
+
     companion object {
         const val NEW_CHAT_TITLE = "Новый чат"
         const val MAX_TITLE_LENGTH = 60

@@ -124,6 +124,10 @@ interface ChatDao {
     @Query("DELETE FROM messages WHERE sessionId = :sessionId")
     suspend fun deleteMessagesOf(sessionId: String)
 
+    /** Хвост после указанного момента. Нужен при повторе: старый ответ убираем. */
+    @Query("DELETE FROM messages WHERE sessionId = :sessionId AND createdAt > :timestamp")
+    suspend fun deleteMessagesAfter(sessionId: String, timestamp: Long)
+
     @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun deleteSession(id: String)
 

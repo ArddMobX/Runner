@@ -35,6 +35,7 @@ import com.runner.app.ui.ChatScreen
 import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
+import com.runner.app.ui.components.DisclaimerDialog
 import com.runner.app.ui.theme.RunnerTheme
 import kotlinx.coroutines.launch
 
@@ -89,9 +90,19 @@ fun AppNavigation(viewModel: MainViewModel) {
     }
 
     // Системный Back на экране настроек возвращает в чат, а не сворачивает приложение:
-    // без обработчика backstack пуст и система считает экран единственным.
+    // без обработчика backstack пуст и системный экран считает экран единственным.
     BackHandler(enabled = currentScreen == Screen.SETTINGS) {
         currentScreen = Screen.CHAT
+    }
+
+    // Предупреждение о рисках показываем один раз, до всего остального
+    val appSettings by viewModel.settings.collectAsState()
+    if (!appSettings.disclaimerAccepted) {
+        DisclaimerDialog(
+            onAccept = {
+                viewModel.updateSettings(appSettings.copy(disclaimerAccepted = true))
+            }
+        )
     }
 
     when (currentScreen) {

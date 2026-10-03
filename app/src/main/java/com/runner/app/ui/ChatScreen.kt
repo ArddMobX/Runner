@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.VideoLibrary
@@ -305,6 +307,8 @@ fun ChatScreen(
                                         planAwaitingId = pendingPlan?.id,
                                         onApprovePlan = { viewModel.resolvePlan(true) },
                                         onRejectPlan = { viewModel.resolvePlan(false) },
+                                        onEditMessage = { inputState.setText(it) },
+                                        onRetryMessage = { viewModel.retryFromUserMessage(it) },
                                         onOpenPreview = { previewSource = it },
                                         onAction = { action ->
                                             when (action) {
@@ -698,6 +702,29 @@ private fun SuggestionCard(
     }
 }
 
+/** Мелкая иконка действия под сообщением: копировать, изменить, заново. */
+@Composable
+private fun MessageActionIcon(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
 @Composable
 private fun MessageItem(
     message: ChatMessage,
@@ -706,14 +733,17 @@ private fun MessageItem(
     planAwaitingId: String?,
     onApprovePlan: () -> Unit,
     onRejectPlan: () -> Unit,
+    onEditMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
         MessageRole.USER -> {
-            Row(
+            val context = LocalContext.current
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalAlignment = Alignment.End
             ) {
                 Box(
                     modifier = Modifier
@@ -726,6 +756,31 @@ private fun MessageItem(
                         text = message.content,
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    MessageActionIcon(
+                        icon = Icons.Outlined.ContentCopy,
+                        label = "Копировать",
+                        onClick = {
+                            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            manager.setPrimaryClip(ClipData.newPlainText("Сообщение", message.content))
+                            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                    MessageActionIcon(
+                        icon = Icons.Outlined.Edit,
+                        label = "Изменить",
+                        // Текст уходит в поле ввода, менять историю молча не станем
+                        onClick = { onEditMessage(message.content) }
+                    )
+                    MessageActionIcon(
+                        icon = Icons.Outlined.Refresh,
+                        label = "Заново",
+                        onClick = { onRetryMessage(message.id) }
                     )
                 }
             }
