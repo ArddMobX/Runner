@@ -121,14 +121,17 @@ object AudioPreviewPlayer {
         try {
             val created = MediaPlayer().apply {
                 setDataSource(path)
+                // Явный получатель обязателен: у самого MediaPlayer есть
+                // синтетическое свойство isPlaying без сеттера, и без префикса
+                // компилятор ругается «Val cannot be reassigned»
                 setOnCompletionListener {
-                    isPlaying = false
-                    activePath = null
+                    AudioPreviewPlayer.isPlaying = false
+                    AudioPreviewPlayer.activePath = null
                 }
                 setOnErrorListener { _, _, _ ->
-                    lastError = "Не удалось воспроизвести файл"
-                    isPlaying = false
-                    activePath = null
+                    AudioPreviewPlayer.lastError = "Не удалось воспроизвести файл"
+                    AudioPreviewPlayer.isPlaying = false
+                    AudioPreviewPlayer.activePath = null
                     true
                 }
                 prepare()

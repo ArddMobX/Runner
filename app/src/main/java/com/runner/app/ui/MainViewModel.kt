@@ -1106,7 +1106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Выполняет подтверждённую операцию. Если это удаление папки и пользователь
      * снял часть галочек, удаляем только выбранные файлы, а саму папку не трогаем.
      */
-    private fun runConfirmedOperation(
+    private suspend fun runConfirmedOperation(
         call: ToolCall,
         info: ToolDispatcher.CriticalActionInfo,
         decision: ConfirmationDecision
