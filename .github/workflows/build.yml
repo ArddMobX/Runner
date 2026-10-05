@@ -112,6 +112,20 @@ jobs:
             --stacktrace 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          # Логи шагов закрыты авторизацией, поэтому при падении выкладываем
+          # хвост вывода в сводку прогона: сводка читается публично.
+          # Секреты GitHub маскирует в выводе автоматически.
+          if [ "$status" != "0" ]; then
+            {
+              echo "### Сборка упала (код $status)"
+              echo
+              echo '```'
+              tail -60 build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           exit $status
 
       # Логи GitHub Actions закрыты авторизацией, поэтому при падении выкладываем
