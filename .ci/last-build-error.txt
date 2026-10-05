@@ -1,0 +1,246 @@
+# Ошибка сборки
+
+- commit: 62e12918dd55408f69afe5b1daf2f1a08cde9388
+- ref: main
+- date: 2026-10-05T18:59:11Z
+
+## Строки ошибок
+```
+16:> Configure project :app
+19:> Task :app:preBuild UP-TO-DATE
+20:> Task :app:preDebugBuild UP-TO-DATE
+21:> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+22:> Task :app:checkKotlinGradlePluginConfigurationErrors
+23:> Task :app:checkDebugAarMetadata
+24:> Task :app:processDebugNavigationResources
+25:> Task :app:generateDebugResValues
+26:> Task :app:compileDebugNavigationResources
+27:> Task :app:mapDebugSourceSetPaths
+28:> Task :app:generateDebugResources
+29:> Task :app:packageDebugResources
+30:> Task :app:mergeDebugResources
+31:> Task :app:createDebugCompatibleScreenManifests
+32:> Task :app:extractDeepLinksDebug
+33:> Task :app:parseDebugLocalResources
+34:> Task :app:processDebugMainManifest
+35:> Task :app:processDebugManifest
+36:> Task :app:javaPreCompileDebug
+37:> Task :app:mergeDebugShaders
+38:> Task :app:compileDebugShaders NO-SOURCE
+39:> Task :app:generateDebugAssets UP-TO-DATE
+40:> Task :app:mergeDebugAssets
+41:> Task :app:compressDebugAssets
+42:> Task :app:desugarDebugFileDependencies
+43:> Task :app:mergeDebugJniLibFolders
+44:> Task :app:processDebugManifestForPackage
+45:> Task :app:checkDebugDuplicateClasses
+46:> Task :app:processDebugResources
+47:> Task :app:mergeExtDexDebug
+48:> Task :app:mergeLibDexDebug
+49:> Task :app:mergeDebugNativeLibs
+50:> Task :app:validateSigningDebug
+51:> Task :app:writeDebugAppMetadata
+52:> Task :app:writeDebugSigningConfigVersions
+53:> Task :app:preReleaseBuild UP-TO-DATE
+55:> Task :app:stripDebugDebugSymbols
+58:> Task :app:mergeReleaseJniLibFolders
+59:> Task :app:mergeReleaseNativeLibs
+61:> Task :app:stripReleaseDebugSymbols
+64:> Task :app:checkReleaseDuplicateClasses
+65:> Task :app:buildKotlinToolingMetadata
+66:> Task :app:extractReleaseNativeSymbolTables
+67:> Task :app:checkReleaseAarMetadata
+68:> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+69:> Task :app:processReleaseNavigationResources
+70:> Task :app:compileReleaseNavigationResources
+71:> Task :app:generateReleaseResValues
+72:> Task :app:mapReleaseSourceSetPaths
+73:> Task :app:generateReleaseResources
+74:> Task :app:packageReleaseResources
+75:> Task :app:createReleaseCompatibleScreenManifests
+76:> Task :app:extractDeepLinksRelease
+77:> Task :app:parseReleaseLocalResources
+78:> Task :app:processReleaseMainManifest
+79:> Task :app:processReleaseManifest
+80:> Task :app:processReleaseManifestForPackage
+81:> Task :app:javaPreCompileRelease
+82:> Task :app:desugarReleaseFileDependencies
+83:> Task :app:mergeReleaseStartupProfile
+84:> Task :app:mergeReleaseResources
+85:> Task :app:kspDebugKotlin
+86:> Task :app:mergeExtDexRelease
+87:> Task :app:mergeReleaseArtProfile
+88:> Task :app:processReleaseResources
+89:> Task :app:mergeReleaseShaders
+90:> Task :app:compileReleaseShaders NO-SOURCE
+91:> Task :app:generateReleaseAssets UP-TO-DATE
+92:> Task :app:mergeReleaseAssets
+93:> Task :app:compressReleaseAssets
+94:> Task :app:extractReleaseVersionControlInfo
+95:> Task :app:extractProguardFiles
+96:> Task :app:kspReleaseKotlin
+97:> Task :app:optimizeReleaseResources
+98:> Task :app:collectReleaseDependencies
+99:> Task :app:sdkReleaseDependencyData
+100:> Task :app:writeReleaseAppMetadata
+101:> Task :app:writeReleaseSigningConfigVersions
+102:> Task :app:compileDebugKotlin
+103:> Task :app:compileReleaseKotlin
+111:> Task :app:compileDebugKotlin
+119:> Task :app:compileReleaseJavaWithJavac
+120:> Task :app:compileDebugJavaWithJavac
+121:> Task :app:dexBuilderDebug
+122:> Task :app:mergeDebugGlobalSynthetics
+123:> Task :app:processDebugJavaRes
+124:> Task :app:mergeProjectDexDebug
+125:> Task :app:mergeDebugJavaResource
+126:> Task :app:dexBuilderRelease
+127:> Task :app:mergeReleaseGlobalSynthetics
+128:> Task :app:generateReleaseLintVitalReportModel
+129:> Task :app:mergeDexRelease
+130:> Task :app:processReleaseJavaRes
+131:> Task :app:packageDebug
+132:> Task :app:createDebugApkListingFileRedirect
+133:> Task :app:assembleDebug
+134:> Task :app:mergeReleaseJavaResource
+135:> Task :app:compileReleaseArtProfile
+136:> Task :app:lintVitalAnalyzeRelease
+137:> Task :app:lintVitalReportRelease
+138:> Task :app:lintVitalRelease
+139:> Task :app:packageRelease FAILED
+141:> Task :app:generateApkSha256
+146:FAILURE: Build failed with an exception.
+148:* What went wrong:
+149:Execution failed for task ':app:packageRelease'.
+150:> A failure occurred while executing com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnable
+154:> Run with --info or --debug option to get more log output.
+155:> Run with --scan to get full insights.
+156:> Get more help at https://help.gradle.org.
+159:org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:packageRelease'.
+221:Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnable
+380:Caused by: java.lang.NullPointerException: SigningConfig "release" is missing required property "keyPassword".
+```
+
+## Хвост лога
+```
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:64)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:41)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:111)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:46)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
+Caused by: java.lang.NullPointerException: SigningConfig "release" is missing required property "keyPassword".
+	at com.google.common.base.Preconditions.checkNotNull(Preconditions.java:1011)
+	at com.android.build.gradle.internal.packaging.IncrementalPackagerBuilder.withSigning(IncrementalPackagerBuilder.java:178)
+	at com.android.build.gradle.tasks.PackageAndroidArtifact$Companion.doTask(PackageAndroidArtifact.kt:1089)
+	at com.android.build.gradle.tasks.PackageAndroidArtifact$Companion.access$doTask(PackageAndroidArtifact.kt:921)
+	at com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnable.doExecute(PackageAndroidArtifact.kt:524)
+	at com.android.build.gradle.internal.workeractions.WorkActionAdapter.execute(WorkActionAdapter.kt:38)
+	at com.android.build.gradle.tasks.PackageAndroidArtifact$IncrementalSplitterRunnable.execute(PackageAndroidArtifact.kt:488)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:62)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:59)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:174)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:194)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:127)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:169)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:132)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:164)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:133)
+	... 2 more
+
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 4m 57s
+91 actionable tasks: 91 executed
+```

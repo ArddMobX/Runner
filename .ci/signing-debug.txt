@@ -1,0 +1,1 @@
+keyFileExists=true pathBlank=false storePassLen=7 keyPassLen=7 keyAlias=runner hasSigningConfig=true
