@@ -155,23 +155,196 @@ private val PLAN_ACTION_HINTS = listOf(
 )
 
 /**
- * Деструктивные тулы: план с такими шагами всегда показываем на подтверждение.
- * Безопасные (поиск, чтение, листинги, сводки) исполняются молча.
+ * Шаг утверждённого плана: имя инструмента и исходный текст шага.
+ * Текст нужен, чтобы привязать одобрение к аргументам, а не только к имени тула.
  */
-private val DESTRUCTIVE_PLAN_TOOLS = setOf("delete_file", "write_file", "organize_downloads")
+private data class PlanStep(
+    val tool: String,
+    val rawText: String
+)
 
-/** Все известные имена тулов — для привязки шагов плана к подтверждениям. */
-private val KNOWN_PLAN_TOOLS = setOf(
+/**
+ * Аргументы-пути каждого инструмента. Предодобрение плана сверяется именно
+ * с ними: вызов с именем из плана, но с другим путём, снова уходит на
+ * подтверждение. Первый набор — просто список значений, второй — значения,
+ * внутри которых лежит массив путей.
+ */
+private val PATH_ARGS: Map<String, List<String>> = mapOf(
+    "read_file" to listOf("path"),
+    "write_file" to listOf("path"),
+    "delete_file" to listOf("path"),
+    "create_dir" to listOf("path"),
+    "list_dir" to listOf("path"),
+    "get_folder_summary" to listOf("path"),
+    "search_files" to listOf("path"),
+    "move_file" to listOf("source_path", "destination_path"),
+    "copy_file" to listOf("source_path", "destination_path"),
+    "extract_archive" to listOf("zip_path", "target_dir"),
+    "create_archive" to listOf("zip_path", "source_paths")
+)
+
+/** Не-путевые аргументы, которые тоже привязывают одобрение к конкретному действию. */
+private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
+    "run_shell_command" to listOf("command"),
+    "open_url" to listOf("url"),
+    "open_app" to listOf("app")
+)
+
+/** Все аргументы, которые участвуют в сверке с текстом плана. */
+private val CRITICAL_ARGS_BY_TOOL: Map<String, List<String>> =
+    PATH_ARGS + EXTRA_CRITICAL_ARGS
+
+/** Инструменты, которые вообще могут попасть в предодобрение плана. */
+private val KNOWN_PLAN_TOOLS: Set<String> = setOf(
     "list_dir", "get_folder_summary", "read_file", "write_file", "delete_file",
     "create_dir", "move_file", "copy_file", "search_files", "create_archive",
     "extract_archive", "organize_downloads", "get_storage_summary",
     "find_largest_files", "find_junk_files", "clipboard_read", "clipboard_write",
-    "run_shell_command"
+    "run_shell_command", "open_app", "open_url"
 )
 
-/** Имена тулов, упомянутые в шагах плана («1. write_file - ...»). */
-private fun extractPlanTools(steps: List<String>): Set<String> =
-    steps.flatMap { step -> KNOWN_PLAN_TOOLS.filter { tool -> step.contains(tool) } }.toSet()
+/**
+ * Шаг плана, у которого уже срезан номер: «tool_name — что сделать».
+ * Номера снимает extractPlanStepLines, поэтому цифры здесь не обязательны.
+ */
+private val PLAN_STEP_LINE = Regex("""^\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""")
+
+/**
+ * Мягкие переносы модели вставляют в длинные пути. Их надо именно удалять:
+ * замена на пробел рвёт путь («Do cuments» вместо «Documents») и ломает сверку.
+ * Неразрывный пробел, наоборот, приводим к обычному.
+ */
+private fun normalizeForMatch(value: String): String = value
+    .replace("\u00AD", "")
+    .replace('\u2011', '-')
+    .replace('\u00A0', ' ')
+    .replace('\uFF0F', '/')
+    .replace('\\', '/')
+    .replace(Regex("/+"), "/")
+    .trim()
+    .trimEnd('/')
+    .lowercase()
+
+/**
+ * Разбирает шаги плана в пары «инструмент + текст шага».
+ * Возвращает пустой список, если план не распознан: пустой список означает
+ * «ничего не предодобрено», то есть все опасные вызовы пойдут на подтверждение.
+ */
+private fun parsePlanSteps(steps: List<String>): List<PlanStep> =
+    steps.mapNotNull { line ->
+        val match = PLAN_STEP_LINE.find(line.trim()) ?: return@mapNotNull null
+        val tool = match.groupValues[1]
+        if (tool !in KNOWN_PLAN_TOOLS) return@mapNotNull null
+        PlanStep(tool = tool, rawText = line.trim())
+    }
+
+/** Значения только путевых аргументов вызова. */
+private fun pathArgValues(toolName: String, argsJson: String): List<String> {
+    val keys = PATH_ARGS[toolName] ?: return emptyList()
+    return argValues(argsJson, keys)
+}
+
+/** Значения перечисленных ключей: строки и элементы массивов. */
+private fun argValues(argsJson: String, keys: List<String>): List<String> {
+    val args = try {
+        if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
+    } catch (e: Exception) {
+        return emptyList()
+    }
+    return keys.flatMap { key ->
+        when (val value = args.opt(key)) {
+            is String -> listOf(value)
+            is JSONArray -> (0 until value.length()).mapNotNull { value.optString(it, "").takeIf(String::isNotBlank) }
+            else -> emptyList()
+        }
+    }.filter { it.isNotBlank() }
+}
+
+/** Значения критичных аргументов вызова: строки и элементы массивов. */
+private fun criticalArgValues(toolName: String, argsJson: String): List<String> =
+    argValues(argsJson, CRITICAL_ARGS_BY_TOOL[toolName] ?: return emptyList())
+
+/** Инструменты, у которых путь обязателен: без пути в плане не предодобряем. */
+private val PATH_REQUIRED_TOOLS: Set<String> = setOf(
+    "read_file", "write_file", "delete_file", "create_dir", "list_dir",
+    "get_folder_summary", "search_files", "move_file", "copy_file",
+    "extract_archive", "create_archive"
+)
+
+/**
+ * Вызов покрыт утверждённым планом?
+ *
+ * Мало совпадения по имени: аргументы должны быть теми же, что были в шаге
+ * плана, который пользователь видел на экране. Иначе модель может один раз
+ * показать невинный шаг и выполнить совсем другое действие молча.
+ * При любом сомнении возвращаем false — это отправит вызов на подтверждение.
+ */
+private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson: String): Boolean {
+    if (planSteps.isNullOrEmpty()) return false
+
+    val cleanTool = toolName.substringAfterLast(":")
+    val candidates = planSteps.filter { it.tool == cleanTool }
+    if (candidates.isEmpty()) return false
+
+    // Файловая операция без абсолютного пути в аргументах не покрывается планом:
+    // иначе модель могла бы назвать в плане один файл, а тронуть другой.
+    if (cleanTool in PATH_REQUIRED_TOOLS) {
+        val paths = pathArgValues(cleanTool, argsJson)
+        if (paths.isEmpty() || paths.none { it.contains('/') }) return false
+    }
+
+    val values = criticalArgValues(cleanTool, argsJson)
+
+    // У инструмента есть критичные аргументы, но разобрать их не удалось — не рискуем.
+    val expectedKeys = CRITICAL_ARGS_BY_TOOL[cleanTool]
+    if (!expectedKeys.isNullOrEmpty() && values.isEmpty()) return false
+
+    return candidates.any { step ->
+        val haystack = normalizeForMatch(step.rawText)
+        values.all { value -> haystack.contains(normalizeForMatch(value)) }
+    }
+}
+
+/** Инструменты, чей вывод считается недоверенным содержимым. */
+private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf("read_file", "list_dir", "clipboard_read")
+
+/** Признаки ошибки в выводе инструмента, проверяются по началу любой строки. */
+private val TOOL_ERROR_PREFIXES = listOf("Ошибка", "Не удалось", "Не могу", "Запрещено")
+
+/**
+ * Ошибка ли это в выводе инструмента.
+ *
+ * Раньше проверялось начало всего текста, а большинство инструментов
+ * предваряют результат строкой `resolved_path:` — из-за этого ошибка
+ * («Ошибка: родительской папки нет») не распознавалась и карточка выглядела
+ * успешной. Теперь смотрим начало каждой строки.
+ */
+private fun looksLikeToolError(output: String): Boolean {
+    val lines = output.lineSequence()
+    for (raw in lines) {
+        val line = raw.trimStart()
+        if (line.isEmpty()) continue
+        if (TOOL_ERROR_PREFIXES.any { line.startsWith(it) }) return true
+        if (line.contains("Exception", ignoreCase = true)) return true
+    }
+    return false
+}
+
+/**
+ * Аргумент похож на строку из недоверенного вывода?
+ * Сравнение по целой строке: подстрочное давало бы ложные срабатывания на
+ * коротких значениях вроде имени файла.
+ */
+private fun isDerivedFromUntrusted(untrusted: Set<String>, toolName: String, argsJson: String): Boolean {
+    if (untrusted.isEmpty()) return false
+    val clean = toolName.substringAfterLast(":")
+    val values = criticalArgValues(clean, argsJson)
+    if (values.isEmpty()) return false
+    return values.any { value ->
+        val needle = value.trim()
+        needle.length >= 4 && untrusted.any { it.trim() == needle }
+    }
+}
 
 /**
  * Системный промпт фазы планирования. Формат строгий: слабые модели
@@ -180,11 +353,11 @@ private fun extractPlanTools(steps: List<String>): Set<String> =
  */
 private const val PLAN_SYSTEM_PROMPT = """
 Ты планировщик мобильного агента Runner для Android. Разложи задачу пользователя на пошаговый план работы с инструментами.
-Доступные инструменты: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file, search_files, create_archive, extract_archive, organize_downloads, get_storage_summary, find_largest_files, find_junk_files, clipboard_read, clipboard_write, run_shell_command.
+Доступные инструменты: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file, search_files, create_archive, extract_archive, organize_downloads, get_storage_summary, find_largest_files, find_junk_files, clipboard_read, clipboard_write, run_shell_command, open_app, open_url.
 Правила вывода:
 - Выведи ТОЛЬКО нумерованный список шагов, по одному на строку: "1. имя_инструмента - что сделать".
 - Используй только инструменты из списка выше.
-- Пути указывай абсолютные от корня /storage/emulated/0.
+- Пути указывай абсолютные от корня /storage/emulated/0, а для run_shell_command — саму команду целиком.
 - Никаких вступлений, пояснений и заключений.
 - Если задача решается одним текстовым ответом без инструментов, выведи одну строку: БЕЗ_ИНСТРУМЕНТОВ.
 """
@@ -300,11 +473,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingPlan: StateFlow<PlanProposal?> = _pendingPlan.asStateFlow()
 
     /**
-     * Тулы, покрытые утверждённым планом: после кнопки «Утвердить» (и для
-     * безопасного плана, исполняемого молча) шторки подтверждения по этим
-     * именам не показываются. Сбрасывается при каждом новом сообщении.
+     * Шаги утверждённого плана. После кнопки «Утвердить» (и для безопасного
+     * плана, исполняемого молча) шторка не показывается только тем вызовам,
+     * чьи аргументы совпадают с шагом, который пользователь видел на экране.
+     * Сбрасывается при каждом новом сообщении и при перезапуске хода.
      */
-    private var approvedPlanTools: Set<String>? = null
+    private var approvedPlanSteps: List<PlanStep>? = null
+
+    /**
+     * Строки из последнего недоверенного вывода (read_file, list_dir,
+     * clipboard_read). Если аргумент следующего опасного вызова целиком
+     * совпадает с такой строкой, значит значение пришло из файла или буфера,
+     * а не от пользователя: такую операцию подтверждаем руками, даже если
+     * она попала в утверждённый план. Это барьер против prompt injection.
+     */
+    private var untrustedLines: Set<String> = emptySet()
 
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
@@ -639,7 +822,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopGeneration() {
         stopRequested = true
+        // Обрыв текущего HTTP-запроса.
         apiClient.cancelActive()
+        // Корутину хода намеренно НЕ отменяем. Отмена может прервать запись
+        // ответа инструмента в историю, а assistant с tool_calls без ответа
+        // провайдер отклоняет. Вместо этого флаг stopRequested проверяется в
+        // цикле агента, а паузы между ретраями опрашиваются через shouldStop.
         // Разблокировать ожидание решения по плану: дальше проверка stopRequested остановит цикл.
         resolvePlan(false)
         _currentStatus.value = "Останавливаю"
@@ -686,7 +874,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         stopRequested = false
-        approvedPlanTools = null
+        approvedPlanSteps = null
+        untrustedLines = emptySet()
         val userMessageId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
@@ -799,7 +988,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _messages.value = _messages.value.take(index + 1)
         stopRequested = false
-        approvedPlanTools = null
+        approvedPlanSteps = null
+        untrustedLines = emptySet()
         _streamingText.value = ""
         _isRunning.value = true
 
@@ -818,13 +1008,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Обрезает контекст по последнему совпадению с текстом пользователя. */
+    /**
+     * Обрезает контекст по последнему совпадению с текстом пользователя.
+     * Ищем с конца: при повторе одного и того же сообщения (кнопка «Заново»)
+     * поиск с начала обрезал бы историю не по тому месту и ломал диалог.
+     */
     private fun trimContextToUser(text: String) {
-        val trimmed = JSONArray()
+        var lastMatch = -1
         for (i in 0 until conversationJson.length()) {
             val item = conversationJson.optJSONObject(i) ?: continue
-            trimmed.put(item)
-            if (item.optString("role") == "user" && item.optString("content") == text) break
+            if (item.optString("role") == "user" && item.optString("content") == text) {
+                lastMatch = i
+            }
+        }
+        if (lastMatch < 0) return
+
+        val trimmed = JSONArray()
+        for (i in 0..lastMatch) {
+            conversationJson.optJSONObject(i)?.let { trimmed.put(it) }
         }
         conversationJson = trimmed
     }
@@ -868,7 +1069,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             temperature = 0.1,
             streaming = false,
             metrics = metrics,
-            withTools = false
+            withTools = false,
+            providerKind = provider.kind,
+            officialDeepSeekHost = provider.isOfficialDeepSeekHost
         )
 
         val planText = when (result) {
@@ -887,11 +1090,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (planText.isBlank()) return null
         if (planText.contains(NO_TOOLS_MARKER)) return null
 
-        val steps = parsePlanSteps(planText)
+        val stepLines = extractPlanStepLines(planText)
         // План не распознан: в чат ничего не выводим, исполняемся напрямую.
-        if (steps.isEmpty()) {
+        if (stepLines.isEmpty()) {
             return null
         }
+        val planSteps = parsePlanSteps(stepLines)
 
         val planMessageId = UUID.randomUUID().toString()
         val planMessage = ChatMessage(
@@ -912,16 +1116,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         fun planNoteText(): String = buildString {
             append("План по шагам (не пропускай шаги, не выдумывай свои инструменты):\n")
-            steps.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
+            stepLines.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
         }
 
-        // Диалог — только при деструктивных шагах (удаление, перезапись, очистка).
-        // Безопасный план исполняется молча, без паузы на согласование.
-        val needsApproval = steps.any { step ->
-            DESTRUCTIVE_PLAN_TOOLS.any { tool -> step.contains(tool) }
-        }
+        // Диалог нужен, если в плане есть хоть одна опасная операция.
+        // Список опасных — один на весь проект (ToolDispatcher.DANGEROUS_OPERATIONS),
+        // иначе планировщик и гейт подтверждения разъезжаются, как было раньше:
+        // run_shell_command и move_file в плане диалог не открывали вообще.
+        val needsApproval = planSteps.any { ToolDispatcher.isCriticalOperation(it.tool) }
         if (!needsApproval) {
-            approvedPlanTools = extractPlanTools(steps)
+            approvedPlanSteps = planSteps
             return planNoteText()
         }
 
@@ -929,7 +1133,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val approved = suspendCancellableCoroutine { continuation ->
             _pendingPlan.value = PlanProposal(
                 id = planMessageId,
-                steps = steps,
+                steps = stepLines,
                 rawText = planText,
                 onDecision = { decision ->
                     if (continuation.isActive) continuation.resume(decision)
@@ -939,13 +1143,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _pendingPlan.value = null
 
         return if (approved && !stopRequested) {
-            // План утверждён кнопкой: все его шаги предварительно одобрены,
-            // шторки подтверждения по этим тулам больше не показываем.
-            approvedPlanTools = extractPlanTools(steps)
+            // Одобрены ровно те шаги, которые пользователь видел на экране.
+            // Вызов с тем же именем, но другими аргументами, снова спросит.
+            approvedPlanSteps = planSteps
             buildString {
                 append("Утверждённый пользователем план, строго следуй ему по шагам ")
                 append("(не пропускай шаги, не выдумывай свои инструменты):\n")
-                steps.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
+                stepLines.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
             }
         } else {
             null
@@ -953,7 +1157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Строки вида "1. ..." / "1) ..." — остальное игнорируем. */
-    private fun parsePlanSteps(text: String): List<String> {
+    private fun extractPlanStepLines(text: String): List<String> {
         val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
         return text.lines()
             .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
@@ -969,6 +1173,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var totalPromptTokens = 0
         var totalCompletionTokens = 0
         var step = 0
+
+        // Ответ этого хода. Плашку статистики вешаем именно на него, а не на
+        // последний ASSISTANT всей ленты: при ошибке или выводе только тулов
+        // тайминги прилипали к чужому, более старому сообщению.
+        var turnAssistantId: String? = null
 
         while (step < currentSettings.maxSteps && !stopRequested) {
             step++
@@ -1000,7 +1209,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _currentStatus.value = "Повтор через ${delayMillis / 1000} с · $message"
                     }
                 },
-                metrics = metrics
+                metrics = metrics,
+                contextBudgetChars = currentSettings.contextBudgetChars,
+                // Тип провайдера и признак официального хоста DeepSeek: от них
+                // зависит, какие необязательные поля запроса безопасно слать.
+                providerKind = provider.kind,
+                officialDeepSeekHost = provider.isOfficialDeepSeekHost,
+                // Стоп должен работать и во время паузы между ретраями,
+                // иначе кнопка «висит», а запрос всё равно уходит повторно.
+                shouldStop = { stopRequested }
             )
 
             metrics.promptTokens?.let { totalPromptTokens += it }
@@ -1008,22 +1225,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             when (result) {
                 is AIResponseResult.Cancelled -> {
-                    finalizeStreamedText(sessionId, stopped = true)
-                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
+                    turnAssistantId = finalizeStreamedText(sessionId, stopped = true) ?: turnAssistantId
+                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
                     return
                 }
 
                 is AIResponseResult.Error -> {
-                    finalizeStreamedText(sessionId, stopped = false)
+                    turnAssistantId = finalizeStreamedText(sessionId, stopped = false) ?: turnAssistantId
                     appendSystemInfo(result.message, null)
-                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
+                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
                     return
                 }
 
                 is AIResponseResult.TextResult -> {
                     val reply = result.text.ifBlank { "Готово." }
                     _streamingText.value = ""
-                    saveAssistantMessage(
+                    turnAssistantId = saveAssistantMessage(
                         sessionId = sessionId,
                         text = reply,
                         reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
@@ -1038,7 +1255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     )
                     persistContext(sessionId)
-                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
+                    attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
                     return
                 }
 
@@ -1050,13 +1267,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     conversationJson.put(result.assistantMessageJson)
                     persistContext(sessionId)
 
-                    for (call in result.toolCalls) {
-                        if (stopRequested) break
-                        executeToolCall(sessionId, call)
+                    val executed = mutableSetOf<Int>()
+                    result.toolCalls.forEachIndexed { index, call ->
+                        if (!stopRequested) {
+                            executeToolCall(sessionId, call)
+                            executed += index
+                        }
                     }
 
+                    // Стоп посреди пачки тулов оставлял assistant с tool_calls без
+                    // ответов tool. Следующий запрос за такую историю провайдер
+                    // отклоняет (400), поэтому досылаем заглушки для невыполненных.
+                    closeUnansweredToolCalls(sessionId, result, executed)
+
                     if (preText.isNotBlank()) {
-                        saveAssistantMessage(
+                        turnAssistantId = saveAssistantMessage(
                             sessionId = sessionId,
                             text = preText,
                             reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
@@ -1068,31 +1293,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (stopRequested) {
-            finalizeStreamedText(sessionId, stopped = true)
+            turnAssistantId = finalizeStreamedText(sessionId, stopped = true) ?: turnAssistantId
         } else {
             appendSystemInfo(
                 "Достигнут лимит шагов (${currentSettings.maxSteps}). Увеличьте лимит в настройках агента.",
                 null
             )
         }
-        attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats)
+        attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
     }
 
     /**
-     * Дописывает в последний ответ общее время пайплайна и суммарные токены.
-     * Плашка «сколько заняла вся задача» вешается именно на финальный ответ.
+     * Дописывает в ответ этого хода общее время пайплайна и суммарные токены.
+     * [assistantMessageId] — id ответа, созданного в текущем ходе. Если его нет
+     * (ход закончился только выводом инструментов), плашку не вешаем вовсе:
+     * раньше статистика прилипала к последнему ASSISTANT во всей ленте, то есть
+     * к ответу предыдущего хода.
      */
     private suspend fun attachTurnStats(
         sessionId: String,
         turnStartedAt: Long,
         promptTokens: Int,
         completionTokens: Int,
-        enabled: Boolean
+        enabled: Boolean,
+        assistantMessageId: String? = null
     ) {
         if (!enabled) return
 
-        val lastAssistant = _messages.value.lastOrNull { it.role == MessageRole.ASSISTANT } ?: return
-        val updated = lastAssistant.copy(
+        val target = assistantMessageId?.let { id -> _messages.value.firstOrNull { it.id == id } }
+            ?: return
+        val updated = target.copy(
             durationMs = System.currentTimeMillis() - turnStartedAt,
             promptTokens = promptTokens.takeIf { it > 0 },
             completionTokens = completionTokens.takeIf { it > 0 }
@@ -1100,6 +1330,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _messages.value = _messages.value.map { if (it.id == updated.id) updated else it }
         repository.saveMessage(updated.toEntity(sessionId))
+    }
+
+    /**
+     * Досылает заглушки tool-ответов для вызовов, которые не успели выполниться.
+     *
+     * Без этого остановка посреди пачки инструментов оставляла в истории
+     * assistant с tool_calls и без ответов на часть из них. Провайдер такой
+     * диалог отклоняет, и следующий запрос падал с 400.
+     */
+    private suspend fun closeUnansweredToolCalls(
+        sessionId: String,
+        result: AIResponseResult.ToolCallsResult,
+        executedIndexes: Set<Int>
+    ) {
+        // Индексы, а не id: у части провайдеров id вызова пустой, и два вызова
+        // одного инструмента дали бы одинаковый ключ.
+        var added = false
+        result.toolCalls.forEachIndexed { index, call ->
+            if (index in executedIndexes) return@forEachIndexed
+            conversationJson.put(
+                JSONObject().apply {
+                    put("role", "tool")
+                    put("tool_call_id", call.id)
+                    put("name", call.name)
+                    put("content", "Операция не выполнена: пользователь остановил генерацию.")
+                }
+            )
+            added = true
+        }
+        if (added) persistContext(sessionId)
     }
 
     /**
@@ -1122,7 +1382,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ) {
             return ToolDispatcher.deleteSelectedFiles(allIds.filter { it in selected })
         }
-        return ToolDispatcher.execute(call.name, call.arguments, getApplication())
+        return ToolDispatcher.execute(
+            call.name,
+            call.arguments,
+            getApplication(),
+            _settings.value.shellOutsideStorage
+        )
     }
 
     private suspend fun executeToolCall(sessionId: String, call: ToolCall) {
@@ -1144,12 +1409,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // в это число не входит, иначе тайминг теряет смысл.
         var toolDurationMs: Long? = null
 
-        // Режим «Спрашивать каждый шаг» поднимает до подтверждения даже безопасные
-        // чтение/поиск. По умолчанию («Только опасные действия») они идут молча.
-        // Шаги утверждённого плана уже одобрены кнопкой «Утвердить» — шторку
-        // показываем только для внезапных действий вне плана («Без плана»).
-        val preApproved = approvedPlanTools?.contains(call.name.substringAfterLast(":")) == true
-        val needConfirm = (ToolDispatcher.isCriticalOperation(call.name) || _settings.value.confirmEveryStep) && !preApproved
+        // Проверка опасности идёт здесь, в момент исполнения, и не зависит от
+        // того, был ли план. Предодобрение плана снимает шторку только для тех
+        // вызовов, чьи аргументы совпадают с шагом, который пользователь видел:
+        // одного совпадения по имени тула недостаточно.
+        val isDangerous = ToolDispatcher.isCriticalOperation(call.name)
+        val preApproved = isDangerous && isPreApproved(approvedPlanSteps, call.name, call.arguments)
+        val fromUntrusted = isDangerous &&
+                isDerivedFromUntrusted(untrustedLines, call.name, call.arguments)
+        val needConfirm = (isDangerous || _settings.value.confirmEveryStep) &&
+                (!preApproved || fromUntrusted)
         val output = if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
@@ -1184,16 +1453,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
             val startedAt = System.currentTimeMillis()
-            val result = ToolDispatcher.execute(call.name, call.arguments, getApplication())
+            val result = ToolDispatcher.execute(
+                call.name,
+                call.arguments,
+                getApplication(),
+                _settings.value.shellOutsideStorage
+            )
             toolDurationMs = System.currentTimeMillis() - startedAt
             result
         }
 
-        val isError = !declined && (
-                output.startsWith("Ошибка") ||
-                        output.startsWith("Не удалось") ||
-                        output.contains("Exception", ignoreCase = true)
-                )
+        // Содержимое read_file / list_dir / clipboard_read запоминаем: если
+        // следующий опасный вызов возьмёт аргумент прямо оттуда, он снова
+        // уйдёт на подтверждение, даже если попал в утверждённый план.
+        if (!declined && call.name.substringAfterLast(":") in UNTRUSTED_OUTPUT_TOOLS) {
+            val lines = output.lineSequence()
+                .map { it.trim() }
+                .filter { it.length in 4..300 && it.none { ch -> ch == '\u0000' } }
+                .toSet()
+            if (lines.isNotEmpty()) untrustedLines = untrustedLines + lines
+        }
+
+        val isError = !declined && looksLikeToolError(output)
         val summary = ToolDispatcher.summarizeResult(output)
 
         _messages.value = _messages.value.map { message ->
@@ -1238,18 +1519,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistContext(sessionId)
     }
 
-    /** Сохраняет текст, который успел накопиться в стриме, если ответ оборвался. */
-    private suspend fun finalizeStreamedText(sessionId: String, stopped: Boolean) {
+    /**
+     * Сохраняет текст, который успел накопиться в стриме, если ответ оборвался.
+     * Возвращает id созданного сообщения (null, если текста не было).
+     */
+    private suspend fun finalizeStreamedText(sessionId: String, stopped: Boolean): String? {
         val partial = _streamingText.value.trim()
         _streamingText.value = ""
 
         if (partial.isBlank()) {
             if (stopped) appendSystemInfo("Генерация остановлена.", null)
-            return
+            return null
         }
 
         val text = if (stopped) "$partial\n\n_Остановлено._" else partial
-        saveAssistantMessage(sessionId, text)
+        val id = saveAssistantMessage(sessionId, text)
         conversationJson.put(
             JSONObject().apply {
                 put("role", "assistant")
@@ -1257,6 +1541,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         )
         persistContext(sessionId)
+        return id
     }
 
     private suspend fun saveAssistantMessage(
@@ -1266,7 +1551,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reasoningMs: Long? = null,
         completionTokens: Int? = null,
         tokensPerSecond: Double? = null
-    ) {
+    ): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val message = ChatMessage(
@@ -1281,6 +1566,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _messages.value = _messages.value + message
         repository.saveMessage(message.toEntity(sessionId))
+        return id
     }
 
     private suspend fun persistContext(sessionId: String) {

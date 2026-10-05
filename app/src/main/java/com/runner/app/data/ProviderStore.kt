@@ -5,6 +5,24 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * Тип провайдера. Определяет, какие необязательные поля запроса ему можно слать.
+ * Раньше это угадывалось по подстроке в URL, из-за чего, например, поле
+ * `thinking` уходило на любой адрес со словом deepseek.com, включая чужие прокси.
+ */
+enum class ProviderKind {
+    OPENAI_COMPATIBLE,
+    GEMINI,
+    DEEPSEEK
+}
+
+/** Хосты, по которым узнаём провайдера, если его id нестандартный. */
+private fun hostOf(url: String): String = url
+    .substringAfter("://", url)
+    .substringBefore('/')
+    .substringBefore('?')
+    .lowercase()
+
+/**
  * Провайдер — это имя, Base URL, свой ключ и список моделей.
  * Ключ хранится только здесь (в зашифрованном виде) и никуда не логируется.
  */
@@ -23,6 +41,23 @@ data class Provider(
     val activeModel: String get() = selectedModel.ifBlank { models.firstOrNull()?.id.orEmpty() }
 
     fun modelIds(): List<String> = models.map { it.id }
+
+    /**
+     * Тип провайдера: сначала по id пресета, потом по хосту Base URL.
+     * Пользователь может переименовать провайдера, но id остаётся прежним.
+     */
+    val kind: ProviderKind get() = when {
+        id == "gemini" || name.contains("gemini", ignoreCase = true) -> ProviderKind.GEMINI
+        id == "deepseek" || name.contains("deepseek", ignoreCase = true) -> ProviderKind.DEEPSEEK
+        else -> when (hostOf(baseUrl)) {
+            "generativelanguage.googleapis.com" -> ProviderKind.GEMINI
+            "api.deepseek.com" -> ProviderKind.DEEPSEEK
+            else -> ProviderKind.OPENAI_COMPATIBLE
+        }
+    }
+
+    /** Base URL ведёт ровно на официальный DeepSeek, а не на похожий по имени прокси. */
+    val isOfficialDeepSeekHost: Boolean get() = hostOf(baseUrl) == "api.deepseek.com"
 }
 
 /**

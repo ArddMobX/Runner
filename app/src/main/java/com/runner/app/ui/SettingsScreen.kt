@@ -569,6 +569,42 @@ private fun SettingsRoot(
 
             SettingsDivider()
 
+            // Бюджет контекста: сколько истории реально уходит в запрос.
+            // Старые реплики отбрасываются целиком, вместе с ответами инструментов.
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Бюджет контекста",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Сколько истории диалога уходит в запрос. Старые шаги отбрасываются, " +
+                            "хвост и системный промпт сохраняются.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.CONTEXT_BUDGET_PRESETS.map { budget ->
+                        budget to when {
+                            budget >= 1_000_000 -> "${budget / 1_000_000}M"
+                            else -> "${budget / 1000}K"
+                        }
+                    },
+                    selected = appSettings.contextBudgetChars,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(contextBudgetChars = it)) }
+                )
+            }
+
+            SettingsDivider()
+
             // 4. Кастомные заголовки (Custom Headers)
             val customHeaders = appSettings.customHeaders
             var showSecrets by remember { mutableStateOf(false) }
@@ -952,6 +988,51 @@ private fun AgentSettings(viewModel: MainViewModel) {
             if (appSettings.confirmEveryStep) {
                 Text(
                     text = "Безопасные чтение и поиск тоже будут ждать подтверждения.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
+            }
+
+            SettingsDivider()
+
+            // Файловые инструменты заперты в /storage/emulated/0, а sh -c эту
+            // песочницу обходит. По умолчанию обход выключен: команды вроде
+            // df -h и ls /sdcard работают, а /data, /system и /proc — нет.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Shell вне памяти",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.shellOutsideStorage) {
+                            "Командам доступны любые пути"
+                        } else {
+                            "Только внутри /storage/emulated/0"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.shellOutsideStorage,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(shellOutsideStorage = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.shellOutsideStorage) {
+                Text(
+                    text = "Команды shell смогут читать системные разделы и данные других приложений. " +
+                            "Включайте только для конкретной задачи.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
