@@ -11,19 +11,34 @@ plugins {
 // ---------------------------------------------------------------------------
 // Подпись release-сборки.
 //
-// Ключ и пароли приходят из окружения: в CI — из секретов GitHub, локально —
-// из ~/.gradle/gradle.properties. В репозиторий они не попадают.
+// Каждое значение берётся одним из двух способов:
+//   1) RUNNER_ХХХ            — обычное свойство Gradle (локально, gradle.properties);
+//   2) RUNNER_ХХХ_FILE       — путь к файлу со значением (в CI, где пароли
+//                              передаются файлами: значение с обратным слешем,
+//                              двоеточием или переводом строки сломало бы
+//                              разбор файла свойств).
 //
-// Секреты (Settings -> Secrets and variables -> Actions):
-//   KEYSTORE_BASE64     — keystore, закодированный в base64
-//   KEYSTORE_PASSWORD   — пароль хранилища
-//   KEY_ALIAS           — имя ключа
-//   KEY_PASSWORD        — пароль ключа
+// Про окружение: в CI нужен префикс ORG_GRADLE_PROJECT_. Свои переменные с
+// префиксом RUNNER_ использовать нельзя — GitHub Actions его резервирует, и
+// переменная до шага не доходит. Именно на этом сборка падала: ключ
+// расшифровывался, а Gradle его не видел и считал подпись ненастроенной.
+//
+// Секреты среды release-signing (Settings -> Environments):
+//   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
 // ---------------------------------------------------------------------------
-val keystorePath: String = findProperty("RUNNER_KEYSTORE_PATH")?.toString().orEmpty()
-val keystorePassword: String = findProperty("RUNNER_KEYSTORE_PASSWORD")?.toString().orEmpty()
-val keyAlias: String = findProperty("RUNNER_KEY_ALIAS")?.toString().orEmpty()
-val keyPassword: String = findProperty("RUNNER_KEY_PASSWORD")?.toString().orEmpty()
+fun secretValue(name: String): String {
+    val direct = findProperty(name)?.toString()
+    if (!direct.isNullOrBlank()) return direct
+    val file = findProperty("${name}_FILE")?.toString() ?: return ""
+    if (file.isBlank()) return ""
+    val f = File(file)
+    return if (f.exists()) f.readText().trim() else ""
+}
+
+val keystorePath: String = secretValue("RUNNER_KEYSTORE_PATH")
+val keystorePassword: String = secretValue("RUNNER_KEYSTORE_PASSWORD")
+val keyAlias: String = secretValue("RUNNER_KEY_ALIAS")
+val keyPassword: String = secretValue("RUNNER_KEY_PASSWORD")
 val hasSigningConfig = keystorePath.isNotBlank() &&
         keystorePassword.isNotBlank() &&
         keyAlias.isNotBlank() &&
@@ -127,9 +142,9 @@ gradle.taskGraph.whenReady {
         throw GradleException(
             "Сборка release запрошена, но ключ подписи не настроен.\n" +
                     "Что видно сборке:\n$report\n" +
-                    "В CI эти свойства приходят из переменных окружения " +
-                    "ORG_GRADLE_PROJECT_RUNNER_* или из секретов KEYSTORE_BASE64, " +
-                    "KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.\n" +
+                    "В CI свойства приходят как ORG_GRADLE_PROJECT_RUNNER_* " +
+                    "(префикс RUNNER_ в переменных GitHub Actions зарезервирован " +
+                    "и до шага не доходит).\n" +
                     "Локально их можно положить в ~/.gradle/gradle.properties.\n" +
                     "Для обычной разработки используйте assembleDebug."
         )

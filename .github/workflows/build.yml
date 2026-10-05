@@ -65,6 +65,13 @@ jobs:
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # Мастер-ключ проверяем по-настоящему: он обязан декодироваться в JKS.
+          if [ -n "$SEC_KEYSTORE" ]; then
+            printf '%s' "$SEC_KEYSTORE" | base64 -d > /tmp/probe.jks
+            echo "base64 декодируется в $(stat -c%s /tmp/probe.jks) байт"
+            rm -f /tmp/probe.jks
+          fi
+
           if [ -z "$SEC_KEYSTORE" ]; then
             echo "::warning::KEYSTORE_BASE64 не подставлен — релиз собираться не будет."
             echo "Проверьте, что секреты добавлены именно в среду release-signing"
@@ -87,15 +94,38 @@ jobs:
           mkdir -p "$RUNNER_TEMP/signing"
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
           echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "размер ключа: $(stat -c%s "$RUNNER_TEMP/signing/release.jks") байт"
+
+      # Свойства подписи передаются Gradle через ORG_GRADLE_PROJECT_* — этот
+      # механизм Gradle поддерживает штатно, без разбора файла свойств.
+      #
+      # Почему не через RUNNER_*: GitHub Actions резервирует префикс RUNNER_,
+      # и такие переменные до шага не доходят. Из-за этого сборка видела
+      # расшифрованный ключ, но считала подпись ненастроенной.
+      #
+      # Пароли передаются не значением, а через файлы: значение с обратным
+      # слешем, двоеточием или переводом строки сломало бы разбор свойств.
+      - name: Configure signing properties
+        if: steps.keystore.outputs.configured == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS_VALUE: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD_VALUE: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$STORE_PASSWORD" > "$RUNNER_TEMP/signing/store.txt"
+          printf '%s' "$KEY_PASSWORD_VALUE" > "$RUNNER_TEMP/signing/key.txt"
+          printf '%s' "$KEY_ALIAS_VALUE" > "$RUNNER_TEMP/signing/alias.txt"
+          ls -l "$RUNNER_TEMP/signing/"
 
       - name: Build APK
         id: build
         continue-on-error: true
         env:
-          RUNNER_KEYSTORE_PATH: ${{ runner.temp }}/signing/release.jks
-          RUNNER_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          RUNNER_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          RUNNER_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_RUNNER_KEYSTORE_PATH: ${{ runner.temp }}/signing/release.jks
+          ORG_GRADLE_PROJECT_RUNNER_KEYSTORE_PASSWORD_FILE: ${{ runner.temp }}/signing/store.txt
+          ORG_GRADLE_PROJECT_RUNNER_KEY_ALIAS_FILE: ${{ runner.temp }}/signing/alias.txt
+          ORG_GRADLE_PROJECT_RUNNER_KEY_PASSWORD_FILE: ${{ runner.temp }}/signing/key.txt
         run: |
           set +e
           chmod +x gradlew
