@@ -90,16 +90,23 @@ android {
 
     signingConfigs {
         if (hasSigningConfig) {
-            create("release") {
-                storeFile = File(keystorePath)
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
-                // v1 обязателен для Android 8 (minSdk 26), v2/v3 — для новых.
-                enableV1Signing = true
-                enableV2Signing = true
-                enableV3Signing = true
-            }
+            // ВАЖНО: присваивание через переменную, а не в блочной форме.
+            //
+            // `create("release") { this.keyAlias = ...; this.keyPassword = ... }`
+            // молча терял эти два значения: storePassword доходил до объекта AGP,
+            // а keyAlias и keyPassword оставались null, и packageRelease падал с
+            // «SigningConfig release is missing required property keyPassword».
+            // Проверено чтением объекта сразу после создания. В форме
+            // `val cfg = create(...)` с последующими присваиваниями доходят все три.
+            val cfg = create("release")
+            cfg.storeFile = File(keystorePath)
+            cfg.storePassword = keystorePassword
+            cfg.keyAlias = keyAlias
+            cfg.keyPassword = keyPassword
+            // v1 обязателен для Android 8 (minSdk 26), v2/v3 — для новых.
+            cfg.enableV1Signing = true
+            cfg.enableV2Signing = true
+            cfg.enableV3Signing = true
         }
     }
 
@@ -146,34 +153,25 @@ android {
 // Неподписанный release ставить на устройство нельзя, и молча собирать его
 // нельзя тем более: без этой проверки assembleRelease на машине без ключа
 // выдаёт APK, который выглядит готовым, но никуда не устанавливается.
-// Диагностика подписи. Печатается на этапе конфигурации и дополнительно
-// дописывается в файл .ci/signing-debug.txt: логи шагов GitHub отдаёт только
-// авторизованным, а этот файл workflow публикует в ветку ci-errors, которую
-// можно прочитать без токена. Пароли показываются только длиной.
+//
+// Отладочная запись в .ci/signing-debug.txt убрана: она помогла найти причину
+// (присваивание в блочной форме молча теряло keyAlias и keyPassword), но в
+// рабочей сборке файловых побочек быть не должно.
 fun signingDiagnostics(): String = buildString {
     append("keyFileExists=").append(File(keystorePath).exists())
-    append(" pathBlank=").append(keystorePath.isBlank())
     append(" storePassLen=").append(keystorePassword.length)
     append(" keyPassLen=").append(keyPassword.length)
     append(" keyAlias=").append(if (keyAlias.isBlank()) "ПУСТО" else keyAlias)
     append(" hasSigningConfig=").append(hasSigningConfig)
 }
 
-run {
-    val line = signingDiagnostics()
-    println("::notice::Подпись на этапе конфигурации: $line")
-    try {
-        val dir = File(rootProject.projectDir, ".ci")
-        dir.mkdirs()
-        File(dir, "signing-debug.txt").writeText(line + "\n")
-    } catch (e: Exception) {
-        println("::warning::Не удалось записать диагностику подписи: ${e.message}")
-    }
-}
-
 gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.
     val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
+    if (wantsRelease) {
+        // Пароли показываются только длиной. Строка видна в логе сборки.
+        println("::notice::Подпись release: ${signingDiagnostics()}")
+    }
     if (wantsRelease && !hasSigningConfig) {
         // Отчёт по каждому условию отдельно: иначе непонятно, что именно
         // не сошлось — путь, пароль или сам файл ключа.
