@@ -121,7 +121,11 @@ jobs:
               echo "### Сборка упала (код $status)"
               echo
               echo '```'
-              tail -60 build.log
+              # Секция «What went wrong» идёт сразу после FAILURE и содержит
+              # сам текст ошибки — он важнее хвоста стека.
+              awk '/What went wrong/,/^\* Try:|^\* Get more help|^BUILD FAILED/' build.log | head -40
+              echo '--- хвост вывода ---'
+              tail -25 build.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi

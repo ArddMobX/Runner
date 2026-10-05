@@ -114,13 +114,23 @@ gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.
     val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
     if (wantsRelease && !hasSigningConfig) {
+        // Отчёт по каждому условию отдельно: иначе непонятно, что именно
+        // не сошлось — путь, пароль или сам файл ключа.
+        val report = buildString {
+            appendLine("RUNNER_KEYSTORE_PATH    = '${keystorePath.ifBlank { "<пусто>" }}'")
+            appendLine("  файл существует       : ${keystorePath.isNotBlank() && File(keystorePath).exists()}")
+            appendLine("RUNNER_KEYSTORE_PASSWORD: ${if (keystorePassword.isBlank()) "ПУСТО" else "задан (" + keystorePassword.length + " симв.)"}")
+            appendLine("RUNNER_KEY_ALIAS        : ${if (keyAlias.isBlank()) "ПУСТО" else "'$keyAlias'"}")
+            appendLine("RUNNER_KEY_PASSWORD     : ${if (keyPassword.isBlank()) "ПУСТО" else "задан (" + keyPassword.length + " симв.)"}")
+            append("рабочий каталог         : ${project.projectDir}")
+        }
         throw GradleException(
             "Сборка release запрошена, но ключ подписи не настроен.\n" +
-                    "Ожидаются свойства: RUNNER_KEYSTORE_PATH, RUNNER_KEYSTORE_PASSWORD, " +
-                    "RUNNER_KEY_ALIAS, RUNNER_KEY_PASSWORD.\n" +
-                    "В CI они собираются из секретов KEYSTORE_BASE64, KEYSTORE_PASSWORD, " +
-                    "KEY_ALIAS, KEY_PASSWORD. Локально их можно положить в " +
-                    "~/.gradle/gradle.properties.\n" +
+                    "Что видно сборке:\n$report\n" +
+                    "В CI эти свойства приходят из переменных окружения " +
+                    "ORG_GRADLE_PROJECT_RUNNER_* или из секретов KEYSTORE_BASE64, " +
+                    "KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.\n" +
+                    "Локально их можно положить в ~/.gradle/gradle.properties.\n" +
                     "Для обычной разработки используйте assembleDebug."
         )
     }
