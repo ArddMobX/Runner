@@ -116,8 +116,13 @@ jobs:
 
       # Логи GitHub Actions закрыты авторизацией, поэтому при падении выкладываем
       # выжимку из build.log в отдельную ветку ci-errors. Её читает агент через git fetch.
+      #
+      # Шаг защищён `continue-on-error`: диагностика не должна ронять прогон.
+      # Раньше здесь стояло `|| true` только у push, и падение публикации лога
+      # само становилось причиной красного прогона (так и случилось в #50).
       - name: Publish build errors
         if: steps.build.outcome == 'failure'
+        continue-on-error: true
         run: |
           mkdir -p .ci
           {
@@ -142,9 +147,11 @@ jobs:
           git config user.email "github-actions@github.com"
           git add -f .ci/last-build-error.txt
           git commit -m "ci: лог ошибки сборки [skip ci]" || true
-          # Тег релиза содержит номер прогона и всегда уникален, поэтому
-          # force-push больше не нужен: обычный push не перепишет историю ветки.
-          git push origin HEAD:ci-errors
+          # force нужен именно здесь. Ветка ci-errors — одноразовая витрина
+          # последней ошибки, её история не ценна, а накопленный хвост делает
+          # обычный push не fast-forward. В #50 отсутствие force уронило прогон
+          # на этом шаге: сборка была успешной, а красным стал лог падения.
+          git push --force origin HEAD:ci-errors
 
       # Debug-сборка остаётся артефактом для проверки на устройстве, но
       # в релизы не попадает: у неё общеизвестный ключ и debuggable=true.
