@@ -244,6 +244,20 @@ jobs:
           # на этом шаге: сборка была успешной, а красным стал лог падения.
           git push --force origin HEAD:ci-errors
 
+      # Полный лог сборки выкладывается артефактом всегда, а не только при
+      # падении. Причина: логи шагов GitHub отдаёт лишь авторизованным, а
+      # выжимка в ветку ci-errors содержит только хвост — из-за этого причина
+      # падения (она в начале вывода, до строк с задачами) была не видна,
+      # и приходилось гадать. Артефакт читается через тот же приём, что и APK.
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: build-log-${{ github.run_number }}
+          path: build.log
+          if-no-files-found: warn
+          overwrite: true
+
       # Debug-сборка остаётся артефактом для проверки на устройстве, но
       # в релизы не попадает: у неё общеизвестный ключ и debuggable=true.
       - name: Upload Debug APK Artifact

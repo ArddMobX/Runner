@@ -125,25 +125,25 @@ android {
 // Неподписанный release ставить на устройство нельзя, и молча собирать его
 // нельзя тем более: без этой проверки assembleRelease на машине без ключа
 // выдаёт APK, который выглядит готовым, но никуда не устанавливается.
-// Диагностика подписи в аннотации GitHub Actions. Пароли показываются только
-// длиной, сами значения замаскированы. Аннотации читаются через API без
-// авторизации, в отличие от логов шагов, поэтому это единственный надёжный
-// способ увидеть, что именно дошло до сборки.
+// Диагностика подписи. Печатается на этапе конфигурации, до узла задач,
+// поэтому видна в начале вывода сборки. Пароли показываются только длиной.
+// Управляющие последовательности GitHub (::notice::) превращают строку в
+// аннотацию, а аннотации читаются через API без авторизации — в отличие от
+// логов шагов, доступных только авторизованным.
 fun signingDiagnostics(): String = buildString {
-    append("keyFile=").append(File(keystorePath).exists())
-    append(" storePass=").append(keystorePassword.length)
-    append(" keyPass=").append(keyPassword.length)
-    append(" alias=").append(if (keyAlias.isBlank()) "ПУСТО" else keyAlias)
-    append(" hasConfig=").append(hasSigningConfig)
+    append("keyFileExists=").append(File(keystorePath).exists())
+    append(" pathBlank=").append(keystorePath.isBlank())
+    append(" storePassLen=").append(keystorePassword.length)
+    append(" keyPassLen=").append(keyPassword.length)
+    append(" keyAlias=").append(if (keyAlias.isBlank()) "ПУСТО" else keyAlias)
+    append(" hasSigningConfig=").append(hasSigningConfig)
 }
+
+println("::notice::Подпись на этапе конфигурации: ${signingDiagnostics()}")
 
 gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.
     val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
-    if (wantsRelease) {
-        // ::warning:: виден и в логе, и в аннотациях прогона.
-        println("::warning::Подпись: ${signingDiagnostics()}")
-    }
     if (wantsRelease && !hasSigningConfig) {
         // Отчёт по каждому условию отдельно: иначе непонятно, что именно
         // не сошлось — путь, пароль или сам файл ключа.
