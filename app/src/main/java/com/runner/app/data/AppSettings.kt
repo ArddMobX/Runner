@@ -200,7 +200,7 @@ class SettingsStore(context: Context) {
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false),
             shellOutsideStorage = prefs.getBoolean(KEY_SHELL_OUTSIDE_STORAGE, false),
-            contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, DEFAULT_CONTEXT_BUDGET)
+            contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET)
         )
     }
 

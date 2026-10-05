@@ -261,8 +261,11 @@ private fun argValues(argsJson: String, keys: List<String>): List<String> {
 }
 
 /** Значения критичных аргументов вызова: строки и элементы массивов. */
-private fun criticalArgValues(toolName: String, argsJson: String): List<String> =
-    argValues(argsJson, CRITICAL_ARGS_BY_TOOL[toolName] ?: return emptyList())
+private fun criticalArgValues(toolName: String, argsJson: String): List<String> {
+    // Блочное тело, а не выражение: в функции с expression body `return` запрещён.
+    val keys = CRITICAL_ARGS_BY_TOOL[toolName] ?: return emptyList()
+    return argValues(argsJson, keys)
+}
 
 /** Инструменты, у которых путь обязателен: без пути в плане не предодобряем. */
 private val PATH_REQUIRED_TOOLS: Set<String> = setOf(
