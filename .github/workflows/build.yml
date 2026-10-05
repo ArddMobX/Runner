@@ -132,15 +132,14 @@ jobs:
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "размер ключа: $(stat -c%s "$RUNNER_TEMP/signing/release.jks") байт"
 
-      # Свойства подписи передаются Gradle через ORG_GRADLE_PROJECT_* — этот
-      # механизм Gradle поддерживает штатно, без разбора файла свойств.
+      # Свойства подписи передаются аргументами -P, как и версия сборки рядом.
+      # Это проверенный способ: вариант через переменные окружения с префиксом
+      # RUNNER_ не работает (GitHub Actions резервирует префикс), а имена вида
+      # ORG_GRADLE_PROJECT_RUNNER_KEY_PASSWORD_FILE с обилием подчёркиваний
+      # до свойства доходят не так, как ожидается.
       #
-      # Почему не через RUNNER_*: GitHub Actions резервирует префикс RUNNER_,
-      # и такие переменные до шага не доходят. Из-за этого сборка видела
-      # расшифрованный ключ, но считала подпись ненастроенной.
-      #
-      # Пароли передаются не значением, а через файлы: значение с обратным
-      # слешем, двоеточием или переводом строки сломало бы разбор свойств.
+      # Пароли передаются не значением, а файлами: так значение с обратным
+      # слешем, двоеточием или переводом строки ничего не ломает.
       - name: Configure signing properties
         if: steps.keystore.outputs.configured == 'true'
         env:
@@ -152,30 +151,32 @@ jobs:
           printf '%s' "$STORE_PASSWORD" > "$RUNNER_TEMP/signing/store.txt"
           printf '%s' "$KEY_PASSWORD_VALUE" > "$RUNNER_TEMP/signing/key.txt"
           printf '%s' "$KEY_ALIAS_VALUE" > "$RUNNER_TEMP/signing/alias.txt"
-          ls -l "$RUNNER_TEMP/signing/"
+          echo "--- размеры файлов подписи ---"
+          wc -c "$RUNNER_TEMP/signing/store.txt" "$RUNNER_TEMP/signing/key.txt" "$RUNNER_TEMP/signing/alias.txt"
 
       - name: Build APK
         id: build
         continue-on-error: true
-        env:
-          ORG_GRADLE_PROJECT_RUNNER_KEYSTORE_PATH: ${{ runner.temp }}/signing/release.jks
-          ORG_GRADLE_PROJECT_RUNNER_KEYSTORE_PASSWORD_FILE: ${{ runner.temp }}/signing/store.txt
-          ORG_GRADLE_PROJECT_RUNNER_KEY_ALIAS_FILE: ${{ runner.temp }}/signing/alias.txt
-          ORG_GRADLE_PROJECT_RUNNER_KEY_PASSWORD_FILE: ${{ runner.temp }}/signing/key.txt
         run: |
           set +e
           chmod +x gradlew
 
           TASKS="assembleDebug"
-          # Release собирается, только если ключ подписи реально доступен
-          # и все четыре секрета подставлены.
+          SIGNING_ARGS=""
+          # Release собирается, только если все четыре секрета подставлены.
           if [ "${{ steps.signing.outputs.ok }}" = "true" ]; then
             TASKS="assembleDebug assembleRelease"
+            SIGNING_ARGS="-PRUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks \
+              -PRUNNER_KEYSTORE_PASSWORD_FILE=$RUNNER_TEMP/signing/store.txt \
+              -PRUNNER_KEY_ALIAS_FILE=$RUNNER_TEMP/signing/alias.txt \
+              -PRUNNER_KEY_PASSWORD_FILE=$RUNNER_TEMP/signing/key.txt"
+            echo "release собирается, ключ: $RUNNER_TEMP/signing/release.jks"
           else
             echo "Секреты подписи неполные — release не собираю, будет только debug."
           fi
 
           ./gradlew $TASKS generateApkSha256 \
+            $SIGNING_ARGS \
             -PrunnerVersionCode="${{ github.run_number }}" \
             -PrunnerVersionName="1.0.${{ github.run_number }}" \
             --stacktrace 2>&1 | tee build.log
