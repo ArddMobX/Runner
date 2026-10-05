@@ -50,18 +50,27 @@ jobs:
           SEC_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           SEC_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # Показываем только факт наличия, никогда сами значения.
-          mark() { if [ -n "$1" ]; then echo "задан"; else echo "НЕ ЗАДАН"; fi; }
+          # Печатаем длину каждого значения: пустая строка и незаполненный
+          # секрет выглядят одинаково («не задан»), а длины их различают.
+          # Сами значения не показываются никогда.
+          row() {
+            local name="$1" value="$2"
+            if [ -z "$value" ]; then
+              echo "| $name | ПУСТО (0) |"
+            else
+              echo "| $name | задан, ${#value} симв. |"
+            fi
+          }
 
           {
             echo "### Секреты подписи"
             echo
             echo "| Секрет | Состояние |"
             echo "|---|---|"
-            echo "| KEYSTORE_BASE64 | $(mark "$SEC_KEYSTORE") |"
-            echo "| KEYSTORE_PASSWORD | $(mark "$SEC_STORE_PASSWORD") |"
-            echo "| KEY_ALIAS | $(mark "$SEC_KEY_ALIAS") |"
-            echo "| KEY_PASSWORD | $(mark "$SEC_KEY_PASSWORD") |"
+            row "KEYSTORE_BASE64" "$SEC_KEYSTORE"
+            row "KEYSTORE_PASSWORD" "$SEC_STORE_PASSWORD"
+            row "KEY_ALIAS" "$SEC_KEY_ALIAS"
+            row "KEY_PASSWORD" "$SEC_KEY_PASSWORD"
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -78,6 +87,33 @@ jobs:
             echo "(Settings -> Environments -> release-signing -> Add secret),"
             echo "а не в общие секреты репозитория."
           fi
+
+          # Проверяем каждый секрет поимённо. Раньше отсутствие KEY_PASSWORD
+          # давало невнятное «SigningConfig release is missing required property
+          # keyPassword» уже в конце сборки, спустя минуты компиляции.
+          missing=0
+          for pair in "KEYSTORE_PASSWORD:$SEC_STORE_PASSWORD" "KEY_ALIAS:$SEC_KEY_ALIAS" "KEY_PASSWORD:$SEC_KEY_PASSWORD" "KEYSTORE_BASE64:$SEC_KEYSTORE"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ -z "$value" ]; then
+              echo "::error::Секрет $name не подставлен или пуст."
+              missing=1
+            fi
+          done
+
+          if [ "$missing" = "1" ]; then
+            {
+              echo "### Подпись не настроена"
+              echo
+              echo "В среде release-signing не хватает секретов (см. таблицу выше)."
+              echo "Нужны все четыре: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD."
+              echo "Учтите: KEY_PASSWORD (пароль ключа) и KEYSTORE_PASSWORD (пароль хранилища) —"
+              echo "это два разных секрета, даже если пароли совпадают."
+              echo
+              echo "Пока их нет, собирается только debug-вариант."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "ok=$([ "$missing" = "0" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       # Ключ подписи кладётся в файл вне рабочего каталога, чтобы не попасть
       # ни в git, ни в артефакты.
@@ -131,9 +167,12 @@ jobs:
           chmod +x gradlew
 
           TASKS="assembleDebug"
-          # Release собирается, только если ключ подписи реально доступен.
-          if [ "${{ steps.keystore.outputs.configured }}" = "true" ]; then
+          # Release собирается, только если ключ подписи реально доступен
+          # и все четыре секрета подставлены.
+          if [ "${{ steps.signing.outputs.ok }}" = "true" ]; then
             TASKS="assembleDebug assembleRelease"
+          else
+            echo "Секреты подписи неполные — release не собираю, будет только debug."
           fi
 
           ./gradlew $TASKS generateApkSha256 \
