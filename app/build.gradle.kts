@@ -26,9 +26,14 @@ plugins {
 // Секреты среды release-signing (Settings -> Environments):
 //   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
 // ---------------------------------------------------------------------------
+// Значение секрета обрезается от пробелов и переводов строк ВСЕГДА, из какого
+// бы источника оно ни пришло. Раньше обрезалось только значение из файла, а
+// прямое — нет: перевод строки в конце (обычное дело при вставке из файла или
+// терминала) молча ломал пароль, и AGP падал с «missing required property
+// keyPassword», хотя значение формально было непустым.
 fun secretValue(name: String): String {
     val direct = findProperty(name)?.toString()
-    if (!direct.isNullOrBlank()) return direct
+    if (!direct.isNullOrBlank()) return direct.trim()
     val file = findProperty("${name}_FILE")?.toString() ?: return ""
     if (file.isBlank()) return ""
     val f = File(file)
