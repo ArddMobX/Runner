@@ -44,12 +44,25 @@ val signingProps = Properties().apply {
     }
 }
 
+// Приводим путь к каноническому виду. В CI он собирается склейкой путей с
+// разными разделителями, и полагаться на то, что File.exists() разберёт такую
+// строку, не стоит — именно на этом проверка hasSigningConfig давала false,
+// блок signingConfigs пропускался, и AGP потом падал с отсутствующим
+// keyPassword, хотя пароли были на месте.
+fun normalizePath(raw: String): String = raw.trim()
+    .replace('\\', '/')
+    .replace(Regex("/+"), "/")
+
 fun secretValue(name: String): String {
     // Приоритет: файл свойств → свойство Gradle (gradle.properties, -P, env).
     val fromFile = signingProps.getProperty(name)?.trim()
-    if (!fromFile.isNullOrBlank()) return fromFile
+    if (!fromFile.isNullOrBlank()) {
+        return if (name.endsWith("PATH")) normalizePath(fromFile) else fromFile
+    }
     val direct = findProperty(name)?.toString()?.trim()
-    if (!direct.isNullOrBlank()) return direct
+    if (!direct.isNullOrBlank()) {
+        return if (name.endsWith("PATH")) normalizePath(direct) else direct
+    }
     val file = findProperty("${name}_FILE")?.toString() ?: return ""
     if (file.isBlank()) return ""
     val f = File(file)
@@ -158,7 +171,8 @@ android {
 // (присваивание в блочной форме молча теряло keyAlias и keyPassword), но в
 // рабочей сборке файловых побочек быть не должно.
 fun signingDiagnostics(): String = buildString {
-    append("keyFileExists=").append(File(keystorePath).exists())
+    append("keyPath=").append(keystorePath.ifBlank { "<пусто>" })
+    append(" keyFileExists=").append(File(keystorePath).exists())
     append(" storePassLen=").append(keystorePassword.length)
     append(" keyPassLen=").append(keyPassword.length)
     append(" keyAlias=").append(if (keyAlias.isBlank()) "ПУСТО" else keyAlias)

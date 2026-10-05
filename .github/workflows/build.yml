@@ -155,6 +155,7 @@ jobs:
           PROPS="$RUNNER_TEMP/signing/signing.properties"
           python3 - "$PROPS" <<'PYEOF'
           import os, sys
+
           props = sys.argv[1]
           entries = [
               ("RUNNER_KEYSTORE_PATH", os.environ.get("KEYSTORE_PATH", "")),
@@ -162,10 +163,37 @@ jobs:
               ("RUNNER_KEY_ALIAS", os.environ.get("KEY_ALIAS_VALUE", "")),
               ("RUNNER_KEY_PASSWORD", os.environ.get("KEY_PASSWORD_VALUE", "")),
           ]
+
+          def escape(value):
+              # В формате .properties обратный слэш, двоеточие, знак равенства и
+              # ведущий пробел служебные, а \n и \t — управляющие
+              # последовательности. Без экранирования значение портится молча:
+              # путь C:\Temp\runners превращался в "C:Temp" + перевод строки,
+              # проверка существования файла давала false, конфигурация подписи
+              # не создавалась, и AGP падал с отсутствующим keyPassword.
+              out = []
+              for i, ch in enumerate(value.strip()):
+                  if ch == "\\":
+                      out.append("\\\\")
+                  elif ch in (":", "=", "#", "!"):
+                      out.append("\\" + ch)
+                  elif ch == " " and i == 0:
+                      out.append("\\ ")
+                  elif ch == "\n":
+                      out.append("\\n")
+                  elif ch == "\r":
+                      out.append("\\r")
+                  elif ch == "\t":
+                      out.append("\\t")
+                  elif ch == "\f":
+                      out.append("\\f")
+                  else:
+                      out.append(ch)
+              return "".join(out)
+
           with open(props, "w", encoding="utf-8") as f:
               for key, value in entries:
-                  # Значения обрезаются: перевод строки в конце сломал бы пароль.
-                  f.write("%s=%s\n" % (key, value.strip()))
+                  f.write("%s=%s\n" % (key, escape(value)))
           print("файл свойств записан:", props)
           for key, value in entries:
               print("  %s: %d симв." % (key, len(value.strip())))
