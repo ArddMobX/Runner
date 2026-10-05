@@ -101,6 +101,28 @@ android {
                 enableV3Signing = true
             }
         }
+        // Проверяем, что реально лежит в объекте AGP. До этого все четыре
+        // значения были на месте в наших val, а AGP всё равно сообщал, что
+        // keyPassword отсутствует — значит расхождение возникает здесь.
+        run {
+            try {
+                val agp = findByName("release")
+                val info = if (agp == null) {
+                    "SigningConfig=НЕ НАЙДЕН"
+                } else {
+                    "AGP: storeFile=${agp.storeFile != null} " +
+                            "storePassLen=${agp.storePassword?.length ?: -1} " +
+                            "keyPassLen=${agp.keyPassword?.length ?: -1} " +
+                            "alias=${agp.keyAlias ?: "null"}"
+                }
+                println("::notice::$info")
+                val dir = File(rootProject.projectDir, ".ci")
+                dir.mkdirs()
+                File(dir, "signing-debug.txt").appendText(info + "\n")
+            } catch (e: Exception) {
+                println("::warning::Не удалось прочитать SigningConfig: ${e.message}")
+            }
+        }
     }
 
     buildTypes {
