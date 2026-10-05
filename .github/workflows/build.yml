@@ -164,19 +164,22 @@ jobs:
           TASKS="assembleDebug"
           SIGNING_ARGS=""
           # Release собирается, только если все четыре секрета подставлены.
+          # Пароли передаются ЗНАЧЕНИЯМИ: вариант с файлами не заработал —
+          # значение до свойства не доходило, и Gradle падал с
+          # «SigningConfig release is missing required property keyPassword».
           if [ "${{ steps.signing.outputs.ok }}" = "true" ]; then
             TASKS="assembleDebug assembleRelease"
-            SIGNING_ARGS="-PRUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks \
-              -PRUNNER_KEYSTORE_PASSWORD_FILE=$RUNNER_TEMP/signing/store.txt \
-              -PRUNNER_KEY_ALIAS_FILE=$RUNNER_TEMP/signing/alias.txt \
-              -PRUNNER_KEY_PASSWORD_FILE=$RUNNER_TEMP/signing/key.txt"
+            SIGNING_ARGS=(-P"RUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks"
+                          -P"RUNNER_KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}"
+                          -P"RUNNER_KEY_ALIAS=${{ secrets.KEY_ALIAS }}"
+                          -P"RUNNER_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}")
             echo "release собирается, ключ: $RUNNER_TEMP/signing/release.jks"
           else
             echo "Секреты подписи неполные — release не собираю, будет только debug."
           fi
 
           ./gradlew $TASKS generateApkSha256 \
-            $SIGNING_ARGS \
+            "${SIGNING_ARGS[@]}" \
             -PrunnerVersionCode="${{ github.run_number }}" \
             -PrunnerVersionName="1.0.${{ github.run_number }}" \
             --stacktrace 2>&1 | tee build.log

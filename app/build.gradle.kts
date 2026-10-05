@@ -125,9 +125,25 @@ android {
 // Неподписанный release ставить на устройство нельзя, и молча собирать его
 // нельзя тем более: без этой проверки assembleRelease на машине без ключа
 // выдаёт APK, который выглядит готовым, но никуда не устанавливается.
+// Диагностика подписи в аннотации GitHub Actions. Пароли показываются только
+// длиной, сами значения замаскированы. Аннотации читаются через API без
+// авторизации, в отличие от логов шагов, поэтому это единственный надёжный
+// способ увидеть, что именно дошло до сборки.
+fun signingDiagnostics(): String = buildString {
+    append("keyFile=").append(File(keystorePath).exists())
+    append(" storePass=").append(keystorePassword.length)
+    append(" keyPass=").append(keyPassword.length)
+    append(" alias=").append(if (keyAlias.isBlank()) "ПУСТО" else keyAlias)
+    append(" hasConfig=").append(hasSigningConfig)
+}
+
 gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.
     val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
+    if (wantsRelease) {
+        // ::warning:: виден и в логе, и в аннотациях прогона.
+        println("::warning::Подпись: ${signingDiagnostics()}")
+    }
     if (wantsRelease && !hasSigningConfig) {
         // Отчёт по каждому условию отдельно: иначе непонятно, что именно
         // не сошлось — путь, пароль или сам файл ключа.
