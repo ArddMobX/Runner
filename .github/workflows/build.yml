@@ -132,27 +132,45 @@ jobs:
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "размер ключа: $(stat -c%s "$RUNNER_TEMP/signing/release.jks") байт"
 
-      # Свойства подписи передаются аргументами -P, как и версия сборки рядом.
-      # Это проверенный способ: вариант через переменные окружения с префиксом
-      # RUNNER_ не работает (GitHub Actions резервирует префикс), а имена вида
-      # ORG_GRADLE_PROJECT_RUNNER_KEY_PASSWORD_FILE с обилием подчёркиваний
-      # до свойства доходят не так, как ожидается.
+      # Пароли пишутся в файл свойств, а НЕ передаются аргументами -P.
       #
-      # Пароли передаются не значением, а файлами: так значение с обратным
-      # слешем, двоеточием или переводом строки ничего не ломает.
+      # Причина: GitHub подставляет значение секрета прямо в текст команды,
+      # и символы вроде кавычки, обратного слеша, $ или пробела ломают разбор
+      # строки шеллом. Диагностика показала, что значения до сборки доходят
+      # (длины 7 и 7, файл ключа на месте, конфигурация создана), но до
+      # SigningConfig не доживают — значит портятся именно на подстановке.
+      #
+      # Здесь значение попадает в переменную окружения (это делает сам GitHub,
+      # без участия shell), а в файл его пишет python: никакой разбор
+      # спецсимволов вообще не участвует.
       - name: Configure signing properties
+        id: signprops
         if: steps.keystore.outputs.configured == 'true'
         env:
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS_VALUE: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD_VALUE: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_PATH: ${{ runner.temp }}/signing/release.jks
         run: |
-          mkdir -p "$RUNNER_TEMP/signing"
-          printf '%s' "$STORE_PASSWORD" > "$RUNNER_TEMP/signing/store.txt"
-          printf '%s' "$KEY_PASSWORD_VALUE" > "$RUNNER_TEMP/signing/key.txt"
-          printf '%s' "$KEY_ALIAS_VALUE" > "$RUNNER_TEMP/signing/alias.txt"
-          echo "--- размеры файлов подписи ---"
-          wc -c "$RUNNER_TEMP/signing/store.txt" "$RUNNER_TEMP/signing/key.txt" "$RUNNER_TEMP/signing/alias.txt"
+          PROPS="$RUNNER_TEMP/signing/signing.properties"
+          python3 - "$PROPS" <<'PYEOF'
+          import os, sys
+          props = sys.argv[1]
+          entries = [
+              ("RUNNER_KEYSTORE_PATH", os.environ.get("KEYSTORE_PATH", "")),
+              ("RUNNER_KEYSTORE_PASSWORD", os.environ.get("STORE_PASSWORD", "")),
+              ("RUNNER_KEY_ALIAS", os.environ.get("KEY_ALIAS_VALUE", "")),
+              ("RUNNER_KEY_PASSWORD", os.environ.get("KEY_PASSWORD_VALUE", "")),
+          ]
+          with open(props, "w", encoding="utf-8") as f:
+              for key, value in entries:
+                  # Значения обрезаются: перевод строки в конце сломал бы пароль.
+                  f.write("%s=%s\n" % (key, value.strip()))
+          print("файл свойств записан:", props)
+          for key, value in entries:
+              print("  %s: %d симв." % (key, len(value.strip())))
+          PYEOF
+          echo "properties=$PROPS" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
         id: build
@@ -164,21 +182,21 @@ jobs:
           TASKS="assembleDebug"
           SIGNING_ARGS=""
           # Release собирается, только если все четыре секрета подставлены.
-          # Пароли передаются ЗНАЧЕНИЯМИ: вариант с файлами не заработал —
-          # значение до свойства не доходило, и Gradle падал с
-          # «SigningConfig release is missing required property keyPassword».
+          # Пароли берутся из файла свойств (см. шаг выше): в командную строку
+          # они не попадают, поэтому спецсимволы ничего не ломают.
           if [ "${{ steps.signing.outputs.ok }}" = "true" ]; then
             TASKS="assembleDebug assembleRelease"
-            SIGNING_ARGS=(-P"RUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks"
-                          -P"RUNNER_KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}"
-                          -P"RUNNER_KEY_ALIAS=${{ secrets.KEY_ALIAS }}"
-                          -P"RUNNER_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}")
+            # Из командной строки передаётся только путь к ключу. Пароли Gradle
+            # читает из файла свойств, путь к которому задан обычной переменной
+            # окружения GRADLE_PROPERTIES_FILE (см. env шага).
+            SIGNING_ARGS=(-P"RUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks")
             echo "release собирается, ключ: $RUNNER_TEMP/signing/release.jks"
           else
             echo "Секреты подписи неполные — release не собираю, будет только debug."
           fi
 
           ./gradlew $TASKS generateApkSha256 \
+            -PsigningPropertiesFile="${{ steps.signprops.outputs.properties }}" \
             "${SIGNING_ARGS[@]}" \
             -PrunnerVersionCode="${{ github.run_number }}" \
             -PrunnerVersionName="1.0.${{ github.run_number }}" \

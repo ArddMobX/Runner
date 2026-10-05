@@ -26,14 +26,29 @@ plugins {
 // Секреты среды release-signing (Settings -> Environments):
 //   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
 // ---------------------------------------------------------------------------
-// Значение секрета обрезается от пробелов и переводов строк ВСЕГДА, из какого
-// бы источника оно ни пришло. Раньше обрезалось только значение из файла, а
-// прямое — нет: перевод строки в конце (обычное дело при вставке из файла или
-// терминала) молча ломал пароль, и AGP падал с «missing required property
-// keyPassword», хотя значение формально было непустым.
+// Значения подписи берутся из файла свойств, путь к которому передаётся как
+// -PsigningPropertiesFile. Так значения НЕ проходят через командную строку:
+// GitHub подставляет секрет прямо в текст команды, и символы вроде кавычки,
+// обратного слеша или $ ломают разбор строки шеллом — из-за этого пароль
+// доходил до сборки, но не до SigningConfig.
+//
+// Для локальной сборки работает и обычный gradle.properties, и переменные
+// окружения с префиксом ORG_GRADLE_PROJECT_.
+val signingProps = java.util.Properties().apply {
+    val path = findProperty("signingPropertiesFile")?.toString()
+    if (!path.isNullOrBlank()) {
+        val f = File(path)
+        if (f.exists()) f.inputStream().use { load(it) }
+        else println("::warning::Файл свойств подписи не найден: $path")
+    }
+}
+
 fun secretValue(name: String): String {
-    val direct = findProperty(name)?.toString()
-    if (!direct.isNullOrBlank()) return direct.trim()
+    // Приоритет: файл свойств → свойство Gradle (gradle.properties, -P, env).
+    val fromFile = signingProps.getProperty(name)?.trim()
+    if (!fromFile.isNullOrBlank()) return fromFile
+    val direct = findProperty(name)?.toString()?.trim()
+    if (!direct.isNullOrBlank()) return direct
     val file = findProperty("${name}_FILE")?.toString() ?: return ""
     if (file.isBlank()) return ""
     val f = File(file)
