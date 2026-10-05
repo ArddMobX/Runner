@@ -1,6 +1,7 @@
 import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 import java.io.File
 import java.security.MessageDigest
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -34,7 +35,7 @@ plugins {
 //
 // Для локальной сборки работает и обычный gradle.properties, и переменные
 // окружения с префиксом ORG_GRADLE_PROJECT_.
-val signingProps = java.util.Properties().apply {
+val signingProps = Properties().apply {
     val path = findProperty("signingPropertiesFile")?.toString()
     if (!path.isNullOrBlank()) {
         val f = File(path)
