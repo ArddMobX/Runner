@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -345,13 +346,16 @@ object ToolDispatcher {
         // 15. open_app
         tools.put(createToolFunction(
             name = "open_app",
-            description = "Открывает установленное приложение по названию или пакету. " +
-                    "Если точного совпадения нет, вернёт список похожих приложений — " +
-                    "выбери из него и вызови тул снова.",
+            description = "Открывает установленное приложение по названию или пакету. Поиск идёт " +
+                    "и по обработчикам ссылок, поэтому модифицированные сборки с другим " +
+                    "именем пакета тоже находятся. Если подходит несколько приложений, вернёт " +
+                    "список — спроси у пользователя нужное и вызови тул снова, назвав выбранное " +
+                    "приложение. Выбор запоминается, второй раз спрашивать не придётся.",
             properties = JSONObject().apply {
                 put("app", JSONObject().apply {
                     put("type", "string")
-                    put("description", "Название приложения («YouTube», «Телеграм») или пакет (org.telegram.messenger).")
+                    put("description", "Название приложения («YouTube», «Телеграм») или пакет " +
+                            "(org.telegram.messenger).")
                 })
             },
             required = listOf("app")
@@ -997,8 +1001,10 @@ object ToolDispatcher {
     // --- Запуск приложений и ссылок ---
 
     /**
-     * Частые приложения по пакету. Нужен, чтобы «открой ютуб» работало
-     * без перебора всех установленных приложений.
+     * Частые приложения по пакету. Это ПОДСКАЗКА, а не приговор: если пакет
+     * не установлен (мод, форк, другая сборка), поиск продолжается обычным
+     * путём. Раньше алиас обрывал поиск, и «открой ютуб» с модифицированным
+     * YouTube возвращало «нет иконки в меню» вместо найденного приложения.
      */
     private val APP_ALIASES = mapOf(
         "youtube" to "com.google.android.youtube",
@@ -1029,7 +1035,87 @@ object ToolDispatcher {
         "настройки" to "com.android.settings"
     )
 
-    /** Приложения с иконкой в лончере: то, что пользователь и имеет в виду. */
+    /**
+     * Ссылка, которую обрабатывает приложение: по ней система сама назовёт
+     * все подходящие программы, включая моды с незнакомым именем пакета.
+     */
+    private val APP_URLS = mapOf(
+        "youtube" to listOf("https://youtube.com", "https://m.youtube.com"),
+        "ютуб" to listOf("https://youtube.com", "https://m.youtube.com"),
+        "youtube music" to listOf("https://music.youtube.com"),
+        "telegram" to listOf("https://t.me"),
+        "телеграм" to listOf("https://t.me"),
+        "телеграмм" to listOf("https://t.me"),
+        "whatsapp" to listOf("https://wa.me"),
+        "ватсап" to listOf("https://wa.me"),
+        "maps" to listOf("https://maps.google.com"),
+        "карты" to listOf("https://maps.google.com"),
+        "gmail" to listOf("mailto:test@example.com"),
+        "почта" to listOf("mailto:test@example.com"),
+        "spotify" to listOf("https://open.spotify.com"),
+        "instagram" to listOf("https://instagram.com"),
+        "инстаграм" to listOf("https://instagram.com"),
+        "vkontakte" to listOf("https://vk.com"),
+        "вконтакте" to listOf("https://vk.com"),
+        "vk" to listOf("https://vk.com")
+    )
+
+    /** Браузеры: подходят почти под любую ссылку и перебивают нужное приложение. */
+    private val BROWSER_PACKAGES = setOf(
+        "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary",
+        "org.mozilla.firefox", "org.mozilla.firefox_beta", "org.mozilla.focus",
+        "com.sec.android.app.sbrowser", "com.opera.browser", "com.opera.mini.native",
+        "com.microsoft.emmx", "com.brave.browser", "com.duckduckgo.mobile.android",
+        "com.yandex.browser", "com.android.browser", "com.UCMobile.intl"
+    )
+
+    private const val APP_PREFS = "runner_app_choices"
+
+    /** Приложение, выбранное пользователем ранее для этого запроса. */
+    private fun rememberedAppFor(context: Context, query: String): String? =
+        context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
+            .getString(query.trim().lowercase(), null)
+            ?.takeIf { it.isNotBlank() }
+
+    /** Запоминаем выбор, чтобы в следующий раз не переспрашивать. */
+    fun rememberAppChoice(context: Context, query: String, packageName: String) {
+        context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(query.trim().lowercase(), packageName)
+            .apply()
+    }
+
+    /** Данные о приложении для показа пользователю. */
+    data class AppCandidate(
+        val packageName: String,
+        val label: String,
+        val fromUrl: Boolean
+    )
+
+    private fun isLaunchable(pm: PackageManager, pkg: String): Boolean =
+        try {
+            pm.getLaunchIntentForPackage(pkg) != null
+        } catch (e: Exception) {
+            false
+        }
+
+    private fun isInstalled(pm: PackageManager, pkg: String): Boolean =
+        try {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(pkg, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+
+    private fun labelOf(pm: PackageManager, pkg: String): String =
+        try {
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        } catch (e: Exception) {
+            pkg
+        }
+
+    /** Приложения с иконкой в лончере: то, что пользователь обычно и имеет в виду. */
     private fun launcherApps(context: Context): List<Pair<String, String>> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val pm = context.packageManager
@@ -1041,6 +1127,94 @@ object ToolDispatcher {
             }
             .distinctBy { it.second }
             .sortedBy { it.first.lowercase() }
+    }
+
+    /**
+     * Все запускаемые приложения с их названиями.
+     *
+     * Лончер покрывает не всё: у модифицированных и форкнутых сборок своей
+     * иконки в меню может не быть, и тогда поиск по названию их не видит,
+     * хотя запустить их можно.
+     */
+    private fun allLaunchableApps(context: Context): List<Pair<String, String>> {
+        val pm = context.packageManager
+        val apps = try {
+            pm.getInstalledApplications(0)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        return apps.mapNotNull { info ->
+            val pkg = info.packageName ?: return@mapNotNull null
+            if (!isLaunchable(pm, pkg)) return@mapNotNull null
+            val label = try {
+                pm.getApplicationLabel(info).toString()
+            } catch (e: Exception) {
+                pkg
+            }
+            label to pkg
+        }.distinctBy { it.second }
+    }
+
+    private fun urlHandlers(context: Context, urls: List<String>): List<AppCandidate> {
+        val pm = context.packageManager
+        val result = LinkedHashMap<String, AppCandidate>()
+        urls.forEach { url ->
+            val parsed = try {
+                Uri.parse(url)
+            } catch (e: Exception) {
+                null
+            } ?: return@forEach
+            val intent = Intent(Intent.ACTION_VIEW, parsed).addCategory(Intent.CATEGORY_BROWSABLE)
+            try {
+                pm.queryIntentActivities(intent, 0).forEach { info ->
+                    val pkg = info.activityInfo?.packageName ?: return@forEach
+                    if (pkg in result) return@forEach
+                    result[pkg] = AppCandidate(pkg, info.loadLabel(pm).toString(), fromUrl = true)
+                }
+            } catch (e: Exception) {
+                // Ссылку никто не берётся обрабатывать — просто продолжаем.
+            }
+        }
+        return result.values.toList()
+    }
+
+    /**
+     * Кандидаты в порядке предпочтения.
+     *
+     * Сначала те, что объявили себя обработчиками ссылки этого приложения:
+     * так находится и мод с незнакомым пакетом, и просто официальное
+     * приложение. Потом совпадения по названию, потом по имени пакета,
+     * и в самом конце — все приложения с иконкой.
+     */
+    private fun resolveAppCandidates(
+        context: Context,
+        query: String,
+        urlCandidates: List<AppCandidate>
+    ): List<AppCandidate> {
+        val pm = context.packageManager
+        val needle = query.trim().lowercase()
+        val out = LinkedHashMap<String, AppCandidate>()
+
+        fun add(label: String, pkg: String, fromUrl: Boolean) {
+            if (pkg in out) return
+            if (!isLaunchable(pm, pkg)) return
+            out[pkg] = AppCandidate(pkg, label.ifBlank { pkg }, fromUrl)
+        }
+
+        urlCandidates.forEach { add(it.label, it.packageName, true) }
+
+        val launcher = launcherApps(context)
+        launcher.filter { it.first.lowercase() == needle }.forEach { add(it.first, it.second, false) }
+        launcher.filter { it.first.lowercase().contains(needle) }.forEach { add(it.first, it.second, false) }
+        launcher.filter { it.second.lowercase().contains(needle) }.forEach { add(it.first, it.second, false) }
+
+        // Последним проходом — среди ВСЕХ запускаемых приложений, включая те,
+        // у которых нет своей иконки в меню (моды и форки).
+        allLaunchableApps(context)
+            .filter { it.first.lowercase().contains(needle) || it.second.lowercase().contains(needle) }
+            .forEach { add(it.first, it.second, false) }
+
+        return out.values.toList()
     }
 
     suspend fun openApp(query: String, context: Context): String =
@@ -1065,46 +1239,85 @@ object ToolDispatcher {
             }
         }
 
-        // 1. Явный пакет. Проверяем, что он вообще установлен: иначе «youtube.com»
-        //    уйдёт сюда и вернёт сообщение про отсутствующую иконку вместо поиска
+        // 1. Явный пакет. Проверяем установку: иначе «youtube.com» уйдёт сюда
+        //    и вернёт сообщение про отсутствующую иконку вместо поиска.
         if (raw.contains('.') && !raw.contains(' ')) {
-            val installed = try {
-                pm.getPackageInfo(raw, 0)
-                true
-            } catch (e: Exception) {
-                false
+            if (isInstalled(pm, raw)) launch(raw)?.let { return it }
+        }
+
+        val key = raw.lowercase()
+
+        // 2. Выбор пользователя из прошлого раза — сильнее встроенного алиаса.
+        rememberedAppFor(context, key)?.let { pkg ->
+            if (isInstalled(pm, pkg)) {
+                launch(pkg, labelOf(pm, pkg))?.let { return it }
             }
-            if (installed) launch(raw)?.let { return it }
         }
 
-        // 2. Известный алиас
-        APP_ALIASES[raw.lowercase()]?.let { pkg ->
-            launch(pkg, raw)?.let { return it }
+        // 3. Встроенный алиас, но только если он реально установлен.
+        //    Раньше алиас срабатывал всегда и обрывал поиск по названию.
+        APP_ALIASES[key]?.let { pkg ->
+            if (isInstalled(pm, pkg)) launch(pkg, raw)?.let { return it }
         }
 
-        // 3. Поиск по названию среди установленных
-        val apps = launcherApps(context)
-        val needle = raw.lowercase()
-        val exact = apps.filter { it.first.lowercase() == needle }
-        val partial = apps.filter { it.first.lowercase().contains(needle) }
+        // 4. Поиск по названию и по обработчикам ссылок.
+        val urlCandidates = APP_URLS[key]?.let { urlHandlers(context, it) }.orEmpty()
+        val candidates = resolveAppCandidates(context, raw, urlCandidates)
 
-        val match = exact.firstOrNull() ?: partial.singleOrNull()
-        if (match != null) {
-            launch(match.second, match.first)?.let { return it }
-        }
-
-        return if (partial.size > 1) {
-            buildString {
-                append("Под '$raw' подходит несколько приложений. Уточни, какое именно:\n")
-                partial.take(15).forEach { append("  • ${it.first} (${it.second})\n") }
-            }
-        } else {
-            buildString {
+        if (candidates.isEmpty()) {
+            return buildString {
                 append("Приложение '$raw' не найдено.\n")
+                val apps = launcherApps(context)
                 if (apps.isNotEmpty()) {
                     append("Установленные приложения (первые 40):\n")
                     apps.take(40).forEach { append("  • ${it.first}\n") }
                 }
+            }
+        }
+
+        // 5. Если всё, что умеет открыть ссылку, — браузеры, честно об этом
+        //    говорим: пользователь просил приложение, а не вкладку в браузере.
+        val nonBrowser = candidates.filterNot { it.packageName in BROWSER_PACKAGES }
+        val queryIsBrowser = "браузер" in key || "browser" in key || "chrome" in key ||
+                "хром" in key || "firefox" in key
+
+        val onlyBrowsersFound = nonBrowser.isEmpty() &&
+                candidates.isNotEmpty() &&
+                urlCandidates.isNotEmpty() &&
+                !queryIsBrowser
+        if (onlyBrowsersFound) {
+            return "Приложение '$raw' не найдено. Ссылку этого сервиса умеют открывать только " +
+                    "браузеры: ${candidates.joinToString(", ") { it.label }}. " +
+                    "Если нужно именно в браузере, попроси открыть ссылку."
+        }
+
+        val usable = nonBrowser.ifEmpty { candidates }
+        val exact = usable.filter { it.label.equals(raw, ignoreCase = true) }
+        val single = exact.firstOrNull() ?: usable.singleOrNull()
+        if (single != null) {
+            // Единственный разумный вариант — запоминаем, чтобы не переспрашивать.
+            rememberAppChoice(context, key, single.packageName)
+            launch(single.packageName, single.label)?.let { return it }
+        }
+
+        // Полное совпадение по имени пакета тоже однозначно.
+        usable.firstOrNull { it.packageName.equals(raw, ignoreCase = true) }?.let { match ->
+            rememberAppChoice(context, key, match.packageName)
+            launch(match.packageName, match.label)?.let { return it }
+        }
+
+        if (exact.size == 1) {
+            rememberAppChoice(context, key, exact.first().packageName)
+            launch(exact.first().packageName, exact.first().label)?.let { return it }
+        }
+
+        return buildString {
+            append("Под '$raw' подходит несколько приложений. Спроси у пользователя нужное ")
+            append("и вызови open_app ещё раз с его названием или пакетом:\n")
+            usable.take(15).forEachIndexed { index, candidate ->
+                append("  ${index + 1}. ${candidate.label} (${candidate.packageName})")
+                if (candidate.fromUrl) append(" — умеет открывать ссылки этого сервиса")
+                append("\n")
             }
         }
     }
