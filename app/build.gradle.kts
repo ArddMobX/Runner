@@ -10,12 +10,15 @@ plugins {
 
 android {
     namespace = "com.runner.app"
-    compileSdk = 34
+    // 35 (Android 15). AGP 8.13.2 поддерживает и 36, но поднимать сразу два
+    // уровня рискованно: у каждого свои изменения поведения, а проверить
+    // на устройстве сразу два не получится.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.runner.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -66,10 +69,19 @@ base {
 }
 
 // Переименование APK в Runner-<versionName>-<buildType>.apk.
-// Способ: applicationVariants + outputFileName (работает на AGP 8.4.2; вариант
-// через androidComponents.onVariants/output.outputFileName в этой версии AGP
-// не компилируется). base.archivesName выше даёт базовое имя Runner,
-// здесь добавляем версию и тип сборки.
+//
+// Почему legacy-путь, хотя он и устарел. Публичной замены в androidComponents
+// нет: у BuiltArtifact в gradle-api есть только геттер getOutputFile(), а у
+// VariantOutput свойства outputFileName нет вовсе — проверено разбором байткода
+// gradle-api 8.4.2 и 8.13.2. Класс BaseVariantOutputImpl жив и в 8.13.2
+// (com/android/build/gradle/internal/api/BaseVariantOutputImpl), поэтому способ
+// доживает до конца линейки 8.x.
+//
+// ВАЖНО для будущего апгрейда на AGP 9: там legacy-путь удалён, и этот блок
+// нужно заменить на трансформацию артефактов (BuiltArtifactsTransformation)
+// либо отказаться от переименования и разбирать фактическое имя из
+// outputs/apk (например, в generateApkSha256 ниже). Молчаливой поломки тут
+// быть не должно: исчезнувший класс — это ошибка компиляции, а не тихая смена имени.
 android.applicationVariants.all {
     val buildTypeName = buildType.name
     val variantVersion = versionName ?: "1.0"
