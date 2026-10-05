@@ -42,6 +42,36 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Check signing secrets
+        id: signing
+        env:
+          SEC_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 }}
+          SEC_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SEC_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SEC_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Показываем только факт наличия, никогда сами значения.
+          mark() { if [ -n "$1" ]; then echo "задан"; else echo "НЕ ЗАДАН"; fi; }
+
+          {
+            echo "### Секреты подписи"
+            echo
+            echo "| Секрет | Состояние |"
+            echo "|---|---|"
+            echo "| KEYSTORE_BASE64 | $(mark "$SEC_KEYSTORE") |"
+            echo "| KEYSTORE_PASSWORD | $(mark "$SEC_STORE_PASSWORD") |"
+            echo "| KEY_ALIAS | $(mark "$SEC_KEY_ALIAS") |"
+            echo "| KEY_PASSWORD | $(mark "$SEC_KEY_PASSWORD") |"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$SEC_KEYSTORE" ]; then
+            echo "::warning::KEYSTORE_BASE64 не подставлен — релиз собираться не будет."
+            echo "Проверьте, что секреты добавлены именно в среду release-signing"
+            echo "(Settings -> Environments -> release-signing -> Add secret),"
+            echo "а не в общие секреты репозитория."
+          fi
+
       # Ключ подписи кладётся в файл вне рабочего каталога, чтобы не попасть
       # ни в git, ни в артефакты.
       - name: Decode signing keystore
