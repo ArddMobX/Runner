@@ -8,6 +8,28 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// ---------------------------------------------------------------------------
+// Подпись release-сборки.
+//
+// Ключ и пароли приходят из окружения: в CI — из секретов GitHub, локально —
+// из ~/.gradle/gradle.properties. В репозиторий они не попадают.
+//
+// Секреты (Settings -> Secrets and variables -> Actions):
+//   KEYSTORE_BASE64     — keystore, закодированный в base64
+//   KEYSTORE_PASSWORD   — пароль хранилища
+//   KEY_ALIAS           — имя ключа
+//   KEY_PASSWORD        — пароль ключа
+// ---------------------------------------------------------------------------
+val keystorePath: String = findProperty("RUNNER_KEYSTORE_PATH")?.toString().orEmpty()
+val keystorePassword: String = findProperty("RUNNER_KEYSTORE_PASSWORD")?.toString().orEmpty()
+val keyAlias: String = findProperty("RUNNER_KEY_ALIAS")?.toString().orEmpty()
+val keyPassword: String = findProperty("RUNNER_KEY_PASSWORD")?.toString().orEmpty()
+val hasSigningConfig = keystorePath.isNotBlank() &&
+        keystorePassword.isNotBlank() &&
+        keyAlias.isNotBlank() &&
+        keyPassword.isNotBlank() &&
+        File(keystorePath).exists()
+
 android {
     namespace = "com.runner.app"
     // 35 (Android 15). AGP 8.13.2 поддерживает и 36, но поднимать сразу два
@@ -19,8 +41,10 @@ android {
         applicationId = "com.runner.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Номера версий приходят из CI, чтобы каждый релиз был новее предыдущего.
+        // Локально берутся значения по умолчанию.
+        versionCode = (findProperty("runnerVersionCode") as? String)?.toIntOrNull() ?: 1
+        versionName = (findProperty("runnerVersionName") as? String) ?: "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -28,13 +52,34 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasSigningConfig) {
+            create("release") {
+                storeFile = File(keystorePath)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+                // v1 обязателен для Android 8 (minSdk 26), v2/v3 — для новых.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // R8 выключен сознательно: релиз с подписью выходит впервые, и
+            // ломать его минификацией в том же шаге — способ не понять, что
+            // именно сломалось. Включать отдельным коммитом и проверять на устройстве.
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -59,6 +104,25 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+// Неподписанный release ставить на устройство нельзя, и молча собирать его
+// нельзя тем более: без этой проверки assembleRelease на машине без ключа
+// выдаёт APK, который выглядит готовым, но никуда не устанавливается.
+gradle.taskGraph.whenReady {
+    // Именно задачи сборки APK, а не любая с «Release» в имени.
+    val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
+    if (wantsRelease && !hasSigningConfig) {
+        throw GradleException(
+            "Сборка release запрошена, но ключ подписи не настроен.\n" +
+                    "Ожидаются свойства: RUNNER_KEYSTORE_PATH, RUNNER_KEYSTORE_PASSWORD, " +
+                    "RUNNER_KEY_ALIAS, RUNNER_KEY_PASSWORD.\n" +
+                    "В CI они собираются из секретов KEYSTORE_BASE64, KEYSTORE_PASSWORD, " +
+                    "KEY_ALIAS, KEY_PASSWORD. Локально их можно положить в " +
+                    "~/.gradle/gradle.properties.\n" +
+                    "Для обычной разработки используйте assembleDebug."
+        )
     }
 }
 

@@ -5,7 +5,8 @@ on:
     branches: [ "**" ]
   workflow_dispatch:
 
-# contents: write нужен только для ветки ci-errors (выжимка из лога падения).
+# contents: write нужен и для ветки ci-errors (выжимка из лога падения),
+# и для публикации релиза.
 permissions:
   contents: write
 
@@ -13,6 +14,14 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+
+    # Секреты подписи лежат в среде release-signing, а не в общих секретах
+    # репозитория. Причина: workflow срабатывает на пуш в ЛЮБУЮ ветку, и если
+    # ключ доступен всегда, то любой, кто может запушить ветку, способен
+    # подписать своим кодом APK, неотличимый для системы обновлений.
+    # Среда позволяет ограничить доступ (required reviewers, ограничение
+    # по веткам). Пока среды нет, секреты не резолвятся: собирается только debug.
+    environment: release-signing
 
     steps:
       # Экшены запинены на коммит-SHA, а не на тег: тег можно переставить,
@@ -33,13 +42,44 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Build Debug APK
+      # Ключ подписи кладётся в файл вне рабочего каталога, чтобы не попасть
+      # ни в git, ни в артефакты.
+      - name: Decode signing keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Секрет KEYSTORE_BASE64 не задан — release собираться не будет."
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
         id: build
         continue-on-error: true
+        env:
+          RUNNER_KEYSTORE_PATH: ${{ runner.temp }}/signing/release.jks
+          RUNNER_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RUNNER_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RUNNER_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set +e
           chmod +x gradlew
-          ./gradlew assembleDebug generateApkSha256 --stacktrace 2>&1 | tee build.log
+
+          TASKS="assembleDebug"
+          # Release собирается, только если ключ подписи реально доступен.
+          if [ "${{ steps.keystore.outputs.configured }}" = "true" ]; then
+            TASKS="assembleDebug assembleRelease"
+          fi
+
+          ./gradlew $TASKS generateApkSha256 \
+            -PrunnerVersionCode="${{ github.run_number }}" \
+            -PrunnerVersionName="1.0.${{ github.run_number }}" \
+            --stacktrace 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit $status
@@ -72,8 +112,12 @@ jobs:
           git config user.email "github-actions@github.com"
           git add -f .ci/last-build-error.txt
           git commit -m "ci: лог ошибки сборки [skip ci]" || true
-          git push --force origin HEAD:ci-errors || true
+          # Тег релиза содержит номер прогона и всегда уникален, поэтому
+          # force-push больше не нужен: обычный push не перепишет историю ветки.
+          git push origin HEAD:ci-errors
 
+      # Debug-сборка остаётся артефактом для проверки на устройстве, но
+      # в релизы не попадает: у неё общеизвестный ключ и debuggable=true.
       - name: Upload Debug APK Artifact
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -85,30 +129,72 @@ jobs:
           if-no-files-found: error
           overwrite: false
 
-      # Сборка пока только debug, а debug-сборку нельзя выкладывать как релиз:
-      # она подписана общеизвестным отладочным ключом (кто угодно соберёт
-      # «обновление», которое перезапишет приложение и унаследует его данные),
-      # и в ней debuggable=true, то есть расшифрованный API-ключ вытаскивается
-      # через adb. Релизы вернём, когда появится настоящий signingConfig и
-      # release-вариант; тогда сюда добавится softprops/action-gh-release,
-      # запиненный на коммит-SHA.
-      #
-      #   - name: Create GitHub Release
-      #     if: steps.build.outcome == 'success' && github.ref == 'refs/heads/main'
-      #     uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-      #     ...
+      - name: Upload Release APK Artifact
+        if: steps.build.outcome == 'success' && steps.keystore.outputs.configured == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Runner-Release-APK-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/release/Runner-*.apk
+            app/build/outputs/apk/release/*.sha256
+          if-no-files-found: error
+          overwrite: false
+
+      # Публичный релиз. Только release-вариант и только на main.
+      - name: Verify release APK is signed
+        id: verify
+        if: steps.build.outcome == 'success' && steps.keystore.outputs.configured == 'true'
+        run: |
+          APK=$(ls app/build/outputs/apk/release/Runner-*.apk | head -1)
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          echo "apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$APK" | tee certs.txt
+          # Отладочный ключ начинается с CN=Android Debug — такой релиз выпускать нельзя.
+          if grep -q "CN=Android Debug" certs.txt; then
+            echo "::error::Release APK подписан отладочным ключом"
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        if: steps.build.outcome == 'success' && steps.verify.outcome == 'success' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Runner v1.0.${{ github.run_number }}"
+          body: |
+            Автоматическая сборка APK автономного ИИ-агента Runner для Android.
+
+            APK подписан ключом проекта и устанавливается поверх предыдущих версий.
+            Рядом лежит `.sha256` — сверьте его после скачивания.
+          files: |
+            app/build/outputs/apk/release/Runner-*.apk
+            app/build/outputs/apk/release/*.sha256
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Report checksums
         if: steps.build.outcome == 'success'
         run: |
           {
-            echo "### APK debug"
+            echo "### APK"
             echo '```'
-            cat app/build/outputs/apk/debug/*.sha256
+            cat app/build/outputs/apk/debug/*.sha256 2>/dev/null || true
+            cat app/build/outputs/apk/release/*.sha256 2>/dev/null || true
             echo '```'
-            echo "APK — во вкладке Artifacts этого прогона. Публикация в Releases отключена:"
-            echo "debug-подпись не годится для распространения."
+            if [ "${{ steps.keystore.outputs.configured }}" = "true" ]; then
+              echo "Release подписан и опубликован в Releases."
+            else
+              echo "Секрет KEYSTORE_BASE64 не задан: собран только debug."
+              echo "Чтобы включить релизы, добавьте секреты KEYSTORE_BASE64,"
+              echo "KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/signing"
 
       - name: Fail if build failed
         if: steps.build.outcome == 'failure'
