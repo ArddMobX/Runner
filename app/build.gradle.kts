@@ -174,32 +174,6 @@ run {
 gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.
     val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
-
-    // Проверяем сам объект AGP: до этого все четыре значения были на месте в
-    // наших val и конфигурация создавалась, а AGP всё равно сообщал, что
-    // keyPassword отсутствует. Пишем в тот же файл, что читается без токена.
-    if (wantsRelease) {
-        val agpInfo = try {
-            val cfg = signingConfigs.findByName("release")
-            if (cfg == null) {
-                "SigningConfig=НЕ НАЙДЕН"
-            } else {
-                "AGP: storeFile=${cfg.storeFile != null} " +
-                        "storePassLen=${cfg.storePassword?.length ?: -1} " +
-                        "keyPassLen=${cfg.keyPassword?.length ?: -1} " +
-                        "alias=${cfg.keyAlias ?: "null"}"
-            }
-        } catch (e: Exception) {
-            "SigningConfig прочитать не удалось: ${e.message}"
-        }
-        println("::notice::$agpInfo")
-        try {
-            File(rootProject.projectDir, ".ci/signing-debug.txt").appendText(agpInfo + "\n")
-        } catch (e: Exception) {
-            println("::warning::запись диагностики: ${e.message}")
-        }
-    }
-
     if (wantsRelease && !hasSigningConfig) {
         // Отчёт по каждому условию отдельно: иначе непонятно, что именно
         // не сошлось — путь, пароль или сам файл ключа.
