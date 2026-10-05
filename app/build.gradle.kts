@@ -130,11 +130,10 @@ android {
 // Неподписанный release ставить на устройство нельзя, и молча собирать его
 // нельзя тем более: без этой проверки assembleRelease на машине без ключа
 // выдаёт APK, который выглядит готовым, но никуда не устанавливается.
-// Диагностика подписи. Печатается на этапе конфигурации, до узла задач,
-// поэтому видна в начале вывода сборки. Пароли показываются только длиной.
-// Управляющие последовательности GitHub (::notice::) превращают строку в
-// аннотацию, а аннотации читаются через API без авторизации — в отличие от
-// логов шагов, доступных только авторизованным.
+// Диагностика подписи. Печатается на этапе конфигурации и дополнительно
+// дописывается в файл .ci/signing-debug.txt: логи шагов GitHub отдаёт только
+// авторизованным, а этот файл workflow публикует в ветку ci-errors, которую
+// можно прочитать без токена. Пароли показываются только длиной.
 fun signingDiagnostics(): String = buildString {
     append("keyFileExists=").append(File(keystorePath).exists())
     append(" pathBlank=").append(keystorePath.isBlank())
@@ -144,7 +143,17 @@ fun signingDiagnostics(): String = buildString {
     append(" hasSigningConfig=").append(hasSigningConfig)
 }
 
-println("::notice::Подпись на этапе конфигурации: ${signingDiagnostics()}")
+run {
+    val line = signingDiagnostics()
+    println("::notice::Подпись на этапе конфигурации: $line")
+    try {
+        val dir = File(rootProject.projectDir, ".ci")
+        dir.mkdirs()
+        File(dir, "signing-debug.txt").writeText(line + "\n")
+    } catch (e: Exception) {
+        println("::warning::Не удалось записать диагностику подписи: ${e.message}")
+    }
+}
 
 gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.

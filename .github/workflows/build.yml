@@ -237,6 +237,12 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add -f .ci/last-build-error.txt
+          # Диагностика подписи, которую записала сама сборка на этапе
+          # конфигурации. Логи шагов GitHub отдаёт только авторизованным, а этот
+          # файл читается из ветки без токена — иначе причину падения не видно.
+          if [ -f .ci/signing-debug.txt ]; then
+            git add -f .ci/signing-debug.txt
+          fi
           git commit -m "ci: лог ошибки сборки [skip ci]" || true
           # force нужен именно здесь. Ветка ci-errors — одноразовая витрина
           # последней ошибки, её история не ценна, а накопленный хвост делает
