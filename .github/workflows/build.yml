@@ -5,6 +5,7 @@ on:
     branches: [ "**" ]
   workflow_dispatch:
 
+# contents: write нужен только для ветки ci-errors (выжимка из лога падения).
 permissions:
   contents: write
 
@@ -14,29 +15,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Экшены запинены на коммит-SHA, а не на тег: тег можно переставить,
+      # а workflow имеет права на запись в репозиторий.
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Проверяет, что gradle-wrapper.jar — официальный, а не подменённый.
+      # jar лежит в репозитории; шаг, который тянул его curl-ом с
+      # raw.githubusercontent без сверки суммы, удалён.
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
-
-      - name: Ensure Gradle Wrapper
-        run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "Downloading gradle-wrapper.jar..."
-            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar || gradle wrapper --gradle-version 8.7
-          fi
-          chmod +x gradlew
 
       - name: Build Debug APK
         id: build
         continue-on-error: true
         run: |
           set +e
+          chmod +x gradlew
           ./gradlew assembleDebug generateApkSha256 --stacktrace 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -74,7 +76,7 @@ jobs:
 
       - name: Upload Debug APK Artifact
         if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Runner-Debug-APK-${{ github.run_number }}
           path: |
@@ -83,19 +85,30 @@ jobs:
           if-no-files-found: error
           overwrite: false
 
-      - name: Create GitHub Release
-        if: steps.build.outcome == 'success' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "Runner v1.0.${{ github.run_number }} APK"
-          body: "Автоматическая сборка APK автономного ИИ-агента Runner для Android."
-          files: |
-            app/build/outputs/apk/debug/Runner-*.apk
-            app/build/outputs/apk/debug/*.sha256
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Сборка пока только debug, а debug-сборку нельзя выкладывать как релиз:
+      # она подписана общеизвестным отладочным ключом (кто угодно соберёт
+      # «обновление», которое перезапишет приложение и унаследует его данные),
+      # и в ней debuggable=true, то есть расшифрованный API-ключ вытаскивается
+      # через adb. Релизы вернём, когда появится настоящий signingConfig и
+      # release-вариант; тогда сюда добавится softprops/action-gh-release,
+      # запиненный на коммит-SHA.
+      #
+      #   - name: Create GitHub Release
+      #     if: steps.build.outcome == 'success' && github.ref == 'refs/heads/main'
+      #     uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+      #     ...
+
+      - name: Report checksums
+        if: steps.build.outcome == 'success'
+        run: |
+          {
+            echo "### APK debug"
+            echo '```'
+            cat app/build/outputs/apk/debug/*.sha256
+            echo '```'
+            echo "APK — во вкладке Artifacts этого прогона. Публикация в Releases отключена:"
+            echo "debug-подпись не годится для распространения."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if build failed
         if: steps.build.outcome == 'failure'

@@ -22,8 +22,15 @@
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!--
+        allowBackup=false осознанно. В SharedPreferences лежат провайдеры вместе
+        с API-ключами; при allowBackup=true (по умолчанию) они уезжают в
+        Google-бэкап и доступны через adb backup. Если понадобится вернуть
+        резервное копирование, нужно добавить android:dataExtractionRules и
+        android:fullBackupContent с исключением файла runner_secure.
+    -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
