@@ -203,6 +203,7 @@ jobs:
       - name: Build APK
         id: build
         continue-on-error: true
+        timeout-minutes: 25
         run: |
           set +e
           chmod +x gradlew
@@ -215,22 +216,27 @@ jobs:
           if [ "${{ steps.signing.outputs.ok }}" = "true" ]; then
             TASKS="assembleDebug assembleRelease"
             # Из командной строки передаётся только путь к ключу. Пароли Gradle
-            # читает из файла свойств, путь к которому задан обычной переменной
-            # окружения GRADLE_PROPERTIES_FILE (см. env шага).
+            # читает из файла свойств, путь к которому передан как
+            # -PsigningPropertiesFile.
             SIGNING_ARGS=(-P"RUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks")
             echo "release собирается, ключ: $RUNNER_TEMP/signing/release.jks"
           else
             echo "Секреты подписи неполные — release не собираю, будет только debug."
           fi
 
+          # console=plain и отсутствие пайпа: пайп с tee держит вывод и мешает
+          # видеть прогресс; лог всё равно нужен, поэтому пишем его через
+          # перенаправление, а в консоль выводим хвост.
           ./gradlew $TASKS generateApkSha256 \
             -PsigningPropertiesFile="${{ steps.signprops.outputs.properties }}" \
             "${SIGNING_ARGS[@]}" \
             -PrunnerVersionCode="${{ github.run_number }}" \
             -PrunnerVersionName="1.0.${{ github.run_number }}" \
-            --stacktrace 2>&1 | tee build.log
-          status=${PIPESTATUS[0]}
+            --stacktrace --console=plain --no-daemon > build.log 2>&1
+          status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "--- последние строки вывода сборки ---"
+          tail -30 build.log || true
 
           # Логи шагов закрыты авторизацией, поэтому при падении выкладываем
           # хвост вывода в сводку прогона: сводка читается публично.
