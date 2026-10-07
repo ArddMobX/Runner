@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +64,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -951,6 +953,110 @@ private fun AgentSettings(viewModel: MainViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
+            }
+
+            SettingsDivider()
+
+            // Главный переключатель подтверждений. Выключение снимает диалог
+            // для всех опасных действий, поэтому рядом предупреждение, а не
+            // тихий тумблер.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Спрашивать перед опасными действиями",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.confirmDangerous) {
+                            "Удаление, запись, shell и запуск ждут подтверждения"
+                        } else {
+                            "Не спрашивает вообще: всё выполняется сразу"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.confirmDangerous,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(confirmDangerous = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (!appSettings.confirmDangerous) {
+                Surface(
+                    color = StatusWarning.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, StatusWarning.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(11.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.WarningAmber,
+                            contentDescription = null,
+                            tint = StatusWarning,
+                            modifier = Modifier
+                                .padding(top = 1.dp)
+                                .size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(9.dp))
+                        Text(
+                            text = "Агент будет удалять и перезаписывать файлы, выполнять команды " +
+                                    "оболочки и запускать приложения без вопросов. Ошибку модели " +
+                                    "отменить будет нечем: удалённое не попадает в корзину.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+
+            // Список запомненных разрешений: пользователь должен видеть, что уже
+            // выполняется молча, и уметь это забыть.
+            if (appSettings.approvedOperationSignatures.isNotEmpty()) {
+                SettingsDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Запомненные разрешения",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = PluralUtils.actions(appSettings.approvedOperationSignatures.size) +
+                                    " выполняется без подтверждения",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.updateSettings(
+                                appSettings.copy(approvedOperationSignatures = emptySet())
+                            )
+                        }
+                    ) {
+                        Text("Забыть все", fontSize = 13.sp)
+                    }
+                }
             }
 
             SettingsDivider()

@@ -212,7 +212,9 @@ fun ChatScreen(
     pendingConfirmation?.let { request ->
         ConfirmationBottomSheet(
             request = request,
-            onConfirm = { selected -> viewModel.resolveConfirmation(true, selected) },
+            onConfirm = { selected, remember ->
+                viewModel.resolveConfirmation(true, selected, remember)
+            },
             onReject = { viewModel.resolveConfirmation(false) }
         )
     }
@@ -1687,7 +1689,7 @@ private fun StoragePromptSheet(
 @Composable
 private fun ConfirmationBottomSheet(
     request: ConfirmationRequest,
-    onConfirm: (Set<String>?) -> Unit,
+    onConfirm: (Set<String>?, Boolean) -> Unit,
     onReject: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1696,6 +1698,9 @@ private fun ConfirmationBottomSheet(
     var selectedIds by remember(request.id) {
         mutableStateOf(request.items.map { it.id }.toSet())
     }
+    // «Больше не спрашивать» действует только на это конкретное действие:
+    // разрешение открыть YouTube не отменяет вопрос при удалении папки.
+    var remember by remember(request.id) { mutableStateOf(false) }
     val hasItems = request.items.isNotEmpty()
     val allSelected = !hasItems || selectedIds.size == request.items.size
 
@@ -1875,6 +1880,44 @@ private fun ConfirmationBottomSheet(
                 }
             }
 
+            // Запоминание конкретного действия. Показываем только когда его
+            // есть смысл запоминать: удаление папки со списком файлов —
+            // разовое действие, повторять его «молча» опасно.
+            if (!hasItems) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { remember = !remember }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = remember,
+                        onCheckedChange = { remember = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = MaterialTheme.colorScheme.primary,
+                            checkmarkColor = MaterialTheme.colorScheme.onPrimary,
+                            uncheckedColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Больше не спрашивать это действие",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "Повтор этой же операции пойдёт без подтверждения. " +
+                                    "Другие действия всё равно спросят.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = onReject,
@@ -1892,7 +1935,7 @@ private fun ConfirmationBottomSheet(
                 }
 
                 Button(
-                    onClick = { onConfirm(if (hasItems) selectedIds else null) },
+                    onClick = { onConfirm(if (hasItems) selectedIds else null, remember) },
                     enabled = !hasItems || selectedIds.isNotEmpty(),
                     modifier = Modifier
                         .weight(1f)

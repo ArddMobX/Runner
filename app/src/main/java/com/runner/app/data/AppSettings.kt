@@ -27,6 +27,19 @@ data class AppSettings(
      */
     val confirmEveryStep: Boolean = false,
     /**
+     * Спрашивать подтверждение перед опасными действиями.
+     *
+     * Выключено означает «не спрашивать вообще»: агент выполняет удаление,
+     * запись, shell и остальное без диалога. Режим опасный, поэтому включается
+     * только явным выбором, а не по умолчанию.
+     */
+    val confirmDangerous: Boolean = true,
+    /**
+     * Подписи операций, которые пользователь разрешил с галочкой
+     * «Больше не спрашивать». Повтор такой операции идёт без диалога.
+     */
+    val approvedOperationSignatures: Set<String> = emptySet(),
+    /**
      * Разрешить shell-командам выходить за пределы /storage/emulated/0.
      *
      * Файловые тулы заперты в общей памяти через resolvePath, а `sh -c` эту
@@ -199,6 +212,10 @@ class SettingsStore(context: Context) {
             disclaimerAccepted = prefs.getBoolean(KEY_DISCLAIMER_ACCEPTED, false),
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false),
+            confirmDangerous = prefs.getBoolean(KEY_CONFIRM_DANGEROUS, true),
+            approvedOperationSignatures = prefs.getStringSet(KEY_APPROVED_SIGNATURES, emptySet())
+                ?.toSet()
+                .orEmpty(),
             shellOutsideStorage = prefs.getBoolean(KEY_SHELL_OUTSIDE_STORAGE, false),
             contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET)
         )
@@ -220,6 +237,8 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_DISCLAIMER_ACCEPTED, settings.disclaimerAccepted)
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
             .putBoolean(KEY_CONFIRM_EVERY_STEP, settings.confirmEveryStep)
+            .putBoolean(KEY_CONFIRM_DANGEROUS, settings.confirmDangerous)
+            .putStringSet(KEY_APPROVED_SIGNATURES, settings.approvedOperationSignatures)
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
 
@@ -250,6 +269,8 @@ class SettingsStore(context: Context) {
         const val KEY_DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         const val KEY_PLANNING_ENABLED = "planning_enabled"
         const val KEY_CONFIRM_EVERY_STEP = "confirm_every_step"
+        const val KEY_CONFIRM_DANGEROUS = "confirm_dangerous"
+        const val KEY_APPROVED_SIGNATURES = "approved_operation_signatures"
         const val KEY_SHELL_OUTSIDE_STORAGE = "shell_outside_storage"
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
     }

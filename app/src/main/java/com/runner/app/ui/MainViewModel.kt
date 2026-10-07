@@ -63,10 +63,12 @@ enum class MessageAction {
  * Решение пользователя по опасной операции.
  * selectedIds заполняется только для операций со списком объектов:
  * null означает «подтверждено целиком».
+ * remember — пользователь попросил больше не спрашивать именно это действие.
  */
 data class ConfirmationDecision(
     val approved: Boolean,
-    val selectedIds: Set<String>? = null
+    val selectedIds: Set<String>? = null,
+    val remember: Boolean = false
 )
 
 data class ConfirmationRequest(
@@ -310,6 +312,22 @@ private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson
 
 /** Инструменты, чей вывод считается недоверенным содержимым. */
 private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf("read_file", "list_dir", "clipboard_read")
+
+/**
+ * Подпись операции для списка «больше не спрашивать».
+ *
+ * Галочка в диалоге действует на КОНКРЕТНОЕ действие, а не на инструмент
+ * целиком: «открой YouTube» перестанет спрашивать, а «удали папку» —
+ * нет. Поэтому в подпись входят критичные аргументы, нормализованные так же,
+ * как при сверке с планом.
+ */
+private fun confirmationSignature(toolName: String, argsJson: String): String {
+    val clean = toolName.substringAfterLast(":")
+    val values = criticalArgValues(clean, argsJson)
+        .map { normalizeForMatch(it) }
+        .sorted()
+    return "$clean|${values.joinToString("|")}"
+}
 
 /** Признаки ошибки в выводе инструмента, проверяются по началу любой строки. */
 private val TOOL_ERROR_PREFIXES = listOf("Ошибка", "Не удалось", "Не могу", "Запрещено")
@@ -810,10 +828,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Агент ---
 
-    fun resolveConfirmation(confirmed: Boolean, selectedIds: Set<String>? = null) {
+    fun resolveConfirmation(
+        confirmed: Boolean,
+        selectedIds: Set<String>? = null,
+        remember: Boolean = false
+    ) {
         val current = _pendingConfirmation.value
         _pendingConfirmation.value = null
-        current?.onDecision?.invoke(ConfirmationDecision(confirmed, selectedIds))
+        current?.onDecision?.invoke(ConfirmationDecision(confirmed, selectedIds, remember))
     }
 
     /** Решение пользователя по плану шагов. */
@@ -1420,8 +1442,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val preApproved = isDangerous && isPreApproved(approvedPlanSteps, call.name, call.arguments)
         val fromUntrusted = isDangerous &&
                 isDerivedFromUntrusted(untrustedLines, call.name, call.arguments)
-        val needConfirm = (isDangerous || _settings.value.confirmEveryStep) &&
-                (!preApproved || fromUntrusted)
+
+        // Подпись этого конкретного действия: «открой YouTube» и «удали папку» —
+        // разные подписи, поэтому разрешение одного не открывает второе.
+        val signature = confirmationSignature(call.name, call.arguments)
+        val remembered = isDangerous && signature in _settings.value.approvedOperationSignatures
+
+        // Режим «не спрашивать вообще» снимает диалог для всех опасных действий.
+        // Исключение одно: аргументы, пришедшие из недоверенного вывода (файл,
+        // буфер обмена). Это защита от подсказок вида «удали всё» внутри
+        // прочитанного текста, её отключать нельзя.
+        val confirmDangerous = _settings.value.confirmDangerous
+        val needConfirm = when {
+            fromUntrusted -> true
+            remembered -> _settings.value.confirmEveryStep
+            isDangerous -> confirmDangerous && !preApproved
+            else -> _settings.value.confirmEveryStep
+        }
         val output = if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
@@ -1448,6 +1485,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 declined = true
                 "Пользователь снял все галочки, удалять нечего. Не повторяй операцию без новой просьбы."
             } else {
+                // «Больше не спрашивать» запоминается только для этого действия.
+                if (decision.remember) {
+                    updateSettings(
+                        _settings.value.copy(
+                            approvedOperationSignatures =
+                            _settings.value.approvedOperationSignatures + signature
+                        )
+                    )
+                }
                 _currentStatus.value = title
                 val startedAt = System.currentTimeMillis()
                 val result = runConfirmedOperation(call, info, decision)
