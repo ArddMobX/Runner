@@ -17,10 +17,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -29,13 +33,19 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -43,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,21 +68,26 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.bounceClick
+import com.runner.app.util.AttachedFile
+import com.runner.app.util.AttachmentUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Изолированное состояние поля ввода.
  *
- * Хранит TextFieldValue и прикреплённые изображения локально, чтобы изменения текста
+ * Хранит TextFieldValue, прикреплённые изображения и файлы локально, чтобы изменения текста
  * не вызывали рекомпозицию родительского экрана чата или списка сообщений при каждом нажатии клавиши.
  */
 @Stable
@@ -84,6 +100,7 @@ class ChatInputState(initialText: String = "") {
     )
 
     var selectedImages by mutableStateOf<List<Uri>>(emptyList())
+    var selectedFiles by mutableStateOf<List<AttachedFile>>(emptyList())
 
     val text: String
         get() = textFieldValue.text
@@ -103,9 +120,18 @@ class ChatInputState(initialText: String = "") {
         selectedImages = selectedImages.filter { it != uri }
     }
 
+    fun addFiles(files: List<AttachedFile>) {
+        selectedFiles = (selectedFiles + files).distinctBy { it.uri }.take(10)
+    }
+
+    fun removeFile(file: AttachedFile) {
+        selectedFiles = selectedFiles.filter { it != file }
+    }
+
     fun clear() {
         textFieldValue = TextFieldValue("")
         selectedImages = emptyList()
+        selectedFiles = emptyList()
     }
 }
 
@@ -117,7 +143,7 @@ fun rememberChatInputState(initialText: String = ""): ChatInputState =
  * Полностью изолированный компонент панели ввода сообщений.
  *
  * 1. Локальный стейт ввода (не триггерит ререндер списка сообщений и родительского экрана).
- * 2. Прикрепление и предпросмотр изображений (Vision).
+ * 2. Меню вложений «+»: Камера (снимок прямо сейчас), Галерея (фото) и Файлы (документы, код, логи).
  * 3. Голосовой ввод речи через системный SpeechRecognizer (STT).
  * 4. Многострочный ввод: Enter переносит строку (до 5 строк со скроллом),
  *    отправка — только кнопкой справа, imeAction = None.
@@ -128,26 +154,77 @@ fun ChatInputBar(
     isRunning: Boolean,
     isListening: Boolean = false,
     rmsLevel: Float = 0f,
-    onSend: (String, List<Uri>) -> Unit,
+    onSend: (String, List<Uri>, List<AttachedFile>) -> Unit,
     onStop: () -> Unit,
     onStartListening: (() -> Unit)? = null,
     onStopListening: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val textValue = inputState.textFieldValue
     val rawText = textValue.text
     val selectedImages = inputState.selectedImages
-    val hasContent = rawText.isNotBlank() || selectedImages.isNotEmpty()
+    val selectedFiles = inputState.selectedFiles
+    val hasContent = rawText.isNotBlank() || selectedImages.isNotEmpty() || selectedFiles.isNotEmpty()
     val canSend = hasContent && !isRunning
     var isFocused by remember { mutableStateOf(false) }
     val isActive = isFocused || hasContent || isListening
 
+    var showAttachMenu by remember { mutableStateOf(false) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Лаунчер камеры
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingCameraUri?.let { uri ->
+                inputState.addImages(listOf(uri))
+            }
+        }
+        pendingCameraUri = null
+    }
+
+    // Лаунчер галереи (фото)
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
             inputState.addImages(uris)
+        }
+    }
+
+    // Лаунчер любых файлов и документов (*/*)
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val newImages = mutableListOf<Uri>()
+                val newFiles = mutableListOf<AttachedFile>()
+                for (uri in uris) {
+                    val (name, size) = AttachmentUtils.getFileMetadata(context, uri)
+                    val mimeType = context.contentResolver.getType(uri)
+                    if (AttachmentUtils.isImageFile(name, mimeType)) {
+                        newImages.add(uri)
+                    } else {
+                        val copied = AttachmentUtils.copyToAttachmentsCache(context, uri, name)
+                        val attached = AttachedFile(
+                            uri = uri,
+                            name = name,
+                            size = if (size > 0) size else (copied?.length() ?: 0L),
+                            mimeType = mimeType,
+                            localPath = copied?.absolutePath
+                        )
+                        newFiles.add(attached)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    if (newImages.isNotEmpty()) inputState.addImages(newImages)
+                    if (newFiles.isNotEmpty()) inputState.addFiles(newFiles)
+                }
+            }
         }
     }
 
@@ -175,9 +252,10 @@ fun ChatInputBar(
     fun handleSend() {
         val trimmed = inputState.text.trim()
         val images = inputState.selectedImages
-        if ((trimmed.isNotEmpty() || images.isNotEmpty()) && !isRunning) {
+        val files = inputState.selectedFiles
+        if ((trimmed.isNotEmpty() || images.isNotEmpty() || files.isNotEmpty()) && !isRunning) {
             inputState.clear()
-            onSend(trimmed, images)
+            onSend(trimmed, images, files)
         }
     }
 
@@ -203,18 +281,25 @@ fun ChatInputBar(
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)
     ) {
-        // Полоса выбранных изображений над полем ввода
-        if (selectedImages.isNotEmpty()) {
+        // Полоса выбранных изображений и файлов над полем ввода
+        if (selectedImages.isNotEmpty() || selectedFiles.isNotEmpty()) {
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 8.dp, start = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 items(selectedImages) { uri ->
                     SelectedImageThumbnail(
                         uri = uri,
                         onRemove = { inputState.removeImage(uri) }
+                    )
+                }
+                items(selectedFiles) { file ->
+                    SelectedFileChip(
+                        file = file,
+                        onRemove = { inputState.removeFile(file) }
                     )
                 }
             }
@@ -229,20 +314,74 @@ fun ChatInputBar(
                 .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            // Кнопка прикрепления изображения
-            IconButton(
-                onClick = { imagePickerLauncher.launch("image/*") },
-                enabled = !isRunning,
-                modifier = Modifier
-                    .padding(bottom = 2.dp)
-                    .size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.AddPhotoAlternate,
-                    contentDescription = "Прикрепить фото",
-                    tint = if (!isRunning) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                    modifier = Modifier.size(21.dp)
-                )
+            // Кнопка «+» с меню выбора (Камера / Галерея / Файл)
+            Box(modifier = Modifier.padding(bottom = 2.dp)) {
+                IconButton(
+                    onClick = { showAttachMenu = true },
+                    enabled = !isRunning,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = "Прикрепить вложение",
+                        tint = if (!isRunning) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                        modifier = Modifier.size(23.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showAttachMenu,
+                    onDismissRequest = { showAttachMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Камера (фото)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.CameraAlt,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            showAttachMenu = false
+                            try {
+                                val (_, uri) = AttachmentUtils.createCameraImageUri(context)
+                                pendingCameraUri = uri
+                                takePictureLauncher.launch(uri)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Не удалось открыть камеру: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Галерея") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Image,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            showAttachMenu = false
+                            imagePickerLauncher.launch("image/*")
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Файл (документ, код)") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Description,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            showAttachMenu = false
+                            filePickerLauncher.launch("*/*")
+                        }
+                    )
+                }
             }
 
             BasicTextField(
@@ -364,6 +503,73 @@ private fun SelectedImageThumbnail(
                 tint = Color.White,
                 modifier = Modifier.size(12.dp)
             )
+        }
+    }
+}
+
+/**
+ * Превью прикреплённого документа/файла с названием, размером и кнопкой удаления.
+ */
+@Composable
+private fun SelectedFileChip(
+    file: AttachedFile,
+    onRemove: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.height(58.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Description,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(
+                modifier = Modifier.widthIn(max = 140.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = AttachmentUtils.formatFileSize(file.size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Удалить",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }

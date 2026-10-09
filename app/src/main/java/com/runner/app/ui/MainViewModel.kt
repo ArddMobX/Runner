@@ -8,8 +8,11 @@ import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runner.app.util.AttachedFile
+import com.runner.app.util.AttachmentUtils
 import com.runner.app.util.ImageUtils
 import com.runner.app.util.VoiceManager
+import java.io.File
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
@@ -1214,9 +1217,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentStatus.value = "Останавливаю"
     }
 
-    fun sendMessage(prompt: String, images: List<Uri> = emptyList()) {
+    fun sendMessage(
+        prompt: String,
+        images: List<Uri> = emptyList(),
+        files: List<AttachedFile> = emptyList()
+    ) {
         val text = prompt.trim()
-        if (text.isEmpty() && images.isEmpty()) return
+        if (text.isEmpty() && images.isEmpty() && files.isEmpty()) return
         if (_isRunning.value) return
 
         val provider = activeProvider.value
@@ -1250,7 +1257,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 val session = repository.createSession()
                 loadSession(session.id)
-                sendMessage(prompt, images)
+                sendMessage(prompt, images, files)
             }
             return
         }
@@ -1262,7 +1269,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         enabledToolNames.clear()
         activeToolScope = null
         dryRunBannerShown = false
-        val effectiveText = if (text.isEmpty() && images.isNotEmpty()) "Что на этом изображении?" else text
+
+        val fileContextBuilder = StringBuilder()
+        val fileSummaryBuilder = StringBuilder()
+
+        for (file in files) {
+            val formattedSize = AttachmentUtils.formatFileSize(file.size)
+            fileSummaryBuilder.append("\n📎 ${file.name} ($formattedSize)")
+
+            val localFile = file.localPath?.let { File(it) }
+            val isText = AttachmentUtils.isTextFile(file.name, file.mimeType)
+
+            fileContextBuilder.append("\n\n[Прикреплённый файл: ${file.name} (размер: $formattedSize")
+            if (file.localPath != null) {
+                fileContextBuilder.append(", путь: ${file.localPath}")
+            }
+            fileContextBuilder.append(")]")
+
+            if (isText && localFile != null && localFile.exists()) {
+                val textPreview = AttachmentUtils.readTextPreview(localFile)
+                if (!textPreview.isNullOrBlank()) {
+                    fileContextBuilder.append("\nСодержимое файла ${file.name}:\n```\n$textPreview\n```")
+                }
+            } else if (file.localPath != null) {
+                fileContextBuilder.append("\nФайл сохранён по указанному пути. Используй инструменты агента для чтения или анализа этого файла.")
+            }
+        }
+
+        val basePrompt = when {
+            text.isNotBlank() -> text
+            images.isNotEmpty() -> "Что на этом изображении?"
+            files.isNotEmpty() -> if (files.size == 1) "Проанализируй прикреплённый файл ${files[0].name}" else "Проанализируй прикреплённые файлы"
+            else -> "Привет"
+        }
+
+        val displayText = if (fileSummaryBuilder.isNotEmpty()) {
+            "$basePrompt\n$fileSummaryBuilder".trim()
+        } else {
+            basePrompt
+        }
+
+        val effectiveText = if (fileContextBuilder.isNotEmpty()) {
+            "$basePrompt$fileContextBuilder"
+        } else {
+            basePrompt
+        }
+
         // Прогон всухую включаем только для задач, которые выглядят как
         // изменяющие данные: он удваивает расход запросов, и тратить его
         // на чтение бессмысленно. Эвристика та же, что решает про план.
@@ -1278,7 +1330,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = _messages.value + ChatMessage(
             id = userMessageId,
             role = MessageRole.USER,
-            content = effectiveText,
+            content = displayText,
             imageUris = cachedImagePaths,
             timestamp = now
         )
@@ -1292,13 +1344,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         id = userMessageId,
                         sessionId = sessionId,
                         role = MessageRole.USER.name,
-                        content = effectiveText,
+                        content = displayText,
                         imageUris = if (cachedImagePaths.isEmpty()) null else cachedImagePaths.joinToString(","),
                         createdAt = now
                     )
                 )
                 if (isFirstUserMessage) {
-                    val title = effectiveText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    val title = displayText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
                     repository.renameSession(sessionId, title)
                     _currentSessionTitle.value = title
                 }
