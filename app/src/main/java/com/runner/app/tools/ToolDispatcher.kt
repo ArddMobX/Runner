@@ -67,8 +67,12 @@ object ToolDispatcher {
 
     /**
      * JSON Schema description of all tools for OpenAI-compatible Tool Calling.
+     *
+     * Строит полный набор. Наружу отдавать через [getToolsJson], который умеет
+     * фильтровать: полный список схем в каждом запросе — основная статья расхода
+     * лимита токенов у провайдера.
      */
-    fun getToolsJson(): JSONArray {
+    private fun buildAllToolsJson(): JSONArray {
         val tools = JSONArray()
 
         // 1. get_storage_summary
@@ -380,6 +384,121 @@ object ToolDispatcher {
         return tools
     }
 
+    // --- Область инструментов в запросе ---
+
+    /** Инструмент-подключатель: сам по диску не ходит, это часть диалога. */
+    const val ENABLE_TOOLS = "enable_tools"
+
+    /**
+     * Минимальный набор, который уходит в запрос всегда.
+     *
+     * Это всё, что нужно для чтения, поиска и аналитики, плюс `create_dir` —
+     * без него часто не обходится ни одна запись. Остальное подключается
+     * по необходимости, см. [toolScopeNote].
+     */
+    val CORE_TOOL_NAMES: Set<String> = setOf(
+        "get_storage_summary",
+        "find_largest_files",
+        "find_junk_files",
+        "get_folder_summary",
+        "list_dir",
+        "read_file",
+        "search_files",
+        "create_dir"
+    )
+
+    /**
+     * Имена всех настоящих инструментов. Выводятся из тех же схем, что уходят
+     * в запрос, поэтому не могут с ними разойтись — второго списка нет.
+     */
+    val ALL_TOOL_NAMES: List<String> by lazy {
+        val all = buildAllToolsJson()
+        (0 until all.length()).mapNotNull { index ->
+            all.optJSONObject(index)
+                ?.optJSONObject("function")
+                ?.optString("name")
+                ?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    /**
+     * Схемы инструментов для запроса.
+     *
+     * `null` — все инструменты (поведение по умолчанию, как было всегда).
+     * Набор — только перечисленные плюс, если попросили, [ENABLE_TOOLS].
+     *
+     * Пустой набор означает «инструменты не нужны»: вызывающий код на этом
+     * основании вообще не кладёт поле `tools` в тело запроса.
+     */
+    fun getToolsJson(names: Set<String>? = null): JSONArray {
+        val all = buildAllToolsJson()
+        if (names == null) return all
+
+        val filtered = JSONArray()
+        for (index in 0 until all.length()) {
+            val item = all.optJSONObject(index) ?: continue
+            val name = item.optJSONObject("function")?.optString("name").orEmpty()
+            if (name in names) filtered.put(item)
+        }
+        if (ENABLE_TOOLS in names) filtered.put(createEnableToolsSchema())
+        return filtered
+    }
+
+    private fun createEnableToolsSchema(): JSONObject = createToolFunction(
+        name = ENABLE_TOOLS,
+        description = "Подключает дополнительные инструменты, которых нет в этом запросе. " +
+                "Нужен, когда для задачи требуется что-то за пределами чтения и поиска: " +
+                "удаление, запись, перемещение, архивы, shell, буфер, запуск приложений. " +
+                "Передай точные имена из списка в системном сообщении. Подключённые " +
+                "инструменты становятся доступны со следующего шага.",
+        properties = JSONObject().apply {
+            put("names", JSONObject().apply {
+                put("type", "array")
+                put("description", "Имена инструментов, например [\"delete_file\", \"move_file\"].")
+                put("items", JSONObject().apply { put("type", "string") })
+            })
+        },
+        required = listOf("names")
+    )
+
+    /**
+     * Пояснение к урезанному набору: что уже доступно и что можно подключить.
+     *
+     * Каталог строится из тех же описаний, что и схемы, — берётся первое
+     * предложение. Поэтому он не может разойтись с реальным набором инструментов.
+     */
+    fun toolScopeNote(active: Set<String>): String {
+        val all = buildAllToolsJson()
+        val available = active.filter { it != ENABLE_TOOLS }.sorted()
+        val rest = mutableListOf<String>()
+
+        for (index in 0 until all.length()) {
+            val item = all.optJSONObject(index) ?: continue
+            val function = item.optJSONObject("function") ?: continue
+            val name = function.optString("name")
+            if (name.isBlank() || name in active) continue
+            rest.add("$name — ${firstSentence(function.optString("description"))}")
+        }
+
+        return buildString {
+            append("В ЭТОМ ЗАПРОСЕ ПОДКЛЮЧЕНЫ НЕ ВСЕ ИНСТРУМЕНТЫ.\n")
+            append("Доступны сейчас: ${available.joinToString(", ")}.\n")
+            if (rest.isNotEmpty()) {
+                append("Остальные подключаются вызовом $ENABLE_TOOLS, если понадобятся:\n")
+                rest.forEach { append("- ").append(it).append('\n') }
+            }
+            append("Не выдумывай имена и не утверждай, что инструмент недоступен, ")
+            append("не попробовав $ENABLE_TOOLS.")
+        }
+    }
+
+    /** Первое предложение описания — для компактного каталога. */
+    private fun firstSentence(description: String): String {
+        val cut = description.indexOf(". ")
+        val sentence = if (cut > 0) description.substring(0, cut + 1) else description
+        return if (sentence.length <= 160) sentence else sentence.take(157) + "…"
+    }
+
     private fun createToolFunction(
         name: String,
         description: String,
@@ -648,6 +767,14 @@ object ToolDispatcher {
         }
     }
 
+    /**
+     * Удаление = перенос в корзину.
+     *
+     * Безвозвратного удаления файловым тулом больше нет: объект уезжает в
+     * [TrashStore] и оттуда возвращается кнопкой «Отменить». Именно это
+     * позволяет пользователю ослабить подтверждения, не теряя данные из-за
+     * ошибки модели. Полностью корзина чистится отдельно, в настройках агента.
+     */
     fun deleteFile(rawPath: String, recursive: Boolean): String {
         if (rawPath.isBlank()) return "Ошибка: путь для удаления не указан."
         val file = try {
@@ -668,39 +795,43 @@ object ToolDispatcher {
             return "resolved_path: ${file.absolutePath}\nЗащита безопасности: удаление корневой директории запрещено!"
         }
 
-        return if (file.isDirectory) {
-            val count = file.walkTopDown().count()
-            if (recursive) {
-                if (file.deleteRecursively()) {
-                    "resolved_path: ${file.absolutePath}\nПапка '${file.name}' и все вложенные элементы ($count) успешно удалены."
-                } else {
-                    "resolved_path: ${file.absolutePath}\n" +
-                            "Не удалось полностью удалить папку '${file.name}': " +
-                            explainDeleteFailure(file)
-                }
-            } else {
-                val children = file.listFiles()
-                if (children.isNullOrEmpty()) {
-                    if (file.delete()) {
-                        "resolved_path: ${file.absolutePath}\nПустая папка '${file.name}' успешно удалена."
-                    } else {
-                        "resolved_path: ${file.absolutePath}\n" +
-                                "Не удалось удалить папку '${file.name}': " +
-                                explainDeleteFailure(file)
-                    }
-                } else {
-                    "resolved_path: ${file.absolutePath}\nПапка '${file.name}' содержит элементы (${children.size}). Укажите recursive=true для подтверждения удаления всей папки."
-                }
+        // Корзину не «удаляем в корзину»: восстановление такого объекта вернуло
+        // бы его внутрь себя же. Чистится она только явным действием в настройках.
+        if (TrashStore.isTrashPath(file)) {
+            return "resolved_path: ${file.absolutePath}\n" +
+                    "Это объект внутри корзины. Верни его кнопкой «Отменить» в сообщении об удалении, " +
+                    "а очистить корзину целиком можно в «Настройки → Агент»."
+        }
+
+        // Папку без recursive не трогаем: подтверждение было выдано на непустую
+        // папку, а это уже другое действие, чем «удалить один объект».
+        if (file.isDirectory && !recursive) {
+            val children = file.listFiles()
+            if (!children.isNullOrEmpty()) {
+                return "resolved_path: ${file.absolutePath}\nПапка '${file.name}' содержит элементы (${children.size}). Укажите recursive=true для подтверждения удаления всей папки."
             }
+        }
+
+        val result = TrashStore.moveToTrash(listOf(file))
+        val entry = result.entry
+        if (entry == null) {
+            return "resolved_path: ${file.absolutePath}\n" +
+                    "Не удалось переместить в корзину '${file.name}': " +
+                    explainDeleteFailure(file)
+        }
+
+        val item = entry.items.first()
+        val subject = if (item.isDirectory) {
+            val inside = if (item.fileCount > 0) ", внутри файлов: ${item.fileCount}" else ""
+            "Папка '${file.name}'$inside"
         } else {
-            val name = file.name
-            if (file.delete()) {
-                "resolved_path: ${file.absolutePath}\nФайл '$name' успешно удален."
-            } else {
-                "resolved_path: ${file.absolutePath}\n" +
-                        "Не удалось удалить файл '$name': " +
-                        explainDeleteFailure(file)
-            }
+            "Файл '${file.name}' (${formatFileSize(item.sizeBytes)})"
+        }
+
+        return buildString {
+            append("resolved_path: ${file.absolutePath}\n")
+            append(TrashStore.markerLine(entry.id, isMove = false)).append("\n")
+            append("$subject перемещён в корзину. Данные не потеряны: верни их кнопкой «Отменить» в этом сообщении.")
         }
     }
 
@@ -746,17 +877,49 @@ object ToolDispatcher {
             }
         }
 
-        return try {
+        // Объявляем без начальных значений: обе ветки ниже присваивают обе
+        // переменные, и пустой инициализатор компилятор считает лишним.
+        // Именно var, а не val: val, присвоенный в try, нельзя переприсвоить
+        // в catch — компилятор не знает, успело ли присваивание произойти.
+        var success: Boolean
+        var message: String
+        try {
             if (src.renameTo(dest)) {
-                "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nresolved_path: ${dest.absolutePath}\nПеремещено: '${src.name}' -> '${dest.absolutePath}'."
+                success = true
+                message = "Перемещено"
             } else {
                 // Cross-device fallback
                 src.copyTo(dest, overwrite = true)
                 src.delete()
-                "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nresolved_path: ${dest.absolutePath}\nПеремещено (через копирование): '${src.name}' -> '${dest.absolutePath}'."
+                success = true
+                message = "Перемещено (через копирование)"
             }
         } catch (e: Exception) {
-            "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nОшибка при перемещении: ${e.localizedMessage}"
+            success = false
+            message = "Ошибка при перемещении: ${e.localizedMessage}"
+        }
+
+        if (!success) {
+            return "resolved_path_src: ${src.absolutePath}\n" +
+                    "resolved_path_dst: ${dest.absolutePath}\n$message"
+        }
+
+        // Записываем перемещение в журнал: файлы не потерялись, но разложить их
+        // обратно руками, когда агент растащил сотню файлов по папкам, почти
+        // невозможно. Отсюда и кнопка «Отменить» в карточке операции.
+        val entry = TrashStore.recordMove(listOf(src to dest))
+
+        return buildString {
+            append("resolved_path_src: ${src.absolutePath}\n")
+            append("resolved_path_dst: ${dest.absolutePath}\n")
+            append("resolved_path: ${dest.absolutePath}\n")
+            if (entry != null) {
+                append(TrashStore.markerLine(entry.id, isMove = true)).append("\n")
+            }
+            append("$message: '${src.name}' -> '${dest.absolutePath}'.")
+            if (entry != null) {
+                append("\nОткатить перемещение можно кнопкой «Отменить» в этом сообщении.")
+            }
         }
     }
 
@@ -817,6 +980,10 @@ object ToolDispatcher {
         try {
             rootDir.walkTopDown()
                 .maxDepth(5)
+                // В корзину не заглядываем: иначе удалённый файл находился бы
+                // поиском как обычный, и агент предлагал бы его удалить снова.
+                // Если корзину выбрали явно как папку поиска — ищем в ней.
+                .onEnter { dir -> dir == rootDir || !isTrashDir(dir) }
                 .filter { it.isFile }
                 .filter { file ->
                     val matchesQuery = normQuery.isEmpty() || file.name.lowercase().contains(normQuery)
@@ -1629,6 +1796,8 @@ object ToolDispatcher {
 
         val normCategory = category.lowercase().trim()
         val movedFiles = mutableListOf<String>()
+        // Пары «откуда → куда»: по ним операцию можно будет откатить целиком.
+        val relocations = mutableListOf<Pair<File, File>>()
 
         fun moveMatching(files: List<File>, extensions: Set<String>, targetFolder: File) {
             if (!targetFolder.exists()) targetFolder.mkdirs()
@@ -1637,6 +1806,7 @@ object ToolDispatcher {
                     val dest = getNonConflictingDestination(targetFolder, file.name)
                     if (file.renameTo(dest)) {
                         movedFiles.add("${file.name} -> ${targetFolder.name}/${dest.name}")
+                        relocations.add(file to dest)
                     }
                 }
             }
@@ -1664,10 +1834,20 @@ object ToolDispatcher {
         return if (movedFiles.isEmpty()) {
             "В папке Download не найдено файлов для категории '$category'."
         } else {
+            // Одна запись на всю операцию: пользователь подтвердил одно действие
+            // и откатить его должен одной кнопкой, а не сотней.
+            val entry = TrashStore.recordMove(relocations)
             buildString {
-                append("Успешно перемещено файлов (${movedFiles.size}) для категории '$category':\n")
+                append("resolved_path: ${downloadsDir.absolutePath}\n")
+                if (entry != null) {
+                    append(TrashStore.markerLine(entry.id, isMove = true)).append("\n")
+                }
+                append("Перемещено файлов: ${movedFiles.size} (категория '$category'):\n")
                 movedFiles.take(10).forEach { append("  • $it\n") }
                 if (movedFiles.size > 10) append("  ...и еще ${movedFiles.size - 10} файлов.")
+                if (entry != null) {
+                    append("\nОткатить сортировку можно кнопкой «Отменить» в этом сообщении.")
+                }
             }
         }
     }
@@ -1686,6 +1866,171 @@ object ToolDispatcher {
             counter++
         }
         return dest
+    }
+
+    // --- Превью записи: построчный diff ---
+
+    /** Больше этого не читаем: сравнивать половину файла с целым нельзя. */
+    private const val DIFF_MAX_READ_BYTES = 60_000
+    private const val DIFF_MAX_LINES = 300
+
+    /** Сколько строк diff показываем в диалоге. */
+    private const val DIFF_MAX_OUTPUT_LINES = 26
+    private const val DIFF_CONTEXT_LINES = 2
+
+    /**
+     * Превью записи: что именно изменится в файле.
+     *
+     * Раньше показывался только объём в символах — то есть запись вслепую:
+     * пользователь подтверждал «N символов», не видя ни строки. Для перезаписи
+     * считаем построчный diff, для дозаписи показываем добавляемый кусок.
+     */
+    private fun writePreview(rawPath: String, content: String, append: Boolean): String {
+        val newLines = content.lines()
+        val header = "Объём записи: ${content.length} символов, строк: ${newLines.size}"
+
+        val additions = newLines.take(DIFF_MAX_OUTPUT_LINES).joinToString("\n") { "+ $it" }
+        val additionsTail = if (newLines.size > DIFF_MAX_OUTPUT_LINES) {
+            "\n  …и ещё ${newLines.size - DIFF_MAX_OUTPUT_LINES} строк"
+        } else {
+            ""
+        }
+
+        val target = try {
+            resolvePath(rawPath)
+        } catch (e: Exception) {
+            null
+        }
+        if (target == null || !target.exists() || !target.isFile) {
+            return "$header\n\nНовый файл, будет создан:\n$additions$additionsTail"
+        }
+        if (append) {
+            return "$header\n\nДопишется в конец '${target.name}':\n$additions$additionsTail"
+        }
+
+        val existingSize = target.length()
+        if (existingSize > DIFF_MAX_READ_BYTES) {
+            return "$header\n\nСуществующий файл '${target.name}' слишком большой для " +
+                    "построчного сравнения (${formatFileSize(existingSize)}). " +
+                    "Будет перезаписан целиком."
+        }
+
+        val oldText = try {
+            target.readText()
+        } catch (e: Exception) {
+            null
+        }
+        if (oldText == null) {
+            return "$header\n\nСуществующий файл '${target.name}' прочитать не удалось. " +
+                    "Будет перезаписан целиком."
+        }
+
+        var oldLines = oldText.lines()
+        var compareLines = newLines
+        var note = ""
+        if (oldLines.size > DIFF_MAX_LINES || compareLines.size > DIFF_MAX_LINES) {
+            oldLines = oldLines.take(DIFF_MAX_LINES)
+            compareLines = compareLines.take(DIFF_MAX_LINES)
+            note = "\n(сравнение ограничено первыми $DIFF_MAX_LINES строками)"
+        }
+
+        val diff = buildContextDiff(oldLines, compareLines)
+        val body = if (diff.isEmpty()) {
+            "Содержимое не изменится."
+        } else {
+            val shown = diff.take(DIFF_MAX_OUTPUT_LINES).joinToString("\n")
+            if (diff.size > DIFF_MAX_OUTPUT_LINES) {
+                "$shown\n  …и ещё ${diff.size - DIFF_MAX_OUTPUT_LINES} строк изменений"
+            } else {
+                shown
+            }
+        }
+
+        return "$header\n\nЧто изменится в '${target.name}' ('-' было, '+' станет):\n$body$note"
+    }
+
+    /**
+     * Построчный diff со сворачиванием контекста: только изменённые участки
+     * и [DIFF_CONTEXT_LINES] строк вокруг них.
+     *
+     * Полный вывод LCS на файле в тысячу строк в диалоге бесполезен — читать его
+     * никто не станет, а нужное изменение в нём не найти.
+     */
+    private fun buildContextDiff(oldLines: List<String>, newLines: List<String>): List<String> {
+        val n = oldLines.size
+        val m = newLines.size
+
+        // Таблица LCS. Размер входа ограничен DIFF_MAX_LINES, поэтому память
+        // предсказуема: 300×300 чисел — это доли мегабайта.
+        val dp = Array(n + 1) { IntArray(m + 1) }
+        for (i in n - 1 downTo 0) {
+            for (j in m - 1 downTo 0) {
+                dp[i][j] = if (oldLines[i] == newLines[j]) {
+                    dp[i + 1][j + 1] + 1
+                } else {
+                    maxOf(dp[i + 1][j], dp[i][j + 1])
+                }
+            }
+        }
+
+        val ops = ArrayList<Pair<Char, String>>(n + m)
+        var i = 0
+        var j = 0
+        while (i < n && j < m) {
+            when {
+                oldLines[i] == newLines[j] -> {
+                    ops.add(' ' to oldLines[i])
+                    i++
+                    j++
+                }
+                dp[i + 1][j] >= dp[i][j + 1] -> {
+                    ops.add('-' to oldLines[i])
+                    i++
+                }
+                else -> {
+                    ops.add('+' to newLines[j])
+                    j++
+                }
+            }
+        }
+        while (i < n) {
+            ops.add('-' to oldLines[i])
+            i++
+        }
+        while (j < m) {
+            ops.add('+' to newLines[j])
+            j++
+        }
+
+        val keep = BooleanArray(ops.size)
+        ops.forEachIndexed { index, op ->
+            if (op.first != ' ') {
+                val from = (index - DIFF_CONTEXT_LINES).coerceAtLeast(0)
+                val to = (index + DIFF_CONTEXT_LINES).coerceAtMost(ops.size - 1)
+                for (k in from..to) keep[k] = true
+            }
+        }
+
+        // Без этой проверки у полностью совпадающего текста оставался бы один
+        // хвост «…пропущено строк: N», и диалог сообщал бы об изменениях там,
+        // где их нет. Пустой список означает «ничего не изменится».
+        if (ops.none { it.first != ' ' }) return emptyList()
+
+        val out = mutableListOf<String>()
+        var skipped = 0
+        ops.forEachIndexed { index, op ->
+            if (keep[index]) {
+                if (skipped > 0) {
+                    out.add("  …пропущено строк: $skipped")
+                    skipped = 0
+                }
+                out.add("${op.first} ${op.second}")
+            } else {
+                skipped++
+            }
+        }
+        if (skipped > 0) out.add("  …пропущено строк: $skipped")
+        return out
     }
 
     /**
@@ -1851,6 +2196,13 @@ object ToolDispatcher {
         }
     }
 
+    /**
+     * Это каталог корзины? Сравниваем абсолютный путь, а не имя: папка с таким
+     * же именем в другом месте — обычная папка, и прятать её от аналитики нельзя.
+     */
+    private fun isTrashDir(dir: File): Boolean =
+        dir.absolutePath == TrashStore.root().absolutePath
+
     fun findLargestFiles(limit: Int = 10, minSizeMb: Long = 50L): String {
         val root = Environment.getExternalStorageDirectory()
         val minSizeBytes = minSizeMb * 1024L * 1024L
@@ -1866,7 +2218,10 @@ object ToolDispatcher {
                 .maxDepth(6)
                 .onEnter { dir ->
                     val name = dir.name
-                    !name.equals("Android", ignoreCase = true) || dir.parentFile == root
+                    // Корзину пропускаем: иначе недавно удалённый файл продолжал бы
+                    // занимать верхушку топа и выглядел бы как обычный мусор на диске.
+                    !isTrashDir(dir) &&
+                            (!name.equals("Android", ignoreCase = true) || dir.parentFile == root)
                 }
                 .filter { it.isFile && it.length() >= minSizeBytes }
 
@@ -2008,12 +2363,15 @@ object ToolDispatcher {
     // --- Safety Truncation ---
 
     fun truncateOutput(text: String, maxBytes: Int = 3500, maxLines: Int = 35): String {
-        // resolved_path — первая строка результата; при обрезке не должна потеряться,
-        // иначе UI не покажет путь, а модель потеряет абсолютный путь.
-        val resolvedLines = text.lines().filter { it.startsWith("resolved_path") }
+        // resolved_path и trash_id — служебные строки: без первой UI не покажет
+        // путь и модель потеряет абсолютный адрес, без второй пропадёт кнопка
+        // «Отменить». При обрезке они не теряются, что бы ни вытеснилось.
+        val pinnedLines = text.lines().filter {
+            it.startsWith("resolved_path") || it.startsWith(TrashStore.ID_PREFIX)
+        }
         fun withPaths(body: String): String {
-            if (resolvedLines.isEmpty()) return body
-            val missing = resolvedLines.filter { !body.contains(it) }
+            if (pinnedLines.isEmpty()) return body
+            val missing = pinnedLines.filter { !body.contains(it) }
             return if (missing.isEmpty()) body else (missing + body).joinToString("\n")
         }
 
@@ -2122,7 +2480,8 @@ object ToolDispatcher {
                 CriticalActionInfo(
                     title = "Удаление данных",
                     details = "Объект: $path${if (recursive) " (рекурсивно, включая вложенные файлы)" else ""}",
-                    warning = "Удалённые файлы не попадают в корзину, восстановить не получится.",
+                    warning = "Объект уедет в корзину и его можно будет вернуть кнопкой «Отменить». " +
+                            "Безвозвратно данные удаляются только при очистке корзины.",
                     preview = previewForPath(path),
                     items = items
                 )
@@ -2130,7 +2489,7 @@ object ToolDispatcher {
             "write_file" -> {
                 val path = args.optString("path", "").trim()
                 val append = args.optBoolean("append", false)
-                val contentLength = args.optString("content", "").length
+                val content = args.optString("content", "")
                 CriticalActionInfo(
                     title = if (append) "Дозапись в файл" else "Перезапись файла",
                     details = "Файл: $path",
@@ -2139,11 +2498,7 @@ object ToolDispatcher {
                     } else {
                         "Содержимое файла будет полностью перезаписано."
                     },
-                    preview = buildString {
-                        append("Объём записи: $contentLength символов")
-                        val existing = existingFileInfo(path)
-                        if (existing != null) append("\nФайл уже существует: $existing")
-                    }
+                    preview = writePreview(path, content, append)
                 )
             }
             "move_file" -> {
@@ -2157,7 +2512,10 @@ object ToolDispatcher {
                 )
             }
             "organize_downloads" -> {
-                val category = args.optString("category", "all")
+                // Значение по умолчанию обязано совпадать с тем, что реально
+                // исполнится в execute. Здесь стояло 'all', а исполнялось
+                // 'documents': диалог описывал не ту операцию, которую подтверждали.
+                val category = args.optString("category", "documents")
                 CriticalActionInfo(
                     title = "Сортировка загрузок",
                     details = "Категория: $category (папка Download)",
@@ -2402,48 +2760,78 @@ object ToolDispatcher {
     /**
      * Удаляет только отмеченные файлы. Папки не трогаем: галочки снимают
      * именно для того, чтобы часть содержимого осталась на месте.
+     *
+     * Всё отмеченное уходит в корзину ОДНОЙ записью: пользователь подтвердил
+     * одну операцию, и откатывается она тоже одной кнопкой.
+     *
+     * suspend + Dispatchers.IO не для красоты: объекты реально переносятся по
+     * диску, а вызывается это из MainViewModel на главном потоке. Без переключения
+     * интерфейс замер бы на большом списке.
      */
-    fun deleteSelectedFiles(paths: List<String>): String {
-        if (paths.isEmpty()) return "Ничего не отмечено, удалять нечего."
+    suspend fun deleteSelectedFiles(paths: List<String>): String {
+        return withContext(Dispatchers.IO) {
+            if (paths.isEmpty()) return@withContext "Ничего не отмечено, удалять нечего."
 
-        val deleted = mutableListOf<String>()
-        val failed = mutableListOf<String>()
-        val root = try {
-            Environment.getExternalStorageDirectory().canonicalPath
-        } catch (e: Exception) {
-            ""
-        }
-
-        for (raw in paths) {
-            val file = try {
-                resolvePath(raw)
+            val root = try {
+                Environment.getExternalStorageDirectory().canonicalPath
             } catch (e: Exception) {
-                failed.add(raw)
-                continue
+                ""
             }
-            val canonical = try {
-                file.canonicalPath
-            } catch (e: Exception) {
-                failed.add(raw)
-                continue
-            }
-            // Корень и папки не удаляем: список приходит только из файлов,
-            // но защита от подмены лишней не бывает
-            if (canonical == root || file.isDirectory) {
-                failed.add(file.name)
-                continue
-            }
-            if (!file.exists()) continue
-            if (file.delete()) deleted.add(file.name) else failed.add(file.name)
-        }
 
-        return buildString {
-            append("Удалено файлов: ${deleted.size} из ${paths.size}.\n")
-            deleted.take(20).forEach { append("  • $it\n") }
-            if (failed.isNotEmpty()) {
-                append("Не удалось удалить (${failed.size}): ${failed.take(10).joinToString(", ")}\n")
+            val targets = mutableListOf<File>()
+            val rejected = mutableListOf<String>()
+
+            for (raw in paths) {
+                val file = try {
+                    resolvePath(raw)
+                } catch (e: Exception) {
+                    rejected.add(raw)
+                    continue
+                }
+                val canonical = try {
+                    file.canonicalPath
+                } catch (e: Exception) {
+                    rejected.add(raw)
+                    continue
+                }
+                // Корень, папки и саму корзину не трогаем: список приходит
+                // только из файлов, но защита от подмены лишней не бывает
+                if (canonical == root || file.isDirectory || TrashStore.isTrashPath(file)) {
+                    rejected.add(file.name)
+                    continue
+                }
+                if (!file.exists()) continue
+                targets.add(file)
             }
-            append("Папки не удалялись, поэтому пустые каталоги могли остаться.")
+
+            if (targets.isEmpty()) {
+                return@withContext buildString {
+                    append("Удалено файлов: 0 из ${paths.size}.\n")
+                    if (rejected.isNotEmpty()) {
+                        append("Не удалось удалить (${rejected.size}): ${rejected.take(10).joinToString(", ")}\n")
+                    }
+                    append("Папки не удалялись, поэтому пустые каталоги могли остаться.")
+                }
+            }
+
+            val result = TrashStore.moveToTrash(targets)
+            val entry = result.entry
+            val failed = result.failedNames + rejected
+
+            buildString {
+                append("Удалено файлов: ${result.movedNames.size} из ${paths.size}.\n")
+                if (entry != null) {
+                    append(TrashStore.markerLine(entry.id, isMove = false)).append("\n")
+                    result.movedNames.take(20).forEach { append("  • $it\n") }
+                }
+                if (failed.isNotEmpty()) {
+                    append("Не удалось удалить (${failed.size}): ${failed.take(10).joinToString(", ")}\n")
+                }
+                append("Папки не удалялись, поэтому пустые каталоги могли остаться.")
+                if (entry != null) {
+                    append("\nФайлы в корзине, данные не потеряны: вернуть можно кнопкой «Отменить».")
+                }
+            }
         }
     }
 

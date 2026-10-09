@@ -42,9 +42,11 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Tune
@@ -72,6 +74,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +104,8 @@ import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
 import com.runner.app.data.ThemeConfig
+import com.runner.app.tools.ToolDispatcher
+import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.theme.MotionTokens
@@ -118,6 +123,9 @@ private sealed interface SettingsRoute {
     data class ProviderEdit(val providerId: String) : SettingsRoute
     data object Agent : SettingsRoute
     data object Access : SettingsRoute
+
+    /** Журнал обратимых операций: удаления и перемещения. */
+    data object Trash : SettingsRoute
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -136,6 +144,7 @@ fun SettingsScreen(
         is SettingsRoute.ProviderEdit -> "Провайдер"
         SettingsRoute.Agent -> "Агент"
         SettingsRoute.Access -> "Доступы"
+        SettingsRoute.Trash -> "Корзина"
     }
 
     val goBack: () -> Unit = {
@@ -196,9 +205,11 @@ fun SettingsScreen(
                     onDeleted = { route = SettingsRoute.Providers }
                 )
 
-                SettingsRoute.Agent -> AgentSettings(viewModel)
+                SettingsRoute.Agent -> AgentSettings(viewModel) { route = it }
 
                 SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings)
+
+                SettingsRoute.Trash -> TrashListScreen(viewModel)
             }
         }
     }
@@ -878,7 +889,7 @@ private fun ProvidersList(
 }
 
 @Composable
-private fun AgentSettings(viewModel: MainViewModel) {
+private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
     val appSettings by viewModel.settings.collectAsState()
 
     Column(
@@ -1014,14 +1025,153 @@ private fun AgentSettings(viewModel: MainViewModel) {
                         Spacer(modifier = Modifier.width(9.dp))
                         Text(
                             text = "Агент будет удалять и перезаписывать файлы, выполнять команды " +
-                                    "оболочки и запускать приложения без вопросов. Ошибку модели " +
-                                    "отменить будет нечем: удалённое не попадает в корзину.",
+                                    "оболочки и запускать приложения без вопросов. Удаление и " +
+                                    "перемещение уходят в журнал и их можно вернуть, а перезапись, " +
+                                    "копирование и команды отменить нечем.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.5.sp,
                             lineHeight = 16.sp
                         )
                     }
                 }
+            }
+
+            SettingsDivider()
+
+            // Режим «только чтение»: жёсткая блокировка вместо подтверждений.
+            // Нужен, когда агент работает с недоверенными файлами или на модели,
+            // которая обучается на промптах, — тогда менять данные нельзя вообще.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Только чтение",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.readOnlyMode) {
+                            "Агент только читает и анализирует: действия запрещены"
+                        } else {
+                            "Выключено: агент может менять файлы"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.readOnlyMode,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(readOnlyMode = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.readOnlyMode) {
+                Text(
+                    text = "Удаление, запись, перемещение, архивы, shell, буфер и запуск " +
+                            "приложений будут отклоняться без диалога. Чтение, поиск и " +
+                            "аналитика работают как обычно.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
+            }
+
+            SettingsDivider()
+
+            // Сухой прогон: сначала показать, что будет сделано, и только потом
+            // делать. Стоит второго прогона, поэтому включается осознанно.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Сначала сухой прогон",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.dryRunFirst) {
+                            "Рискованные задачи агент сначала только описывает"
+                        } else {
+                            "Выключено: агент выполняет задачу сразу"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.dryRunFirst,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(dryRunFirst = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.dryRunFirst) {
+                Text(
+                    text = "Агент прочитает и посчитает, но ничего не изменит, а затем " +
+                            "предложит выполнить задачу. Касается только задач, меняющих " +
+                            "данные: прогон удваивает расход запросов к провайдеру.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
+            }
+
+            SettingsDivider()
+
+            // Экономия лимита токенов. Схемы всех инструментов уходят в каждом
+            // запросе, поэтому набор можно сузить до нужного.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Объявлять только нужные инструменты",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.pruneTools) {
+                            "Набор сужается по плану, остальное подключается по ходу"
+                        } else {
+                            "Выключено: в каждом запросе уходят все схемы"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.pruneTools,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(pruneTools = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.pruneTools) {
+                Text(
+                    text = "Схемы инструментов занимают заметную часть запроса, поэтому " +
+                            "их список сужается до чтения и того, что назвал утверждённый " +
+                            "план. Если понадобится что-то ещё, агент подключит это сам. " +
+                            "Без плана список не сужается — иначе инструмента может " +
+                            "не оказаться в нужный момент.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
             }
 
             // Список запомненных разрешений: пользователь должен видеть, что уже
@@ -1146,8 +1296,425 @@ private fun AgentSettings(viewModel: MainViewModel) {
             }
         }
 
+        TrashSettings(viewModel, onNavigate)
+
         Spacer(modifier = Modifier.height(12.dp))
     }
+}
+
+/**
+ * Журнал обратимых операций: что в нём лежит, сколько хранить и как откатить.
+ *
+ * Раздел появился вместе с обратимым удалением, а затем в него добавились
+ * перемещения: у них файлы не теряются, но разложенное агентом по папкам
+ * руками уже не собрать. Срок хранения — обещание, которое должно где-то
+ * проверяться, а размер нужно видеть: иначе корзина тихо занимает память,
+ * которую пользователь считает свободной.
+ */
+@Composable
+private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
+    val trash by viewModel.trashState.collectAsState()
+    val appSettings by viewModel.settings.collectAsState()
+    var confirmEmpty by remember { mutableStateOf(false) }
+
+    // Содержимое корзины меняется только действиями пользователя, поэтому
+    // читаем его при входе на экран, а не держим в постоянном наблюдателе.
+    LaunchedEffect(Unit) { viewModel.refreshTrash() }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Surface(
+            color = StatusWarning.copy(alpha = 0.10f),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, StatusWarning.copy(alpha = 0.30f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.padding(11.dp), verticalAlignment = Alignment.Top) {
+                Icon(
+                    imageVector = Icons.Outlined.WarningAmber,
+                    contentDescription = null,
+                    tint = StatusWarning,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(9.dp))
+                Text(
+                    text = "Удаление и перемещение обратимы. Удалённое занимает место, " +
+                            "пока его не вернут или не очистят; перемещённое просто лежит " +
+                            "на новом месте.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        SettingsGroup {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.DeleteOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Корзина",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    text = when {
+                        trash.loading -> "Читаю журнал…"
+                        trash.count == 0 ->
+                            "Пусто. Здесь будут появляться удалённое и перемещённое."
+                        else -> buildString {
+                            append("Удалено: ${trash.deletions.size}")
+                            if (trash.totalBytes > 0) {
+                                append(" (")
+                                append(ToolDispatcher.formatFileSize(trash.totalBytes))
+                                append(")")
+                            }
+                            append(" · Перемещено: ${trash.moves.size}")
+                        }
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label = "Список записей",
+                value = if (trash.count == 0) {
+                    "пусто"
+                } else {
+                    PluralUtils.pluralize(trash.count, "запись", "записи", "записей")
+                },
+                onClick = { onNavigate(SettingsRoute.Trash) },
+                icon = Icons.Outlined.Restore
+            )
+
+            SettingsDivider()
+
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Хранить записи",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.TRASH_RETENTION_PRESETS.map { days ->
+                        days to if (days == 0) "Всегда" else "$days д"
+                    },
+                    selected = appSettings.trashRetentionDays,
+                    onSelect = { days ->
+                        viewModel.updateSettings(appSettings.copy(trashRetentionDays = days))
+                    }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "По истечении срока записи исчезают при следующем запуске. " +
+                            "Для удалённого это означает безвозвратное стирание, для " +
+                            "перемещённого — только потерю возможности откатить.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    onClick = { viewModel.restoreAllFromTrash() },
+                    enabled = trash.count > 0,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Restore,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Вернуть всё", fontSize = 13.sp)
+                }
+                TextButton(
+                    onClick = { confirmEmpty = true },
+                    enabled = trash.count > 0,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Очистить",
+                        fontSize = 13.sp,
+                        color = if (trash.count > 0) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // Очистка корзины — единственное безвозвратное действие в приложении,
+    // поэтому спрашиваем подтверждение, а не делаем по одному тапу.
+    if (confirmEmpty) {
+        AlertDialog(
+            onDismissRequest = { confirmEmpty = false },
+            title = { Text("Очистить корзину?") },
+            text = {
+                Text(
+                    "Удалённое будет стёрто навсегда, вернуть его больше не получится. " +
+                            "Сейчас в корзине ${PluralUtils.files(trash.deletedFileCount)} " +
+                            "на ${ToolDispatcher.formatFileSize(trash.totalBytes)}.\n\n" +
+                            "Файлы, которые агент переместил, останутся на своих новых " +
+                            "местах — но откатить эти перемещения станет нельзя."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmEmpty = false
+                        viewModel.emptyTrash()
+                    }
+                ) {
+                    Text("Удалить навсегда", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEmpty = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Список записей журнала: что именно удалено и перемещено, когда и откуда,
+ * с возможностью вернуть по одной.
+ *
+ * Раньше в настройках был только счётчик — по нему нельзя понять, что лежит
+ * в корзине, а значит и решить, возвращать ли.
+ */
+@Composable
+private fun TrashListScreen(viewModel: MainViewModel) {
+    val trash by viewModel.trashState.collectAsState()
+    var confirmEmpty by remember { mutableStateOf(false) }
+    var confirmRestoreAll by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { viewModel.refreshTrash() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        when {
+            trash.loading -> Text(
+                text = "Читаю журнал…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp
+            )
+
+            trash.count == 0 -> Text(
+                text = "Журнал пуст. Удалённое и перемещённое будет появляться здесь.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+
+            else -> {
+                Text(
+                    text = buildString {
+                        append("Удалено: ${trash.deletions.size}")
+                        if (trash.totalBytes > 0) {
+                            append(" (")
+                            append(ToolDispatcher.formatFileSize(trash.totalBytes))
+                            append(")")
+                        }
+                        append(" · Перемещено: ${trash.moves.size}")
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+
+                SettingsGroup {
+                    trash.entries.forEachIndexed { index, entry ->
+                        if (index > 0) SettingsDivider()
+                        TrashEntryRow(entry) { viewModel.restoreFromTrash(entry.id) }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = { confirmRestoreAll = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Вернуть всё", fontSize = 13.sp)
+                    }
+                    TextButton(
+                        onClick = { confirmEmpty = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Очистить",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+
+    if (confirmRestoreAll) {
+        AlertDialog(
+            onDismissRequest = { confirmRestoreAll = false },
+            title = { Text("Вернуть всё?") },
+            text = {
+                Text(
+                    "Удалённое вернётся на исходные места, перемещённое — обратно туда, " +
+                            "откуда его взяли. Если место занято, файл получит новое имя."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRestoreAll = false
+                        viewModel.restoreAllFromTrash()
+                    }
+                ) {
+                    Text("Вернуть")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRestoreAll = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    if (confirmEmpty) {
+        AlertDialog(
+            onDismissRequest = { confirmEmpty = false },
+            title = { Text("Очистить журнал?") },
+            text = {
+                Text(
+                    "Удалённое будет стёрто навсегда, вернуть его больше не получится. " +
+                            "Перемещённые файлы останутся на новых местах, но откатить " +
+                            "эти перемещения станет нельзя."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmEmpty = false
+                        viewModel.emptyTrash()
+                    }
+                ) {
+                    Text("Удалить навсегда", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEmpty = false }) { Text("Отмена") }
+            }
+        )
+    }
+}
+
+/** Одна запись журнала: вид операции, имя объекта, когда и откуда. */
+@Composable
+private fun TrashEntryRow(entry: TrashStore.TrashEntry, onRestore: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (entry.isMove) "ПЕРЕМЕЩЕНИЕ" else "УДАЛЕНИЕ",
+                color = if (entry.isMove) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.4.sp
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = trashEntryTitle(entry),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.5.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = trashEntrySubtitle(entry),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TextButton(onClick = onRestore) {
+            Text("Вернуть", fontSize = 13.sp)
+        }
+    }
+}
+
+private fun trashEntryTitle(entry: TrashStore.TrashEntry): String =
+    if (entry.items.size == 1) {
+        entry.items.first().name
+    } else {
+        PluralUtils.pluralize(entry.items.size, "объект", "объекта", "объектов")
+    }
+
+private fun trashEntrySubtitle(entry: TrashStore.TrashEntry): String {
+    val first = entry.items.firstOrNull() ?: return TrashStore.formatDate(entry.at)
+    val date = TrashStore.formatDate(entry.at)
+
+    if (!entry.isMove) {
+        return if (entry.items.size == 1) {
+            "$date · из ${folderOf(first.originalPath)}"
+        } else {
+            "$date · из разных папок"
+        }
+    }
+    return if (entry.items.size == 1) {
+        "$date · ${folderOf(first.originalPath)} → ${folderOf(first.currentPath)}"
+    } else {
+        "$date · разложено по папкам"
+    }
+}
+
+/** Папка пути без java.io.File: нужен только текст до последнего слэша. */
+private fun folderOf(path: String): String {
+    val cut = path.lastIndexOf('/')
+    if (cut <= 0) return path
+    return path.substring(0, cut)
 }
 
 /**

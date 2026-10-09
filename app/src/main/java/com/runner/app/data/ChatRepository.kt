@@ -2,6 +2,7 @@ package com.runner.app.data
 
 import com.runner.app.data.db.ChatDao
 import com.runner.app.data.db.MessageEntity
+import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
@@ -12,7 +13,11 @@ import java.util.UUID
 class ChatRepository(private val dao: ChatDao) {
 
     fun observeSessions(query: String = ""): Flow<List<SessionEntity>> =
-        if (query.isBlank()) dao.observeSessions() else dao.searchSessions(query.trim())
+        if (query.isBlank()) dao.observeSessions() else dao.searchSessionsFullText(query.trim())
+
+    /** Совпадения внутри сообщений — для сниппетов в списке чатов. */
+    suspend fun findMessageMatches(query: String): List<MessageMatch> =
+        if (query.isBlank()) emptyList() else dao.findMessageMatches(query.trim())
 
     suspend fun loadMessages(sessionId: String): List<MessageEntity> = dao.loadMessages(sessionId)
 

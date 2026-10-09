@@ -35,6 +35,38 @@ data class AppSettings(
      */
     val confirmDangerous: Boolean = true,
     /**
+     * Режим «только чтение»: агент читает и анализирует, но не выполняет ни одной
+     * операции, меняющей состояние (удаление, запись, перемещение, копирование,
+     * архивы, сортировка, shell, запись в буфер, запуск приложений и ссылок).
+     *
+     * Отдельного списка «изменяющих» инструментов здесь нет намеренно: в проекте
+     * уже был баг из двух расходящихся списков опасных операций, и второй список
+     * заводить нельзя. Режим блокирует ровно DANGEROUS_OPERATIONS — один источник
+     * истины. Поэтому в режиме «только чтение» недоступен и запуск приложений:
+     * это тоже действие, а не чтение.
+     */
+    val readOnlyMode: Boolean = false,
+    /**
+     * Прогонять рискованные задачи сначала «всухую»: агент читает, считает и
+     * рассказывает, что собирается сделать, но ничего не меняет. Настоящее
+     * выполнение запускается отдельным подтверждением.
+     *
+     * Применяется только к задачам, которые выглядят как изменяющие данные —
+     * по той же эвристике, что решает, нужен ли план. Прогон удваивает расход
+     * запросов, и тратить его на чтение бессмысленно.
+     */
+    val dryRunFirst: Boolean = false,
+    /**
+     * Объявлять в запросе только нужные инструменты, а остальные подключать
+     * по ходу через `enable_tools`.
+     *
+     * Схемы всех инструментов уходят в КАЖДОМ запросе и занимают заметную часть
+     * лимита токенов. Сужение набора экономит этот лимит, но добавляет шаг,
+     * когда модели внезапно понадобился необъявленный инструмент. Поэтому по
+     * умолчанию выключено.
+     */
+    val pruneTools: Boolean = false,
+    /**
      * Подписи операций, которые пользователь разрешил с галочкой
      * «Больше не спрашивать». Повтор такой операции идёт без диалога.
      */
@@ -54,7 +86,12 @@ data class AppSettings(
      */
     val contextBudgetChars: Int = DEFAULT_CONTEXT_BUDGET,
     /** Пользователь принял предупреждение о рисках при первом запуске. */
-    val disclaimerAccepted: Boolean = false
+    val disclaimerAccepted: Boolean = false,
+    /**
+     * Сколько дней объекты лежат в корзине. По истечении срока они удаляются
+     * безвозвратно при очередной уборке. 0 — хранить бессрочно.
+     */
+    val trashRetentionDays: Int = DEFAULT_TRASH_RETENTION_DAYS
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -70,6 +107,15 @@ data class AppSettings(
          */
         const val DEFAULT_CONTEXT_BUDGET = 600_000
 
+        /**
+         * Срок хранения в корзине по умолчанию. Неделя — компромисс: ошибку
+         * модели за это время замечают, а память корзина не съедает.
+         */
+        const val DEFAULT_TRASH_RETENTION_DAYS = 7
+
+        /** Варианты срока хранения, дней. 0 — не удалять автоматически. */
+        val TRASH_RETENTION_PRESETS = listOf(1, 3, 7, 30, 0)
+
         val TEMPERATURE_RANGE = 0f..1.5f
         val STEPS_RANGE = 1..20
         val TEXT_SCALES = listOf(0.9f, 1f, 1.15f)
@@ -83,6 +129,22 @@ data class AppSettings(
         val TIMEOUT_PRESETS = RESPONSE_TIMEOUT_PRESETS
 
         const val MANDATORY_PROMPT_SUFFIX = "Числа и единицы пиши обычным текстом: 51.6 GB, 89%. Не используй LaTeX, формулы и эмодзи. Не заканчивай ответ фразой 'При необходимости могу...'."
+
+        /** Дописывается в промпт, когда включён режим «только чтение». */
+        const val READ_ONLY_NOTE =
+            "СЕЙЧАС ВКЛЮЧЁН РЕЖИМ «ТОЛЬКО ЧТЕНИЕ»: операции, меняющие состояние (удаление, " +
+                    "запись, перемещение, копирование, архивы, сортировка, shell, запись " +
+                    "в буфер, запуск приложений и ссылок), запрещены и будут отклонены. " +
+                    "Читай, ищи и анализируй. Если для задачи нужно изменить данные — " +
+                    "скажи об этом и попроси выключить режим, но не пытайся его обойти."
+
+        /** Дописывается в промпт, когда идёт сухой прогон. */
+        const val DRY_RUN_NOTE =
+            "СЕЙЧАС ИДЁТ СУХОЙ ПРОГОН: операции, меняющие состояние, не выполняются. " +
+                    "Вызывай их как обычно — в ответ придёт, что это предпросмотр, и параметры " +
+                    "операции. Твоя задача: собрать настоящие данные (пути, размеры, количество) " +
+                    "и коротко рассказать, что именно будет сделано. Опирайся только на то, " +
+                    "что вернули инструменты, и ничего не выдумывай."
 
         /**
          * Базовый промпт агента: инструменты, пути Android, логика Runner.
@@ -116,6 +178,9 @@ data class AppSettings(
             - Деструктивные операции (удаление, перемещение, запись, копирование, архивы,
               сортировка, shell, запись в буфер, запуск приложений и ссылок) требуют
               подтверждения пользователя. Если операцию отклонили, предложи альтернативу или остановись.
+            - Удаление и перемещение обратимы: и то и другое попадает в журнал и откатывается
+              кнопкой «Отменить». Поэтому не запугивай пользователя потерей данных и не
+              переспрашивай дважды, но и не удаляй и не перемещай то, о чём не просили.
             - run_shell_command работает только с путями внутри /storage/emulated/0, если
               пользователь не включил тумблер «Shell вне памяти». Не пытайся обойти это
               ограничение и не предлагай пользователю его снимать без явной необходимости.
@@ -139,12 +204,24 @@ data class AppSettings(
         """.trimIndent()
 
         /** Склейка базы и пользовательских инструкций для системного сообщения LLM. */
-        fun buildFinalSystemPrompt(userInstructions: String): String {
+        fun buildFinalSystemPrompt(
+            userInstructions: String,
+            readOnly: Boolean = false,
+            dryRun: Boolean = false
+        ): String {
             val user = userInstructions.trim()
-            val base = if (user.isBlank()) {
+            var base = if (user.isBlank()) {
                 CORE_SYSTEM_PROMPT
             } else {
                 CORE_SYSTEM_PROMPT + "\n\nДополнительные инструкции пользователя:\n" + user
+            }
+            // Режимы дописываются в конец базового промпта, а не заменяют его:
+            // правила про недоверенный текст и лимиты вывода действуют и здесь.
+            if (readOnly && !base.contains(READ_ONLY_NOTE)) {
+                base = base.trimEnd() + "\n- " + READ_ONLY_NOTE
+            }
+            if (dryRun && !base.contains(DRY_RUN_NOTE)) {
+                base = base.trimEnd() + "\n- " + DRY_RUN_NOTE
             }
             return if (base.contains(MANDATORY_PROMPT_SUFFIX)) {
                 base
@@ -213,11 +290,23 @@ class SettingsStore(context: Context) {
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false),
             confirmDangerous = prefs.getBoolean(KEY_CONFIRM_DANGEROUS, true),
+            readOnlyMode = prefs.getBoolean(KEY_READ_ONLY_MODE, false),
+            dryRunFirst = prefs.getBoolean(KEY_DRY_RUN_FIRST, false),
+            pruneTools = prefs.getBoolean(KEY_PRUNE_TOOLS, false),
+            // Подписи без аргументов (вид «инструмент|») копились, пока у
+            // clipboard_write и organize_downloads критичных аргументов не было:
+            // одна такая подпись разрешала ВСЕ вызовы инструмента. Выбрасываем
+            // их при загрузке, чтобы починка дошла и до уже установленных сборок.
             approvedOperationSignatures = prefs.getStringSet(KEY_APPROVED_SIGNATURES, emptySet())
+                ?.filterNot { it.substringAfter("|", "").isEmpty() }
                 ?.toSet()
                 .orEmpty(),
             shellOutsideStorage = prefs.getBoolean(KEY_SHELL_OUTSIDE_STORAGE, false),
-            contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET)
+            contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET),
+            trashRetentionDays = prefs.getInt(
+                KEY_TRASH_RETENTION_DAYS,
+                AppSettings.DEFAULT_TRASH_RETENTION_DAYS
+            )
         )
     }
 
@@ -238,9 +327,13 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
             .putBoolean(KEY_CONFIRM_EVERY_STEP, settings.confirmEveryStep)
             .putBoolean(KEY_CONFIRM_DANGEROUS, settings.confirmDangerous)
+            .putBoolean(KEY_READ_ONLY_MODE, settings.readOnlyMode)
+            .putBoolean(KEY_DRY_RUN_FIRST, settings.dryRunFirst)
+            .putBoolean(KEY_PRUNE_TOOLS, settings.pruneTools)
             .putStringSet(KEY_APPROVED_SIGNATURES, settings.approvedOperationSignatures)
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
+            .putInt(KEY_TRASH_RETENTION_DAYS, settings.trashRetentionDays)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -270,8 +363,12 @@ class SettingsStore(context: Context) {
         const val KEY_PLANNING_ENABLED = "planning_enabled"
         const val KEY_CONFIRM_EVERY_STEP = "confirm_every_step"
         const val KEY_CONFIRM_DANGEROUS = "confirm_dangerous"
+        const val KEY_READ_ONLY_MODE = "read_only_mode"
+        const val KEY_DRY_RUN_FIRST = "dry_run_first"
+        const val KEY_PRUNE_TOOLS = "prune_tools"
         const val KEY_APPROVED_SIGNATURES = "approved_operation_signatures"
         const val KEY_SHELL_OUTSIDE_STORAGE = "shell_outside_storage"
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
+        const val KEY_TRASH_RETENTION_DAYS = "trash_retention_days"
     }
 }

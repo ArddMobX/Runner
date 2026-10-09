@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -116,6 +117,8 @@ fun AppDrawerContent(
     sessions: List<SessionEntity>,
     currentSessionId: String?,
     query: String,
+    /** id сессии → строка, в которой нашлось совпадение (поиск идёт и по тексту). */
+    snippets: Map<String, String> = emptyMap(),
     onQueryChange: (String) -> Unit,
     onNewChat: () -> Unit,
     onOpenSession: (String) -> Unit,
@@ -212,6 +215,7 @@ fun AppDrawerContent(
                         SessionRow(
                             session = session,
                             isCurrent = session.id == currentSessionId,
+                            snippet = snippets[session.id],
                             timeLabel = remember(session.id, session.updatedAt) {
                                 formatSessionTime(session.updatedAt, zone)
                             },
@@ -241,6 +245,7 @@ fun AppDrawerContent(
                         SessionRow(
                             session = session,
                             isCurrent = session.id == currentSessionId,
+                            snippet = snippets[session.id],
                             timeLabel = remember(session.id, session.updatedAt) {
                                 formatSessionTime(session.updatedAt, zone)
                             },
@@ -386,6 +391,7 @@ private fun SessionRow(
     session: SessionEntity,
     isCurrent: Boolean,
     timeLabel: String,
+    snippet: String? = null,
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -422,15 +428,28 @@ private fun SessionRow(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
             }
-            Text(
-                text = session.title.ifBlank { "Без названия" },
-                color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.5.sp,
-                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = session.title.ifBlank { "Без названия" },
+                    color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.5.sp,
+                    fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // Поиск идёт и по содержимому сообщений: без сниппета непонятно,
+                // почему чат вообще попал в выдачу.
+                if (!snippet.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = snippet,
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = timeLabel,

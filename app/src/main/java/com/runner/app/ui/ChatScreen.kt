@@ -58,9 +58,12 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -111,6 +114,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.tools.ToolDispatcher
+import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
@@ -150,6 +154,11 @@ fun ChatScreen(
     val pendingPlan by viewModel.pendingPlan.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
+    // Журнал нужен в шапке: кнопка «Отменить последнее» показывает самую свежую
+    // обратимую операцию, и она же — самая заметная.
+    val trashState by viewModel.trashState.collectAsState()
+    val lastUndoable = trashState.entries.firstOrNull()
+    var undoCandidate by remember { mutableStateOf<TrashStore.TrashEntry?>(null) }
 
     val inputState = rememberChatInputState()
     var showModelPicker by remember { mutableStateOf(false) }
@@ -237,6 +246,55 @@ fun ChatScreen(
         )
     }
 
+    undoCandidate?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { undoCandidate = null },
+            title = {
+                Text(if (entry.isMove) "Отменить перемещение?" else "Вернуть из корзины?")
+            },
+            text = {
+                Text(
+                    buildString {
+                        append(
+                            if (entry.items.size == 1) {
+                                entry.items.first().name
+                            } else {
+                                PluralUtils.pluralize(
+                                    entry.items.size, "объект", "объекта", "объектов"
+                                )
+                            }
+                        )
+                        append("\n\n")
+                        append(
+                            if (entry.isMove) {
+                                "Объекты вернутся туда, откуда их взяли."
+                            } else {
+                                "Объекты вернутся на исходные места."
+                            }
+                        )
+                        append(" Если место занято, файл получит новое имя.")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = entry.id
+                        undoCandidate = null
+                        viewModel.restoreFromTrash(id)
+                    }
+                ) {
+                    Text("Отменить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { undoCandidate = null }) {
+                    Text("Оставить")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -267,6 +325,29 @@ fun ChatScreen(
                         isLoading = modelsLoadingFor != null,
                         onClick = { showModelPicker = true }
                     )
+                },
+                actions = {
+                    // Индикатор режима: без него отклонённые операции выглядят
+                    // как поломка агента, а не как включённая пользователем защита.
+                    if (appSettings.readOnlyMode) {
+                        ReadOnlyBadge()
+                    }
+                    // Отмена последней обратимой операции. Операция уже была
+                    // подтверждена один раз, поэтому кнопка одна и без лишних тапов —
+                    // но диалог нужен: одна запись может вернуть десятки файлов.
+                    lastUndoable?.let { entry ->
+                        IconButton(
+                            onClick = { undoCandidate = entry },
+                            modifier = Modifier.bounceClick { undoCandidate = entry }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Restore,
+                                contentDescription = "Отменить последнюю операцию",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -333,18 +414,21 @@ fun ChatScreen(
                                             onRejectPlan = { viewModel.resolvePlan(false) },
                                             onEditMessage = { inputState.setText(it) },
                                             onRetryMessage = { viewModel.retryFromUserMessage(it) },
+                                            onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onAction = { action ->
                                                 when (action) {
                                                     MessageAction.OPEN_SETTINGS -> onOpenSettings()
                                                     MessageAction.OPEN_MODELS -> showModelPicker = true
                                                     MessageAction.GRANT_STORAGE -> onOpenStorageSettings()
+                                                    MessageAction.EXECUTE_DRY_RUN -> viewModel.confirmDryRun()
                                                 }
                                             }
                                         )
 
                                         is ChatListItem.ToolGroup -> ToolGroupCard(
                                             messages = item.messages,
+                                            onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it }
                                         )
                                     }
@@ -767,6 +851,7 @@ private fun MessageItem(
     onRejectPlan: () -> Unit,
     onEditMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit,
+    onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
@@ -855,6 +940,7 @@ private fun MessageItem(
             message = message,
             showDetails = showToolDetails,
             showStats = showStats,
+            onUndoTrash = onUndoTrash,
             onOpenPreview = onOpenPreview
         )
 
@@ -1195,6 +1281,7 @@ private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
 @Composable
 private fun ToolGroupCard(
     messages: List<ChatMessage>,
+    onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit
 ) {
     var expanded by remember(messages.first().id) { mutableStateOf(false) }
@@ -1204,6 +1291,10 @@ private fun ToolGroupCard(
         label = "group_chevron_rotation"
     )
     val hasErrors = messages.any { it.isError }
+    // Записи журнала этой группы: у каждой операции удаления или перемещения своя.
+    val undoRefs = remember(messages) {
+        messages.mapNotNull { TrashStore.undoRefFromOutput(it.toolOutput) }
+    }
     val compactShape = RoundedCornerShape(9.dp)
 
     Box(
@@ -1258,6 +1349,18 @@ private fun ToolGroupCard(
                 )
             }
 
+            // Одна запись корзины на всю группу — показываем кнопку сразу.
+            // Если их несколько, кнопки уезжают в раскрытый список: стопка
+            // одинаковых надписей в шапке читалась бы как одна операция.
+            if (!expanded && undoRefs.size == 1) {
+                Spacer(modifier = Modifier.height(7.dp))
+                val ref = undoRefs.first()
+                UndoTrashButton(
+                    label = if (ref.isMove) "Отменить перемещение" else "Отменить удаление",
+                    onClick = { onUndoTrash(ref.entryId) }
+                )
+            }
+
             if (expanded) {
                 Spacer(modifier = Modifier.height(9.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
@@ -1297,6 +1400,15 @@ private fun ToolGroupCard(
                             onClick = { onOpenPreview(preview) }
                         )
                     }
+                    // Кнопка стоит под своим сообщением: в группе операций
+                    // каждая откатывается отдельно.
+                    TrashStore.undoRefFromOutput(m.toolOutput)?.let { ref ->
+                        Spacer(modifier = Modifier.height(6.dp))
+                        UndoTrashButton(
+                            label = if (ref.isMove) "Отменить перемещение" else "Отменить удаление",
+                            onClick = { onUndoTrash(ref.entryId) }
+                        )
+                    }
                 }
             }
         }
@@ -1312,6 +1424,7 @@ private fun ToolCard(
     message: ChatMessage,
     showDetails: Boolean,
     showStats: Boolean,
+    onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -1395,6 +1508,20 @@ private fun ToolCard(
                 }
             }
 
+            // Возврат из корзины виден прямо в свёрнутой карточке. Прятать
+            // исправление ошибки за лишний тап — ровно то, чего не хватало
+            // безвозвратному удалению.
+            val undoRef = remember(message.toolOutput) {
+                TrashStore.undoRefFromOutput(message.toolOutput)
+            }
+            if (undoRef != null) {
+                Spacer(modifier = Modifier.height(7.dp))
+                UndoTrashButton(
+                    label = if (undoRef.isMove) "Отменить перемещение" else "Отменить удаление",
+                    onClick = { onUndoTrash(undoRef.entryId) }
+                )
+            }
+
             if (expanded && hasDetails) {
                 Spacer(modifier = Modifier.height(9.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
@@ -1473,6 +1600,82 @@ private fun ToolCard(
     }
 }
 
+/**
+ * Компактный индикатор режима «только чтение».
+ *
+ * Нужен именно в шапке: когда агент отказывается удалять или запускать,
+ * без пометки это выглядит как поломка, а не как защита, которую включил сам
+ * пользователь.
+ */
+@Composable
+private fun ReadOnlyBadge() {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(7.dp),
+        modifier = Modifier.padding(end = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Visibility,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "чтение",
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+/**
+ * Возврат удалённого из корзины.
+ *
+ * Стоит прямо в карточке операции, свёрнутой по умолчанию: смысл корзины в том,
+ * чтобы исправление ошибки было в один тап, а не в три.
+ */
+@Composable
+private fun UndoTrashButton(label: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+            .border(
+                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+                shape
+            )
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Restore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
 @Composable
 private fun ToolStatusIcon(message: ChatMessage) {
     // Компактный статус: маленькая точка вместо иконки 15dp.
@@ -1541,6 +1744,7 @@ private fun NoticeBanner(
                 MessageAction.OPEN_SETTINGS -> "Открыть настройки"
                 MessageAction.OPEN_MODELS -> "Выбрать модель"
                 MessageAction.GRANT_STORAGE -> "Разрешить доступ"
+                MessageAction.EXECUTE_DRY_RUN -> "Выполнить"
             }
             TextButton(
                 onClick = { onAction(action) },
@@ -1882,8 +2086,10 @@ private fun ConfirmationBottomSheet(
 
             // Запоминание конкретного действия. Показываем только когда его
             // есть смысл запоминать: удаление папки со списком файлов —
-            // разовое действие, повторять его «молча» опасно.
-            if (!hasItems) {
+            // разовое действие, повторять его «молча» опасно. И только если
+            // операция вообще опознаваема: иначе подпись пустая и галочка
+            // разрешила бы все вызовы инструмента разом.
+            if (!hasItems && request.canRemember) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

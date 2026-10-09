@@ -70,6 +70,16 @@ data class MessageEntity(
     val tokensPerSecond: Double? = null
 )
 
+/**
+ * Совпадение в сообщении. Нужно, чтобы в списке чатов было видно, ПОЧЕМУ сессия
+ * попала в выдачу: поиск идёт и по содержимому, а не только по названию.
+ */
+data class MessageMatch(
+    val sessionId: String,
+    val content: String,
+    val createdAt: Long
+)
+
 @Dao
 interface ChatDao {
 
@@ -80,13 +90,40 @@ interface ChatDao {
     """)
     fun observeSessions(): Flow<List<SessionEntity>>
 
+    /**
+     * Поиск по названию сессии И по содержимому сообщений.
+     *
+     * LIKE, а не FTS. Для русского текста встроенный токенизатор FTS почти
+     * бесполезен (стемминга нет), а FTS-таблица потребовала бы миграции схемы
+     * и триггеров для синхронизации. На личной истории поиск подстрокой
+     * предсказуем и не трогает базу.
+     *
+     * Известная особенность: символы `%` и `_` в запросе работают как шаблон
+     * LIKE. Для обычных слов это незаметно, а `ESCAPE` усложнил бы запрос,
+     * который здесь невозможно проверить компилятором.
+     */
     @Query("""
         SELECT s.* FROM sessions s
         WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
-          AND s.title LIKE '%' || :query || '%'
+          AND (
+            s.title LIKE '%' || :query || '%'
+            OR EXISTS (
+                SELECT 1 FROM messages m2
+                WHERE m2.sessionId = s.id AND m2.content LIKE '%' || :query || '%'
+            )
+          )
         ORDER BY s.isPinned DESC, s.updatedAt DESC
     """)
-    fun searchSessions(query: String): Flow<List<SessionEntity>>
+    fun searchSessionsFullText(query: String): Flow<List<SessionEntity>>
+
+    /** Строки с совпадением — из них собирается сниппет. Новые сверху. */
+    @Query("""
+        SELECT sessionId, content, createdAt FROM messages
+        WHERE content LIKE '%' || :query || '%'
+        ORDER BY createdAt DESC
+        LIMIT 400
+    """)
+    suspend fun findMessageMatches(query: String): List<MessageMatch>
 
     @Query("""
         SELECT s.* FROM sessions s

@@ -25,8 +25,11 @@ import com.runner.app.data.ThemeStore
 import com.runner.app.data.ToolCall
 import com.runner.app.data.db.ChatDatabase
 import com.runner.app.data.db.MessageEntity
+import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.tools.ToolDispatcher
+import com.runner.app.tools.TrashStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,11 +38,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.resume
 
@@ -56,7 +63,9 @@ enum class MessageRole {
 enum class MessageAction {
     OPEN_SETTINGS,
     OPEN_MODELS,
-    GRANT_STORAGE
+    GRANT_STORAGE,
+    /** Сухой прогон закончился: запустить ту же задачу по-настоящему. */
+    EXECUTE_DRY_RUN
 }
 
 /**
@@ -80,6 +89,14 @@ data class ConfirmationRequest(
     val preview: String = "",
     /** Файлы, которые можно снять галочкой. Пусто — дробить нечего. */
     val items: List<ToolDispatcher.ActionItem> = emptyList(),
+    /**
+     * Есть ли смысл предлагать «больше не спрашивать».
+     *
+     * Ложь, когда аргументы операции не опознать: пустая подпись склеила бы
+     * в одно разрешение все вызовы инструмента, и галочка стала бы обещанием,
+     * которого приложение не держит.
+     */
+    val canRemember: Boolean = true,
     val onDecision: (ConfirmationDecision) -> Unit
 )
 
@@ -185,11 +202,32 @@ private val PATH_ARGS: Map<String, List<String>> = mapOf(
     "create_archive" to listOf("zip_path", "source_paths")
 )
 
-/** Не-путевые аргументы, которые тоже привязывают одобрение к конкретному действию. */
+/**
+ * Не-путевые аргументы, которые тоже привязывают одобрение к конкретному действию.
+ *
+ * У `clipboard_write` и `organize_downloads` критичных аргументов не было вовсе,
+ * и это давало сразу две дыры. Подпись «больше не спрашивать» у них получалась
+ * пустой и одинаковой для всех вызовов, то есть одно нажатие разрешало вообще все
+ * записи в буфер. А в предодобрении плана пустой список значений проходил проверку
+ * `values.all { ... }` вырожденно истинным: шаг плана, назвавший инструмент,
+ * заранее одобрял ЛЮБЫЕ его аргументы. Теперь оба перечисляют свои.
+ */
 private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
     "run_shell_command" to listOf("command"),
     "open_url" to listOf("url"),
-    "open_app" to listOf("app")
+    "open_app" to listOf("app"),
+    "organize_downloads" to listOf("category"),
+    "clipboard_write" to listOf("text")
+)
+
+/**
+ * Аргументы-«нагрузка»: не то, НАД чем выполняется операция, а то, ЧТО записывается.
+ * Путь и команда привязывают одобрение к цели; здесь важно другое — не переносит ли
+ * модель в файл или в буфер текст, прочитанный из недоверенного источника.
+ */
+private val PAYLOAD_ARGS: Map<String, List<String>> = mapOf(
+    "write_file" to listOf("content"),
+    "clipboard_write" to listOf("text")
 )
 
 /** Все аргументы, которые участвуют в сверке с текстом плана. */
@@ -324,9 +362,38 @@ private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf("read_file", "list_dir",
 private fun confirmationSignature(toolName: String, argsJson: String): String {
     val clean = toolName.substringAfterLast(":")
     val values = criticalArgValues(clean, argsJson)
-        .map { normalizeForMatch(it) }
+        .map { signatureValue(it) }
         .sorted()
     return "$clean|${values.joinToString("|")}"
+}
+
+/** Значение длиннее этого сворачивается в хеш. */
+private const val SIGNATURE_VALUE_LIMIT = 120
+
+/**
+ * Значение для подписи операции.
+ *
+ * Длинные тексты сворачиваются в SHA-256. Подписи лежат в SharedPreferences,
+ * и запись в буфер на несколько килобайт раздула бы настройки, а заодно
+ * сохранила бы содержимое пользователя на диск в открытом виде.
+ *
+ * Именно хеш, а не `hashCode()`: 32 бита дают шанс коллизии, а коллизия здесь
+ * означает молчаливое разрешение операции, которую пользователь не одобрял.
+ */
+private fun signatureValue(value: String): String {
+    val normalized = normalizeForMatch(value)
+    if (normalized.length <= SIGNATURE_VALUE_LIMIT) return normalized
+    return "#" + sha256Hex(normalized).take(16)
+}
+
+private fun sha256Hex(value: String): String = try {
+    MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+} catch (e: Exception) {
+    // SHA-256 есть в любой JVM. Если его вдруг не окажется, не разрешаем
+    // запоминать наугад: значение не совпадёт ни с чем, и вопрос задастся снова.
+    "#unavailable"
 }
 
 /** Признаки ошибки в выводе инструмента, проверяются по началу любой строки. */
@@ -353,18 +420,79 @@ private fun looksLikeToolError(output: String): Boolean {
 
 /**
  * Аргумент похож на строку из недоверенного вывода?
- * Сравнение по целой строке: подстрочное давало бы ложные срабатывания на
- * коротких значениях вроде имени файла.
+ *
+ * Сравнение по целой строке, а не подстрокой: подстрочное давало бы ложные
+ * срабатывания на коротких значениях вроде имени файла.
  */
 private fun isDerivedFromUntrusted(untrusted: Set<String>, toolName: String, argsJson: String): Boolean {
     if (untrusted.isEmpty()) return false
     val clean = toolName.substringAfterLast(":")
-    val values = criticalArgValues(clean, argsJson)
-    if (values.isEmpty()) return false
-    return values.any { value ->
-        val needle = value.trim()
-        needle.length >= 4 && untrusted.any { it.trim() == needle }
+
+    // Аргументы места назначения — путь, команда, ссылка, имя приложения:
+    // сверяем значение целиком.
+    val targets = criticalArgValues(clean, argsJson)
+    if (targets.any { matchesUntrustedLine(it, untrusted) }) return true
+
+    // Нагрузку (что именно записываем) сверяем построчно. Целое значение здесь
+    // не работает: модель почти всегда составляет текст из нескольких строк,
+    // и совпадение целого значения не наступило бы никогда — то есть проверка
+    // была бы мёртвой. Это и был разрыв: read_file отдавал недоверенный текст,
+    // а содержимое write_file не проверялось вовсе, у clipboard_write — ничего.
+    val payloads = argValues(argsJson, PAYLOAD_ARGS[clean] ?: emptyList())
+    return payloads.any { payload ->
+        payload.lineSequence().any { matchesUntrustedLine(it, untrusted) }
     }
+}
+
+/** Строка достаточно длинная и в точности совпадает с недоверенной. */
+private fun matchesUntrustedLine(value: String, untrusted: Set<String>): Boolean {
+    val needle = value.trim()
+    return needle.length >= 4 && untrusted.any { it.trim() == needle }
+}
+
+/** Радиус контекста вокруг найденной подстроки, символов с каждой стороны. */
+private const val SNIPPET_RADIUS = 48
+
+private val WHITESPACE_RUN = Regex("\\s+")
+
+/**
+ * Сниппет совпадения: окно вокруг найденного текста.
+ *
+ * Показывать сообщение целиком нельзя — в истории бывают ответы на тысячи
+ * символов, и список чатов превратился бы в простыню. Но и голое «нашлось»
+ * бесполезно: непонятно, почему чат попал в выдачу.
+ *
+ * Переносы строк схлопываются: сниппет рисуется в одну-две строки.
+ */
+private fun buildSnippet(content: String, query: String): String? {
+    if (query.isEmpty()) return null
+    val flat = WHITESPACE_RUN.replace(content, " ").trim()
+    if (flat.isEmpty()) return null
+
+    val index = flat.indexOf(query, ignoreCase = true)
+    if (index < 0) return null
+
+    val start = (index - SNIPPET_RADIUS).coerceAtLeast(0)
+    val end = (index + query.length + SNIPPET_RADIUS).coerceAtMost(flat.length)
+
+    return buildString {
+        if (start > 0) append('…')
+        append(flat.substring(start, end).trim())
+        if (end < flat.length) append('…')
+    }
+}
+
+/**
+ * По одному сниппету на сессию. Совпадения приходят новыми сверху, поэтому
+ * первое встреченное и есть самое свежее.
+ */
+private fun buildSnippets(matches: List<MessageMatch>, query: String): Map<String, String> {
+    val out = LinkedHashMap<String, String>()
+    matches.forEach { match ->
+        if (out.containsKey(match.sessionId)) return@forEach
+        buildSnippet(match.content, query)?.let { out[match.sessionId] = it }
+    }
+    return out
 }
 
 /**
@@ -465,6 +593,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { query -> repository.observeSessions(query) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * Сниппеты совпадений для списка чатов: поиск идёт и по содержимому
+     * сообщений, поэтому без сниппета непонятно, почему чат попал в выдачу.
+     * По одной строке на сессию — самое свежее совпадение.
+     */
+    val searchSnippets: StateFlow<Map<String, String>> = _sessionsQuery
+        .flatMapLatest { query ->
+            val trimmed = query.trim()
+            if (trimmed.isEmpty()) {
+                flowOf(emptyMap())
+            } else {
+                flow {
+                    val matches = repository.findMessageMatches(trimmed)
+                    emit(buildSnippets(matches, trimmed))
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
 
@@ -510,6 +657,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private var untrustedLines: Set<String> = emptySet()
 
+    // --- Сухой прогон и область инструментов ---
+
+    /**
+     * Идёт сухой прогон: операции, меняющие состояние, не выполняются, а
+     * описываются. Флаг живёт один ход и не сохраняется — после перезапуска
+     * приложение не должно «застрять» в предпросмотре.
+     */
+    @Volatile
+    private var dryRunActive = false
+
+    /** Последняя задача прошла всухую, баннер уже показан. Живёт один ход. */
+    private var dryRunBannerShown = false
+
+    /** Инструменты, подключённые моделью в этом ходу через `enable_tools`. */
+    private val enabledToolNames = mutableSetOf<String>()
+
+    /**
+     * Набор инструментов, объявляемый в запросе. `null` — все.
+     *
+     * Сужаем только когда план уже назвал нужные инструменты: тогда состав
+     * известен, и урезание ничего не ломает. Без плана шлём всё — иначе модель
+     * упрётся в отсутствие нужного тула на середине задачи.
+     */
+    private var activeToolScope: Set<String>? = null
+
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
 
@@ -538,6 +710,149 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Корзина и журнал перемещений ---
+
+    /**
+     * Состояние журнала для настроек. Пересчитывается по требованию, а не
+     * наблюдается: содержимое меняется только действиями пользователя.
+     */
+    data class TrashState(
+        val entries: List<TrashStore.TrashEntry> = emptyList(),
+        val loading: Boolean = false
+    ) {
+        val count: Int get() = entries.size
+
+        /** Удаления: объекты лежат в корзине и занимают её место. */
+        val deletions: List<TrashStore.TrashEntry> get() = entries.filter { !it.isMove }
+
+        /** Перемещения: объекты стоят на новых местах, место занимает не корзина. */
+        val moves: List<TrashStore.TrashEntry> get() = entries.filter { it.isMove }
+
+        val totalBytes: Long get() = entries.sumOf { it.totalBytes }
+        val deletedFileCount: Int get() = deletions.sumOf { it.fileCount }
+    }
+
+    private val _trashState = MutableStateFlow(TrashState())
+    val trashState: StateFlow<TrashState> = _trashState.asStateFlow()
+
+    /**
+     * Перечитывает корзину. Вызывается при открытии настроек: держать это
+     * в наблюдателе незачем, содержимое меняется только по действию.
+     */
+    fun refreshTrash() {
+        viewModelScope.launch {
+            _trashState.value = _trashState.value.copy(loading = true)
+            val entries = withContext(Dispatchers.IO) { TrashStore.list() }
+            _trashState.value = TrashState(entries = entries, loading = false)
+        }
+    }
+
+    /**
+     * Уборка при старте: чистит просроченное и потерянные объекты.
+     * Без неё корзина росла бы бесконечно, а срок хранения оставался бы
+     * обещанием в настройках.
+     */
+    fun purgeTrashOnStart() {
+        viewModelScope.launch {
+            val days = _settings.value.trashRetentionDays
+            withContext(Dispatchers.IO) { TrashStore.purgeExpired(days) }
+            refreshTrash()
+        }
+    }
+
+    /**
+     * Возвращает объект из корзины на исходное место.
+     *
+     * Сообщение об удалении помечается как отменённое: иначе кнопка «Отменить»
+     * осталась бы на экране и после успешного возврата предлагала бы повторить
+     * уже выполненное действие.
+     */
+    fun restoreFromTrash(entryId: String) {
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) { TrashStore.restore(entryId) }
+            val stillInTrash = withContext(Dispatchers.IO) {
+                TrashStore.list().any { it.id == entryId }
+            }
+
+            val summary = when {
+                outcome.restored == 0 && outcome.failed > 0 ->
+                    "Не удалось откатить операцию: объект занят другим приложением, " +
+                            "перемещён или путь недоступен."
+                outcome.renamedTo.isNotEmpty() ->
+                    "Возвращено объектов: ${outcome.restored}. " +
+                            "Исходное место было занято, поэтому файл получил новое имя: " +
+                            outcome.renamedTo.joinToString(", ")
+                else -> "Возвращено объектов: ${outcome.restored}."
+            }
+            appendSystemInfo(summary, null)
+
+            // Пока в записи что-то осталось, кнопка должна работать: остаток
+            // пользователь вернёт вторым нажатием. Гасим её только когда
+            // восстанавливать больше нечего.
+            if (!stillInTrash) markTrashMessage(entryId)
+            refreshTrash()
+        }
+    }
+
+    /** Откатывает весь журнал: и удаления, и перемещения. */
+    fun restoreAllFromTrash() {
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) { TrashStore.restoreAll() }
+
+            // Помечаем все сообщения, чьи записи ушли из журнала.
+            val remaining = withContext(Dispatchers.IO) { TrashStore.list().map { it.id }.toSet() }
+            _messages.value
+                .mapNotNull { message ->
+                    TrashStore.trashIdFromOutput(message.toolOutput)
+                        ?.takeIf { it !in remaining }
+                }
+                .forEach { markTrashMessage(it) }
+
+            val renamedNote = if (outcome.renamedTo.isNotEmpty()) {
+                " Часть файлов получила новое имя: исходные места были заняты."
+            } else {
+                ""
+            }
+            appendSystemInfo("Возвращено объектов: ${outcome.restored}.$renamedNote", null)
+            refreshTrash()
+        }
+    }
+
+    /**
+     * Удаляет удалённое безвозвратно и стирает журнал.
+     *
+     * Объекты перемещений не трогаются — они стоят на своих новых местах,
+     * теряется только возможность откатить эти перемещения. Формулировка
+     * сообщения это проговаривает: иначе легко решить, что «очистить» вернёт
+     * или удалит и перемещённое тоже.
+     */
+    fun emptyTrash() {
+        viewModelScope.launch {
+            val freed = withContext(Dispatchers.IO) { TrashStore.empty() }
+            appendSystemInfo(
+                "Корзина очищена безвозвратно, освобождено ${ToolDispatcher.formatFileSize(freed)}. " +
+                        "Перемещённые файлы остались на своих местах, но откатить их больше нельзя.",
+                null
+            )
+            refreshTrash()
+        }
+    }
+
+    /** Переписывает вывод инструмента, чтобы кнопка отмены погасла. */
+    private suspend fun markTrashMessage(entryId: String) {
+        val target = _messages.value.firstOrNull { message ->
+            TrashStore.trashIdFromOutput(message.toolOutput) == entryId
+        } ?: return
+
+        val updated = target.copy(
+            toolOutput = TrashStore.markRestored(target.toolOutput.orEmpty(), entryId)
+        )
+        _messages.value = _messages.value.map { if (it.id == updated.id) updated else it }
+        _currentSessionId.value?.let { sessionId ->
+            repository.saveMessage(updated.toEntity(sessionId))
+        }
+    }
+
     private var conversationJson = JSONArray()
 
     @Volatile
@@ -550,6 +865,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         checkStoragePermission()
         maybeShowStoragePrompt()
+        // Уборка корзины при запуске: срок хранения, выставленный в настройках,
+        // иначе оставался бы только обещанием в интерфейсе.
+        purgeTrashOnStart()
         viewModelScope.launch {
             val empty = repository.getRecentEmptySession()
             val session = empty ?: repository.observeSessions().first().firstOrNull() ?: repository.createSession()
@@ -901,6 +1219,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stopRequested = false
         approvedPlanSteps = null
         untrustedLines = emptySet()
+        // Состояние сухого прогона и область инструментов — на один ход.
+        enabledToolNames.clear()
+        activeToolScope = null
+        dryRunBannerShown = false
+        // Прогон всухую включаем только для задач, которые выглядят как
+        // изменяющие данные: он удваивает расход запросов, и тратить его
+        // на чтение бессмысленно. Эвристика та же, что решает про план.
+        dryRunActive = _settings.value.dryRunFirst && shouldPlan(text)
         val userMessageId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
@@ -931,6 +1257,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _currentSessionTitle.value = title
                 }
 
+                // Системный промпт пересобираем перед каждым ходом: настройки
+                // могли измениться посреди сессии, а контекст хранится в базе.
+                refreshSystemPrompt()
+
                 conversationJson.put(
                     JSONObject().apply {
                         put("role", "user")
@@ -942,7 +1272,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Планирование: сначала план шагов + подтверждение, потом исполнение.
                 // Слабым моделям (Flash Lite и подобные) это сильно поднимает надёжность.
                 // На приветствия и смолл-ток планировщик не триггерим вообще.
-                val planNote = if (_settings.value.planningEnabled && shouldPlan(text)) {
+                // Во время сухого прогона план не нужен: сам прогон и есть предпросмотр,
+                // а лишний запрос расходует тот же лимит.
+                val planNote = if (!dryRunActive &&
+                    _settings.value.planningEnabled &&
+                    shouldPlan(text)
+                ) {
                     requestPlanApproval(sessionId, provider, model)
                 } else {
                     null
@@ -961,8 +1296,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     persistContext(sessionId)
                 }
 
+                // Состав инструментов известен только после утверждения плана.
+                updateToolScope()
+
                 runAgentLoop(sessionId, provider, model)
             } finally {
+                finishDryRunIfNeeded()
                 _isRunning.value = false
                 _currentStatus.value = null
                 _streamingText.value = ""
@@ -1015,6 +1354,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stopRequested = false
         approvedPlanSteps = null
         untrustedLines = emptySet()
+        // Область инструментов — на один ход: при повторе план заново не
+        // запрашивается, значит сужать набор нечем и незачем.
+        enabledToolNames.clear()
+        activeToolScope = null
+        dryRunBannerShown = false
         _streamingText.value = ""
         _isRunning.value = true
 
@@ -1025,6 +1369,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 persistContext(sessionId)
                 runAgentLoop(sessionId, provider, model)
             } finally {
+                finishDryRunIfNeeded()
                 _isRunning.value = false
                 _currentStatus.value = null
                 _streamingText.value = ""
@@ -1240,6 +1585,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // зависит, какие необязательные поля запроса безопасно слать.
                 providerKind = provider.kind,
                 officialDeepSeekHost = provider.isOfficialDeepSeekHost,
+                // Объявляем только нужные инструменты: их схемы уходят в каждом
+                // запросе и занимают заметную часть лимита токенов. null — все.
+                toolNames = activeToolScope,
                 // Стоп должен работать и во время паузы между ретраями,
                 // иначе кнопка «висит», а запрос всё равно уходит повторно.
                 shouldStop = { stopRequested }
@@ -1326,6 +1674,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
+    }
+
+    /**
+     * Баннер после сухого прогона.
+     *
+     * Вызывается из `finally`, а не в конце [runAgentLoop]: обычный ответ выходит
+     * из цикла раньше — из ветки TextResult, — и до кода после цикла дело не
+     * доходит. Именно так прогон и заканчивается в большинстве случаев.
+     */
+    private fun finishDryRunIfNeeded() {
+        if (!dryRunActive || stopRequested) return
+        if (dryRunBannerShown) return
+        dryRunBannerShown = true
+        appendSystemInfo(
+            "Это был сухой прогон: файлы не тронуты. Проверьте, что агент собирается " +
+                    "сделать, и запустите выполнение.",
+            MessageAction.EXECUTE_DRY_RUN
+        )
+    }
+
+    /**
+     * Запускает по-настоящему то, что только что прошло всухую.
+     *
+     * Повторяет ту же ветку, что кнопка «Заново»: контекст и лента обрезаются до
+     * последнего сообщения пользователя, поэтому предпросмотр не дублируется
+     * с реальным прогоном. Режим прогона при повторе не включается — иначе
+     * кнопка зациклилась бы.
+     */
+    fun confirmDryRun() {
+        val lastUser = _messages.value.lastOrNull { it.role == MessageRole.USER } ?: return
+        dryRunBannerShown = false
+        dryRunActive = false
+        retryFromUserMessage(lastUser.id)
     }
 
     /**
@@ -1448,18 +1829,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val signature = confirmationSignature(call.name, call.arguments)
         val remembered = isDangerous && signature in _settings.value.approvedOperationSignatures
 
+        // Запоминать имеет смысл только операцию с опознаваемыми аргументами.
+        // Пустая подпись склеила бы в одно разрешение все вызовы инструмента:
+        // именно так одно нажатие на записи в буфер разрешало все последующие.
+        // Если модель аргументов не передала — предлагать галочку нечестно.
+        val canRemember = isDangerous &&
+                criticalArgValues(call.name, call.arguments).isNotEmpty()
+
+        // Режим «только чтение» блокирует ровно те же операции, что считаются
+        // опасными: отдельного списка «изменяющих» инструментов не заводим, иначе
+        // списки разойдутся — на этом в проекте уже была ошибка.
+        val blockedByReadOnly = _settings.value.readOnlyMode && isDangerous
+
+        // Сухой прогон — тот же набор операций, но по другой причине: не «нельзя»,
+        // а «покажи, что будет сделано». Тексты ответов поэтому разные.
+        val blockedByDryRun = dryRunActive && isDangerous
+
+        // Подключение инструментов — не операция над файлами, а часть диалога:
+        // ни подтверждений, ни режимов у неё быть не должно.
+        val isEnableTools = call.name.substringAfterLast(":") == ToolDispatcher.ENABLE_TOOLS
+
         // Режим «не спрашивать вообще» снимает диалог для всех опасных действий.
         // Исключение одно: аргументы, пришедшие из недоверенного вывода (файл,
         // буфер обмена). Это защита от подсказок вида «удали всё» внутри
         // прочитанного текста, её отключать нельзя.
         val confirmDangerous = _settings.value.confirmDangerous
         val needConfirm = when {
+            isEnableTools -> false
+            // Заблокированное не подтверждаем: спрашивать нечего, ответ уже дан
+            // заранее — самим включением режима.
+            blockedByDryRun -> false
+            blockedByReadOnly -> false
             fromUntrusted -> true
             remembered -> _settings.value.confirmEveryStep
             isDangerous -> confirmDangerous && !preApproved
             else -> _settings.value.confirmEveryStep
         }
-        val output = if (needConfirm) {
+        val output = if (isEnableTools) {
+            enableTools(call.arguments)
+        } else if (blockedByReadOnly) {
+            // «Только чтение» проверяем раньше сухого прогона: она запрещает
+            // операцию совсем, поэтому её сообщение правдивее. Сообщение прогона
+            // («будет сделано вот это») обещало бы то, что всё равно недоступно.
+            declined = true
+            "Режим «только чтение»: операция '${call.name.substringAfterLast(":")}' запрещена, " +
+                    "данные менять нельзя. Если задача без этого не решается, скажи об этом " +
+                    "пользователю и попроси выключить режим в настройках агента."
+        } else if (blockedByDryRun) {
+            declined = true
+            dryRunRefusal(call)
+        } else if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
 
@@ -1471,6 +1890,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     warning = info.warning,
                     preview = info.preview,
                     items = info.items,
+                    canRemember = canRemember,
                     onDecision = { userDecision ->
                         if (continuation.isActive) continuation.resume(userDecision)
                     }
@@ -1485,8 +1905,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 declined = true
                 "Пользователь снял все галочки, удалять нечего. Не повторяй операцию без новой просьбы."
             } else {
-                // «Больше не спрашивать» запоминается только для этого действия.
-                if (decision.remember) {
+                // «Больше не спрашивать» запоминается только для этого действия
+                // и только когда действие вообще опознаваемо.
+                if (decision.remember && canRemember) {
                     updateSettings(
                         _settings.value.copy(
                             approvedOperationSignatures =
@@ -1566,6 +1987,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         )
         persistContext(sessionId)
+
+        // Появилась обратимая операция — обновляем состояние для кнопки
+        // «Отменить последнее» в шапке. Читаем журнал только когда он реально
+        // изменился, а не на каждом вызове инструмента.
+        if (TrashStore.undoRefFromOutput(output) != null) {
+            refreshTrash()
+        }
     }
 
     /**
@@ -1624,14 +2052,134 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun freshContext(): JSONArray = JSONArray().apply {
         // База зашита в код + доп. инструкции пользователя (если заданы).
-        val effectivePrompt =
-            AppSettings.buildFinalSystemPrompt(_settings.value.userInstructions)
-        put(
-            JSONObject().apply {
-                put("role", "system")
-                put("content", effectivePrompt)
-            }
+        put(systemMessage())
+    }
+
+    /**
+     * Системное сообщение по текущим настройкам.
+     *
+     * Собирается заново, а не хранится однажды собранным: режим «только чтение»
+     * и доп. инструкции могут измениться посреди сессии, а контекст лежит в базе
+     * как есть и переживает перезапуск.
+     */
+    private fun systemMessage(): JSONObject {
+        var content = AppSettings.buildFinalSystemPrompt(
+            _settings.value.userInstructions,
+            readOnly = _settings.value.readOnlyMode,
+            dryRun = dryRunActive
         )
+        // Пояснение к урезанному набору. Без него модель просто не знает, что
+        // инструмент существует, и отвечает «не могу» вместо подключения.
+        activeToolScope?.let { scope ->
+            content = content + "\n\n" + ToolDispatcher.toolScopeNote(scope)
+        }
+        return JSONObject().apply {
+            put("role", "system")
+            put("content", content)
+        }
+    }
+
+    /**
+     * Пересобирает набор инструментов для запроса.
+     *
+     * Сужаем только когда план уже назвал нужные: тогда состав известен.
+     * Без плана набор не трогаем — иначе на середине задачи модель обнаружит,
+     * что нужного инструмента нет.
+     */
+    private fun updateToolScope() {
+        val planTools = approvedPlanSteps?.map { it.tool }.orEmpty().toSet()
+        if (!_settings.value.pruneTools || planTools.isEmpty()) {
+            activeToolScope = null
+            return
+        }
+        val scope = mutableSetOf<String>()
+        scope.addAll(ToolDispatcher.CORE_TOOL_NAMES)
+        scope.addAll(planTools)
+        scope.addAll(enabledToolNames)
+        scope.add(ToolDispatcher.ENABLE_TOOLS)
+        activeToolScope = scope
+    }
+
+    /**
+     * Ответ модели на операцию, которую сухой прогон не выполняет.
+     *
+     * Отдаём настоящие параметры операции, а не сухое «нельзя»: смысл прогона
+     * в том, чтобы модель описала пользователю, что именно будет сделано,
+     * опираясь на реальные данные, а не на догадки.
+     */
+    private fun dryRunRefusal(call: ToolCall): String {
+        val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+        return buildString {
+            append("СУХОЙ ПРОГОН: операция НЕ выполнена, ничего не изменено.\n")
+            append("Инструмент: ${call.name.substringAfterLast(":")}\n")
+            append("Что было бы сделано: ${info.title}\n")
+            append(info.details)
+            if (info.preview.isNotBlank()) {
+                append('\n').append(info.preview)
+            }
+            append("\nЭто предпросмотр. Продолжай: собери оставшиеся данные и опиши ")
+            append("пользователю, что будет сделано. Не утверждай, что уже сделано.")
+        }
+    }
+
+    /**
+     * Обработка `enable_tools`: это не файловая операция, а часть диалога,
+     * поэтому живёт здесь, а не в ToolDispatcher.
+     */
+    private fun enableTools(argsJson: String): String {
+        val args = try {
+            if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+
+        val requested = mutableListOf<String>()
+        val array = args.optJSONArray("names")
+        if (array != null) {
+            for (index in 0 until array.length()) {
+                array.optString(index, "").trim()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { requested += it }
+            }
+        }
+        // Модели иногда присылают строку вместо массива — принимаем и её,
+        // иначе подключение молча ничего не сделает.
+        if (requested.isEmpty()) {
+            args.optString("names", "")
+                .split(',', ' ', ';')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .forEach { requested += it }
+        }
+
+        val known = ToolDispatcher.ALL_TOOL_NAMES.toSet()
+        val accepted = requested.filter { it in known }.distinct()
+        val unknown = requested.filterNot { it in known }.distinct()
+
+        enabledToolNames.addAll(accepted)
+        updateToolScope()
+        // Промпт пересобираем сразу: список доступного в нём изменился.
+        refreshSystemPrompt()
+
+        return buildString {
+            if (accepted.isEmpty()) {
+                append("Ни один инструмент не подключён.")
+            } else {
+                append("Подключены инструменты: ${accepted.joinToString(", ")}. ")
+                append("Они доступны со следующего шага.")
+            }
+            if (unknown.isNotEmpty()) {
+                append("\nНеизвестные имена: ${unknown.joinToString(", ")}.")
+            }
+        }
+    }
+
+    /** Обновляет системное сообщение в текущем контексте, если оно там есть. */
+    private fun refreshSystemPrompt() {
+        if (conversationJson.length() == 0) return
+        val first = conversationJson.optJSONObject(0) ?: return
+        if (first.optString("role") != "system") return
+        conversationJson.put(0, systemMessage())
     }
 
     /**

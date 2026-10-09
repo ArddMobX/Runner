@@ -86,6 +86,7 @@ fun AppNavigation(viewModel: MainViewModel) {
     val sessions by viewModel.sessions.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val sessionsQuery by viewModel.sessionsQuery.collectAsState()
+    val searchSnippets by viewModel.searchSnippets.collectAsState()
     val drawerProvider by viewModel.activeProvider.collectAsState()
     val provider = drawerProvider
     val drawerFooter = if (provider != null && provider.apiKey.isNotBlank()) {
@@ -141,6 +142,7 @@ fun AppNavigation(viewModel: MainViewModel) {
                         sessions = sessions,
                         currentSessionId = currentSessionId,
                         query = sessionsQuery,
+                        snippets = searchSnippets,
                         onQueryChange = { viewModel.setSessionsQuery(it) },
                         onNewChat = {
                             viewModel.startNewChat()
