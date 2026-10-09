@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         setContent {
             val themeConfig by viewModel.themeConfig.collectAsState()
             RunnerTheme(themeConfig = themeConfig) {
@@ -65,6 +66,19 @@ class MainActivity : ComponentActivity() {
                     AppNavigation(viewModel = viewModel)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val sessionId = intent?.getStringExtra("SESSION_ID")
+        if (!sessionId.isNullOrBlank()) {
+            viewModel.openSession(sessionId)
         }
     }
 

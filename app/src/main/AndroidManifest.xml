@@ -23,6 +23,8 @@
         tools:ignore="QueryAllPackagesPermission" />
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <queries>
         <intent>
@@ -57,6 +59,32 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Плитка в быстрых настройках Android (Quick Settings Tile) -->
+        <service
+            android:name=".service.RunnerTileService"
+            android:label="@string/tile_name"
+            android:icon="@drawable/ic_qs_runner"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Фоновая служба для снимков экрана MediaProjection в Android 14+ -->
+        <service
+            android:name=".service.ScreenCaptureService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
+        <!-- Плавающее окно-ассистент поверх всех приложений -->
+        <activity
+            android:name=".ui.OverlayActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Runner.Overlay"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize" />
 
     </application>
 

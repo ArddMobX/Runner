@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Runner</string>
+    <string name="tile_name">Спросить Runner</string>
+    <string name="tile_subtitle">Ассистент</string>
 </resources>
