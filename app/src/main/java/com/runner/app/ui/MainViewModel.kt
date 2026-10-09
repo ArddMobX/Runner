@@ -2,11 +2,14 @@ package com.runner.app.ui
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runner.app.util.ImageUtils
+import com.runner.app.util.VoiceManager
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
@@ -515,6 +518,7 @@ data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: MessageRole,
     val content: String,
+    val imageUris: List<String> = emptyList(),
     val toolName: String? = null,
     val toolArgs: String? = null,
     val toolOutput: String? = null,
@@ -544,6 +548,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsStore = SettingsStore(application)
     private val repository = ChatRepository(ChatDatabase.get(application).chatDao())
     private val apiClient = OpenAIClient()
+    val voiceManager = VoiceManager(application)
 
     // --- Провайдеры ---
 
@@ -632,6 +637,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentStatus = MutableStateFlow<String?>(null)
     val currentStatus: StateFlow<String?> = _currentStatus.asStateFlow()
+
+    // --- Голос и синтез речи (STT / TTS) ---
+    val isListening: StateFlow<Boolean> = voiceManager.isListening
+    val rmsLevel: StateFlow<Float> = voiceManager.rmsLevel
+    val isSpeaking: StateFlow<Boolean> = voiceManager.isSpeaking
+    val activeUtteranceId: StateFlow<String?> = voiceManager.activeUtteranceId
+
+    fun isVoiceRecognitionAvailable(): Boolean = voiceManager.isRecognitionAvailable()
+
+    fun startVoiceInput(
+        onPartialResult: (String) -> Unit = {},
+        onFinalResult: (String) -> Unit,
+        onError: (String) -> Unit = {}
+    ) {
+        voiceManager.startListening(onPartialResult, onFinalResult, onError)
+    }
+
+    fun stopVoiceInput() {
+        voiceManager.stopListening()
+    }
+
+    fun toggleSpeakMessage(messageId: String, text: String) {
+        if (voiceManager.activeUtteranceId.value == messageId && voiceManager.isSpeaking.value) {
+            voiceManager.stopSpeaking()
+        } else {
+            voiceManager.speak(text, messageId)
+        }
+    }
+
+    fun stopSpeaking() {
+        voiceManager.stopSpeaking()
+    }
 
     private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
     val pendingConfirmation: StateFlow<ConfirmationRequest?> = _pendingConfirmation.asStateFlow()
@@ -1165,6 +1202,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopGeneration() {
         stopRequested = true
+        voiceManager.stopSpeaking()
         // Обрыв текущего HTTP-запроса.
         apiClient.cancelActive()
         // Корутину хода намеренно НЕ отменяем. Отмена может прервать запись
@@ -1176,9 +1214,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentStatus.value = "Останавливаю"
     }
 
-    fun sendMessage(prompt: String) {
+    fun sendMessage(prompt: String, images: List<Uri> = emptyList()) {
         val text = prompt.trim()
-        if (text.isEmpty() || _isRunning.value) return
+        if (text.isEmpty() && images.isEmpty()) return
+        if (_isRunning.value) return
 
         val provider = activeProvider.value
         if (provider == null || provider.apiKey.isBlank()) {
@@ -1211,7 +1250,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 val session = repository.createSession()
                 loadSession(session.id)
-                sendMessage(text)
+                sendMessage(prompt, images)
             }
             return
         }
@@ -1223,18 +1262,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         enabledToolNames.clear()
         activeToolScope = null
         dryRunBannerShown = false
+        val effectiveText = if (text.isEmpty() && images.isNotEmpty()) "Что на этом изображении?" else text
         // Прогон всухую включаем только для задач, которые выглядят как
         // изменяющие данные: он удваивает расход запросов, и тратить его
         // на чтение бессмысленно. Эвристика та же, что решает про план.
-        dryRunActive = _settings.value.dryRunFirst && shouldPlan(text)
+        dryRunActive = _settings.value.dryRunFirst && shouldPlan(effectiveText)
         val userMessageId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
 
+        val cachedImagePaths = images.mapNotNull { uri ->
+            ImageUtils.copyToInternalCache(getApplication(), uri)
+        }
+
         _messages.value = _messages.value + ChatMessage(
             id = userMessageId,
             role = MessageRole.USER,
-            content = text,
+            content = effectiveText,
+            imageUris = cachedImagePaths,
             timestamp = now
         )
         _isRunning.value = true
@@ -1247,12 +1292,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         id = userMessageId,
                         sessionId = sessionId,
                         role = MessageRole.USER.name,
-                        content = text,
+                        content = effectiveText,
+                        imageUris = if (cachedImagePaths.isEmpty()) null else cachedImagePaths.joinToString(","),
                         createdAt = now
                     )
                 )
                 if (isFirstUserMessage) {
-                    val title = text.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    val title = effectiveText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
                     repository.renameSession(sessionId, title)
                     _currentSessionTitle.value = title
                 }
@@ -1261,12 +1307,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // могли измениться посреди сессии, а контекст хранится в базе.
                 refreshSystemPrompt()
 
-                conversationJson.put(
-                    JSONObject().apply {
-                        put("role", "user")
-                        put("content", text)
+                if (cachedImagePaths.isNotEmpty()) {
+                    val contentArray = JSONArray().apply {
+                        if (effectiveText.isNotBlank()) {
+                            put(JSONObject().apply {
+                                put("type", "text")
+                                put("text", effectiveText)
+                            })
+                        }
+                        for (path in cachedImagePaths) {
+                            val base64Data = ImageUtils.compressAndEncodeImage(getApplication(), path)
+                            if (base64Data != null) {
+                                put(JSONObject().apply {
+                                    put("type", "image_url")
+                                    put("image_url", JSONObject().apply {
+                                        put("url", base64Data)
+                                    })
+                                })
+                            }
+                        }
                     }
-                )
+                    conversationJson.put(
+                        JSONObject().apply {
+                            put("role", "user")
+                            put("content", contentArray)
+                        }
+                    )
+                } else {
+                    conversationJson.put(
+                        JSONObject().apply {
+                            put("role", "user")
+                            put("content", effectiveText)
+                        }
+                    )
+                }
                 persistContext(sessionId)
 
                 // Планирование: сначала план шагов + подтверждение, потом исполнение.
@@ -1276,7 +1350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // а лишний запрос расходует тот же лимит.
                 val planNote = if (!dryRunActive &&
                     _settings.value.planningEnabled &&
-                    shouldPlan(text)
+                    shouldPlan(effectiveText)
                 ) {
                     requestPlanApproval(sessionId, provider, model)
                 } else {
@@ -1387,8 +1461,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var lastMatch = -1
         for (i in 0 until conversationJson.length()) {
             val item = conversationJson.optJSONObject(i) ?: continue
-            if (item.optString("role") == "user" && item.optString("content") == text) {
-                lastMatch = i
+            if (item.optString("role") == "user") {
+                val strContent = item.optString("content")
+                if (strContent == text || (item.has("content") && item.get("content").toString().contains(text))) {
+                    lastMatch = i
+                }
             }
         }
         if (lastMatch < 0) return
@@ -1621,6 +1698,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         completionTokens = metrics.completionTokens,
                         tokensPerSecond = metrics.tokensPerSecond
                     )
+                    if (_settings.value.autoSpeakResponses) {
+                        voiceManager.speak(reply, turnAssistantId)
+                    }
                     conversationJson.put(
                         JSONObject().apply {
                             put("role", "assistant")
@@ -2202,11 +2282,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    override fun onCleared() {
+        super.onCleared()
+        voiceManager.destroy()
+        apiClient.cancelActive()
+    }
+
     private fun ChatMessage.toEntity(sessionId: String): MessageEntity = MessageEntity(
         id = id,
         sessionId = sessionId,
         role = role.name,
         content = content,
+        imageUris = if (imageUris.isEmpty()) null else imageUris.joinToString(","),
         toolName = toolName,
         toolArgs = toolArgs,
         toolOutput = toolOutput,
@@ -2230,6 +2317,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             MessageRole.SYSTEM_INFO
         },
         content = content,
+        imageUris = imageUris?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
         toolName = toolName,
         toolArgs = toolArgs,
         toolOutput = toolOutput,

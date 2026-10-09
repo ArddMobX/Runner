@@ -1174,6 +1174,40 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 )
             }
 
+            SettingsDivider()
+
+            // Авто-озвучка ответов через системный Text-to-Speech
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Озвучивать ответы голосом (TTS)",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.autoSpeakResponses) {
+                            "Агент автоматически читает ответы вслух"
+                        } else {
+                            "Выключено: озвучка только по кнопке у сообщения"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.autoSpeakResponses,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(autoSpeakResponses = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
             // Список запомненных разрешений: пользователь должен видеть, что уже
             // выполняется молча, и уметь это забыть.
             if (appSettings.approvedOperationSignatures.isNotEmpty()) {

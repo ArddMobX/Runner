@@ -91,7 +91,9 @@ data class AppSettings(
      * Сколько дней объекты лежат в корзине. По истечении срока они удаляются
      * безвозвратно при очередной уборке. 0 — хранить бессрочно.
      */
-    val trashRetentionDays: Int = DEFAULT_TRASH_RETENTION_DAYS
+    val trashRetentionDays: Int = DEFAULT_TRASH_RETENTION_DAYS,
+    /** Автоматически озвучивать ответы модели голосом (TTS). */
+    val autoSpeakResponses: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -306,7 +308,8 @@ class SettingsStore(context: Context) {
             trashRetentionDays = prefs.getInt(
                 KEY_TRASH_RETENTION_DAYS,
                 AppSettings.DEFAULT_TRASH_RETENTION_DAYS
-            )
+            ),
+            autoSpeakResponses = prefs.getBoolean(KEY_AUTO_SPEAK, false)
         )
     }
 
@@ -334,6 +337,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
             .putInt(KEY_TRASH_RETENTION_DAYS, settings.trashRetentionDays)
+            .putBoolean(KEY_AUTO_SPEAK, settings.autoSpeakResponses)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -370,5 +374,6 @@ class SettingsStore(context: Context) {
         const val KEY_SHELL_OUTSIDE_STORAGE = "shell_outside_storage"
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
         const val KEY_TRASH_RETENTION_DAYS = "trash_retention_days"
+        const val KEY_AUTO_SPEAK = "auto_speak_responses"
     }
 }

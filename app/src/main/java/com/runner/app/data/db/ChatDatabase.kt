@@ -67,7 +67,9 @@ data class MessageEntity(
     val reasoningMs: Long? = null,
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
-    val tokensPerSecond: Double? = null
+    val tokensPerSecond: Double? = null,
+    /** JSON-список путей к прикреплённым изображениям. */
+    val imageUris: String? = null
 )
 
 /**
@@ -177,7 +179,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -215,6 +217,15 @@ abstract class ChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v3 → v4: прикрепление изображений к сообщениям.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN imageUris TEXT")
+            }
+        }
+
         fun get(context: Context): ChatDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -222,7 +233,7 @@ abstract class ChatDatabase : RoomDatabase() {
                     ChatDatabase::class.java,
                     "runner_chat.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }

@@ -3,11 +3,13 @@ package com.runner.app.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -33,6 +35,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -59,10 +62,19 @@ import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -154,6 +166,11 @@ fun ChatScreen(
     val pendingPlan by viewModel.pendingPlan.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
+    val isListening by viewModel.isListening.collectAsState()
+    val rmsLevel by viewModel.rmsLevel.collectAsState()
+    val isSpeaking by viewModel.isSpeaking.collectAsState()
+    val activeUtteranceId by viewModel.activeUtteranceId.collectAsState()
+    val context = LocalContext.current
     // Журнал нужен в шапке: кнопка «Отменить последнее» показывает самую свежую
     // обратимую операцию, и она же — самая заметная.
     val trashState by viewModel.trashState.collectAsState()
@@ -174,10 +191,14 @@ fun ChatScreen(
         if (isEmptyChat) viewModel.refreshStorageStats()
     }
 
-    // Плеер живёт в синглтоне, поэтому его надо глушить при уходе с экрана:
-    // иначе трек продолжит играть поверх настроек и в фоне
+    // Плеер и синтез речи глушим при уходе с экрана:
+    // иначе они продолжат звучать поверх других экранов
     DisposableEffect(Unit) {
-        onDispose { AudioPreviewPlayer.stop() }
+        onDispose {
+            AudioPreviewPlayer.stop()
+            viewModel.stopSpeaking()
+            viewModel.stopVoiceInput()
+        }
     }
 
     LaunchedEffect(messages.size) {
@@ -410,6 +431,9 @@ fun ChatScreen(
                                             showToolDetails = appSettings.showToolDetails,
                                             showStats = appSettings.showStats,
                                             planAwaitingId = pendingPlan?.id,
+                                            isSpeaking = isSpeaking,
+                                            activeUtteranceId = activeUtteranceId,
+                                            onToggleSpeak = { id, text -> viewModel.toggleSpeakMessage(id, text) },
                                             onApprovePlan = { viewModel.resolvePlan(true) },
                                             onRejectPlan = { viewModel.resolvePlan(false) },
                                             onEditMessage = { inputState.setText(it) },
@@ -479,8 +503,24 @@ fun ChatScreen(
             ChatInputBar(
                 inputState = inputState,
                 isRunning = isRunning,
-                onSend = { text -> viewModel.sendMessage(text) },
-                onStop = { viewModel.stopGeneration() }
+                isListening = isListening,
+                rmsLevel = rmsLevel,
+                onSend = { text, images -> viewModel.sendMessage(text, images) },
+                onStop = { viewModel.stopGeneration() },
+                onStartListening = {
+                    viewModel.startVoiceInput(
+                        onPartialResult = { partial ->
+                            inputState.setText(partial)
+                        },
+                        onFinalResult = { final ->
+                            inputState.setText(final)
+                        },
+                        onError = { error ->
+                            Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                },
+                onStopListening = { viewModel.stopVoiceInput() }
             )
         }
     }
@@ -847,6 +887,9 @@ private fun MessageItem(
     showToolDetails: Boolean,
     showStats: Boolean,
     planAwaitingId: String?,
+    isSpeaking: Boolean = false,
+    activeUtteranceId: String? = null,
+    onToggleSpeak: (String, String) -> Unit = { _, _ -> },
     onApprovePlan: () -> Unit,
     onRejectPlan: () -> Unit,
     onEditMessage: (String) -> Unit,
@@ -869,11 +912,21 @@ private fun MessageItem(
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    Text(
-                        text = message.content,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                    Column {
+                        if (message.imageUris.isNotEmpty()) {
+                            MessageImageGrid(message.imageUris)
+                            if (message.content.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
+                        }
+                        if (message.content.isNotBlank()) {
+                            Text(
+                                text = message.content,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(2.dp))
@@ -904,6 +957,7 @@ private fun MessageItem(
         }
 
         MessageRole.ASSISTANT -> {
+            val context = LocalContext.current
             Column(
                 modifier = Modifier
                     .fillMaxWidth(0.96f)
@@ -927,6 +981,30 @@ private fun MessageItem(
                     PreviewButton(
                         label = "Открыть превью ${preview.title}",
                         onClick = { onOpenPreview(preview) }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isCurrentSpeaking = isSpeaking && activeUtteranceId == message.id
+                    @Suppress("DEPRECATION")
+                    val volumeIcon = Icons.Outlined.VolumeUp
+                    MessageActionIcon(
+                        icon = if (isCurrentSpeaking) Icons.Outlined.Stop else volumeIcon,
+                        label = if (isCurrentSpeaking) "Остановить" else "Озвучить",
+                        onClick = { onToggleSpeak(message.id, message.content) }
+                    )
+                    MessageActionIcon(
+                        icon = Icons.Outlined.ContentCopy,
+                        label = "Копировать",
+                        onClick = {
+                            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            manager.setPrimaryClip(ClipData.newPlainText("Ответ", message.content))
+                            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
 
@@ -957,6 +1035,63 @@ private fun MessageItem(
             action = message.action,
             onAction = onAction
         )
+    }
+}
+
+@Composable
+private fun MessageImageGrid(imagePaths: List<String>) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(imagePaths) { path ->
+            MessageImageItem(path = path)
+        }
+    }
+}
+
+@Composable
+private fun MessageImageItem(path: String) {
+    val bitmapState = produceState<ImageBitmap?>(initialValue = null, key1 = path) {
+        value = withContext(Dispatchers.IO) {
+            try {
+                val file = File(path)
+                if (!file.exists()) return@withContext null
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, options)
+                var sampleSize = 1
+                while (options.outWidth / sampleSize > 400 || options.outHeight / sampleSize > 400) {
+                    sampleSize *= 2
+                }
+                options.inJustDecodeBounds = false
+                options.inSampleSize = sampleSize
+                BitmapFactory.decodeFile(file.absolutePath, options)?.asImageBitmap()
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    val bitmap = bitmapState.value
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "Прикрепленное фото",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(100.dp)
+                .clip(RoundedCornerShape(8.dp))
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        }
     }
 }
 
