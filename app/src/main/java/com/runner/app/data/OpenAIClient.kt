@@ -275,16 +275,23 @@ class OpenAIClient {
         }
 
         val effectiveBaseUrl = baseUrl.ifBlank { "https://openrouter.ai/api/v1" }
-        val effectiveModel = modelName.ifBlank { "openai/gpt-oss-120b" }
         val endpoint = resolveChatEndpoint(effectiveBaseUrl, reverseProxyUrl)
 
-        val isGemini = providerKind == ProviderKind.GEMINI
+        val isGemini = providerKind == ProviderKind.GEMINI ||
+                endpoint.contains("googleapis.com", ignoreCase = true) ||
+                effectiveBaseUrl.contains("googleapis.com", ignoreCase = true) ||
+                modelName.contains("gemini", ignoreCase = true)
+
+        val effectiveModel = modelName.removePrefix("models/").trim().ifBlank {
+            if (isGemini) "gemini-2.5-flash" else "openai/gpt-oss-120b"
+        }
 
         // Параметры, которые провайдер может не знать. При жалобе на неизвестное
         // поле убираем его и повторяем сразу, не тратя попытку ретрая.
         var allowStreamUsage = streamUsageSupported(endpoint)
         var allowTemperature = true
         var allowThinking = providerKind == ProviderKind.DEEPSEEK && officialDeepSeekHost
+        var allowTools = withTools
         var optionalStripped = 0
 
         var forceSkipValidator = false
@@ -304,9 +311,9 @@ class OpenAIClient {
             val contextMessages = trimMessagesToBudget(sanitizedMessages, contextBudgetChars)
 
             fun buildBody(): JSONObject = JSONObject().apply {
-                put("model", effectiveModel)
+                put("model", effectiveModel.removePrefix("models/"))
                 put("messages", contextMessages)
-                if (withTools) {
+                if (allowTools) {
                     val tools = ToolDispatcher.getToolsJson(toolNames)
                     // Пустой набор означает «инструменты не нужны». Пустой массив
                     // в поле tools часть провайдеров отвергает как ошибку схемы,
@@ -339,6 +346,10 @@ class OpenAIClient {
                 .addHeader("Content-Type", "application/json")
                 .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
                 .addHeader("X-Title", "Runner Android Agent")
+
+            if (isGemini) {
+                requestBuilder.addHeader("x-goog-api-key", apiKey.trim())
+            }
 
             parseCustomHeaders(customHeaders).forEach { (name, value) ->
                 requestBuilder.header(name, value)
@@ -375,6 +386,7 @@ class OpenAIClient {
                         }
                         "temperature" -> allowTemperature = false
                         "thinking" -> allowThinking = false
+                        "tools", "tool_choice" -> allowTools = false
                         else -> Unit
                     }
                     optionalStripped++
@@ -838,8 +850,31 @@ class OpenAIClient {
         // Сырой JSON/HTML в плашку чата не вываливаем — только понятный текст.
         val details = try {
             val json = JSONObject(body)
-            json.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
+            val errorObj = json.optJSONObject("error")
+            val mainMsg = errorObj?.optString("message")?.takeIf { it.isNotBlank() }
                 ?: json.optString("message").takeIf { it.isNotBlank() }
+
+            val violations = errorObj?.optJSONArray("details")?.let { arr ->
+                val list = mutableListOf<String>()
+                for (i in 0 until arr.length()) {
+                    val d = arr.optJSONObject(i) ?: continue
+                    val fv = d.optJSONArray("fieldViolations") ?: continue
+                    for (j in 0 until fv.length()) {
+                        val v = fv.optJSONObject(j) ?: continue
+                        val desc = v.optString("description").takeIf { it.isNotBlank() }
+                            ?: v.optString("field")
+                        if (desc.isNotBlank()) list.add(desc)
+                    }
+                }
+                if (list.isNotEmpty()) list.joinToString("; ") else null
+            }
+
+            when {
+                mainMsg != null && violations != null && !mainMsg.contains(violations) -> "$mainMsg ($violations)"
+                mainMsg != null -> mainMsg
+                violations != null -> violations
+                else -> null
+            }
         } catch (e: Exception) {
             null
         } ?: body.take(300).trim().takeIf {
@@ -913,6 +948,14 @@ class OpenAIClient {
         }
 
         val lowered = text.lowercase()
+        if (lowered.contains("tools are not supported") ||
+            lowered.contains("tool calling is not supported") ||
+            lowered.contains("function calling is not supported") ||
+            (lowered.contains("tools") && lowered.contains("multimodal"))
+        ) {
+            return "tools"
+        }
+
         if (!lowered.contains("unknown name") &&
             !lowered.contains("unknown parameter") &&
             !lowered.contains("unrecognized") &&
@@ -1274,7 +1317,7 @@ class OpenAIClient {
          * Поля, которые разрешено убирать по жалобе провайдера. Белый список:
          * удалять из запроса произвольное поле, названное сервером, нельзя.
          */
-        val OPTIONAL_PARAM_NAMES = listOf("stream_options", "temperature", "thinking")
+        val OPTIONAL_PARAM_NAMES = listOf("stream_options", "temperature", "thinking", "tools", "tool_choice")
 
         /** Хосты, про которые точно известно, что stream_options они принимают. */
         val KNOWN_STREAM_USAGE_HOSTS = listOf(

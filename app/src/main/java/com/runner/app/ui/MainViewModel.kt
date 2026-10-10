@@ -1290,7 +1290,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         enabledToolNames.clear()
         activeToolScope = null
         dryRunBannerShown = false
-        val effectiveText = if (text.isEmpty() && images.isNotEmpty()) "Что на этом изображении?" else text
+        val effectiveText = if (text.isBlank() && images.isNotEmpty()) "Что на этом изображении?" else text.trim()
         // Прогон всухую включаем только для задач, которые выглядят как
         // изменяющие данные: он удваивает расход запросов, и тратить его
         // на чтение бессмысленно. Эвристика та же, что решает про план.
@@ -1337,12 +1337,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (cachedImagePaths.isNotEmpty()) {
                     val contentArray = JSONArray().apply {
-                        if (effectiveText.isNotBlank()) {
-                            put(JSONObject().apply {
-                                put("type", "text")
-                                put("text", effectiveText)
-                            })
-                        }
+                        val promptText = effectiveText.ifBlank { "Что на этом изображении?" }
+                        put(JSONObject().apply {
+                            put("type", "text")
+                            put("text", promptText)
+                        })
                         for (path in cachedImagePaths) {
                             val base64Data = ImageUtils.compressAndEncodeImage(getApplication(), path)
                             if (base64Data != null) {

@@ -166,10 +166,12 @@ object ModelCatalog {
 
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    val id = item.optString("id").ifBlank { item.optString("name") }
-                    if (id.isBlank()) continue
+                    val rawId = item.optString("id").ifBlank { item.optString("name") }
+                    if (rawId.isBlank()) continue
+                    val id = rawId.removePrefix("models/")
 
-                    val displayName = item.optString("displayName").ifBlank { item.optString("name") }
+                    val rawDisplayName = item.optString("displayName").ifBlank { item.optString("name") }
+                    val displayName = rawDisplayName.removePrefix("models/")
 
                     val methodsJson = item.optJSONArray("supportedGenerationMethods")
                     val supportedMethods = if (methodsJson != null) {

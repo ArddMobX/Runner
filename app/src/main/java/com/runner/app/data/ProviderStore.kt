@@ -37,10 +37,10 @@ data class Provider(
     /** Ключ задан — провайдера можно использовать. */
     val isReady: Boolean get() = apiKey.isNotBlank() && baseUrl.isNotBlank()
 
-    /** Модель, которая реально уйдёт в запрос. */
-    val activeModel: String get() = selectedModel.ifBlank { models.firstOrNull()?.id.orEmpty() }
+    /** Модель, которая реально уйдёт в запрос (без технического префикса models/). */
+    val activeModel: String get() = selectedModel.ifBlank { models.firstOrNull()?.id.orEmpty() }.removePrefix("models/")
 
-    fun modelIds(): List<String> = models.map { it.id }
+    fun modelIds(): List<String> = models.map { it.id.removePrefix("models/") }
 
     /**
      * Тип провайдера: сначала по id пресета, потом по хосту Base URL.
