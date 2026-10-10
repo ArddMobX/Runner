@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.runner.app.ui.ChatScreen
@@ -41,6 +42,7 @@ import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
 import com.runner.app.ui.components.DisclaimerDialog
+import com.runner.app.ui.formatModelName
 import com.runner.app.ui.theme.RunnerTheme
 import kotlinx.coroutines.launch
 
@@ -103,8 +105,13 @@ fun AppNavigation(viewModel: MainViewModel) {
     val searchSnippets by viewModel.searchSnippets.collectAsState()
     val drawerProvider by viewModel.activeProvider.collectAsState()
     val provider = drawerProvider
+    val formattedModel = if (provider != null) formatModelName(provider.activeModel) else ""
     val drawerFooter = if (provider != null && provider.apiKey.isNotBlank()) {
-        "${provider.name} · ${provider.activeModel.ifBlank { "модель не выбрана" }}"
+        if (formattedModel.isNotBlank() && formattedModel != "Выбрать модель") {
+            "${provider.name} · $formattedModel"
+        } else {
+            "${provider.name} · модель не выбрана"
+        }
     } else {
         "Провайдер не настроен"
     }
@@ -137,6 +144,7 @@ fun AppNavigation(viewModel: MainViewModel) {
         when (screen) {
             Screen.CHAT -> ModalNavigationDrawer(
                 drawerState = drawerState,
+                scrimColor = Color.Black.copy(alpha = 0.72f),
                 drawerContent = {
                     ModalDrawerSheet(
                         drawerContainerColor = MaterialTheme.colorScheme.surfaceContainer,

@@ -440,8 +440,8 @@ private fun OverlayScreen(
                     isRunning = isRunning,
                     isListening = isListening,
                     rmsLevel = rmsLevel,
-                    onSend = { text, images, files ->
-                        viewModel.sendMessage(text, images, files)
+                    onSend = { text, images ->
+                        viewModel.sendMessage(text, images)
                         capturedScreenshotUri = null
                     },
                     onStop = { viewModel.stopGeneration() },

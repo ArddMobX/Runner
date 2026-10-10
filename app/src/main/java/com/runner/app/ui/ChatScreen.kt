@@ -505,7 +505,7 @@ fun ChatScreen(
                 isRunning = isRunning,
                 isListening = isListening,
                 rmsLevel = rmsLevel,
-                onSend = { text, images, files -> viewModel.sendMessage(text, images, files) },
+                onSend = { text, images -> viewModel.sendMessage(text, images) },
                 onStop = { viewModel.stopGeneration() },
                 onStartListening = {
                     viewModel.startVoiceInput(

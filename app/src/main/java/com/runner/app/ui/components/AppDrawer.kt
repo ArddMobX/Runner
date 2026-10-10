@@ -280,11 +280,14 @@ fun AppDrawerContent(
             Spacer(modifier = Modifier.width(12.dp))
             Text(text = "Настройки", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
         }
+        val cleanFooter = remember(footerLabel) {
+            footerLabel.replace("models/", "")
+        }
         Text(
             text = buildString {
                 if (appVersion.isNotBlank()) append("v$appVersion")
-                if (appVersion.isNotBlank() && footerLabel.isNotBlank()) append(" · ")
-                append(footerLabel)
+                if (appVersion.isNotBlank() && cleanFooter.isNotBlank()) append(" · ")
+                append(cleanFooter)
             },
             color = MaterialTheme.colorScheme.outline,
             fontSize = 11.sp,
