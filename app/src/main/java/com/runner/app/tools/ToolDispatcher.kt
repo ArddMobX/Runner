@@ -1,5 +1,6 @@
 package com.runner.app.tools
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -7,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.core.content.ContextCompat
+import com.runner.app.util.ContactManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -381,6 +384,47 @@ object ToolDispatcher {
             required = listOf("url")
         ))
 
+        // 17. call_phone
+        tools.put(createToolFunction(
+            name = "call_phone",
+            description = "Совершает реальный телефонный вызов по номеру телефона или имени контакта. " +
+                    "Если указано имя контакта, автоматически ищет его в телефонной книге: при единственном совпадении сразу начинает звонок (ACTION_CALL). " +
+                    "Если совпадений несколько или у контакта несколько номеров, возвращает список для выбора. " +
+                    "При отсутствии системного разрешения на прямые звонки открывает звонилку с подставленным номером (ACTION_DIAL).",
+            properties = JSONObject().apply {
+                put("target", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Имя контакта (например, 'Мама', 'Иван') ИЛИ номер телефона (например, '+79991234567').")
+                })
+                put("phone_number", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Точный номер телефона для звонка, если известен (например, '+79991234567').")
+                })
+                put("contact_name", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Имя контакта для поиска в телефонной книге устройства.")
+                })
+            }
+        ))
+
+        // 18. search_contacts
+        tools.put(createToolFunction(
+            name = "search_contacts",
+            description = "Ищет контакты в телефонной книге устройства по имени или номеру телефона. " +
+                    "Возвращает список совпадений с именами, номерами телефонов и типами номеров (мобильный, домашний, рабочий).",
+            properties = JSONObject().apply {
+                put("query", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Имя контакта, фамилия или часть номера телефона для поиска.")
+                })
+                put("limit", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Максимальное количество возвращаемых контактов (по умолчанию 15).")
+                })
+            },
+            required = listOf("query")
+        ))
+
         return tools
     }
 
@@ -404,7 +448,9 @@ object ToolDispatcher {
         "list_dir",
         "read_file",
         "search_files",
-        "create_dir"
+        "create_dir",
+        "call_phone",
+        "search_contacts"
     )
 
     /**
@@ -645,6 +691,11 @@ object ToolDispatcher {
                 "open_app" -> openApp(args.optString("app", ""), context)
 
                 "open_url" -> openUrl(args.optString("url", ""), context)
+
+                // Телефонные звонки и контакты
+                "call_phone" -> callPhone(args, context)
+
+                "search_contacts" -> searchContacts(args, context)
 
                 // Shell
                 "run_shell_command" -> {
@@ -1622,6 +1673,113 @@ object ToolDispatcher {
         }
     }
 
+    // --- Телефонные вызовы и контакты ---
+
+    suspend fun callPhone(args: JSONObject, context: Context): String {
+        val directNumber = args.optString("phone_number", "").trim()
+        val contactName = args.optString("contact_name", "").trim()
+        val target = args.optString("target", "").trim()
+
+        // Проверяем, передан ли сразу номер телефона
+        val rawTarget = directNumber.ifBlank { target }
+        val isExplicitNumber = rawTarget.isNotBlank() && (
+            rawTarget.startsWith("+") ||
+            rawTarget.startsWith("*") ||
+            (rawTarget.count { it.isDigit() } >= 6 && rawTarget.count { it.isLetter() } == 0)
+        )
+
+        if (isExplicitNumber) {
+            val name = contactName.ifBlank { if (target != rawTarget) target else "" }
+            return withContext(Dispatchers.Main) {
+                when (val res = ContactManager.dialOrCall(context, rawTarget, name.ifBlank { null })) {
+                    is ContactManager.CallResult.Success -> res.message
+                    is ContactManager.CallResult.Failure -> "Ошибка вызова: ${res.message}"
+                }
+            }
+        }
+
+        // Поиск контакта по имени
+        val searchName = contactName.ifBlank { target }
+        if (searchName.isBlank()) {
+            return "Не указан номер телефона или имя контакта для вызова. Передайте параметр 'target', 'contact_name' или 'phone_number'."
+        }
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return "Для поиска контакта «$searchName» в телефонной книге требуется разрешение на чтение контактов (READ_CONTACTS). Предоставьте разрешение в настройках или укажите точный номер телефона."
+        }
+
+        val foundContacts = withContext(Dispatchers.IO) {
+            ContactManager.searchContacts(context, searchName, limit = 10)
+        }
+
+        if (foundContacts.isEmpty()) {
+            return "Контакт «$searchName» не найден в телефонной книге устройства. Проверьте правильность написания имени или воспользуйтесь search_contacts."
+        }
+
+        // Точные совпадения по имени
+        val exactMatches = foundContacts.filter { it.name.equals(searchName, ignoreCase = true) }
+        val candidateGroup = if (exactMatches.isNotEmpty()) exactMatches else foundContacts
+
+        // Уникальные нормализованные номера
+        val distinctNumbers = candidateGroup.distinctBy { ContactManager.normalizePhoneNumber(it.number) }
+
+        if (distinctNumbers.size == 1) {
+            val contact = candidateGroup.first()
+            return withContext(Dispatchers.Main) {
+                when (val res = ContactManager.dialOrCall(context, contact.number, contact.name)) {
+                    is ContactManager.CallResult.Success -> res.message
+                    is ContactManager.CallResult.Failure -> "Ошибка вызова: ${res.message}"
+                }
+            }
+        }
+
+        // Несколько номеров у одного контакта или несколько разных контактов
+        val distinctNames = candidateGroup.map { it.name }.distinct()
+        return if (distinctNames.size == 1) {
+            val name = distinctNames.first()
+            buildString {
+                append("У контакта «$name» найдено несколько номеров:\n")
+                candidateGroup.forEachIndexed { i, c ->
+                    append("${i + 1}. ${c.number} (${c.typeLabel})\n")
+                }
+                append("Уточните у пользователя, на какой номер позвонить.")
+            }.trimEnd()
+        } else {
+            buildString {
+                append("По запросу «$searchName» найдено несколько контактов:\n")
+                candidateGroup.forEachIndexed { i, c ->
+                    append("${i + 1}. ${c.name} — ${c.number} (${c.typeLabel})\n")
+                }
+                append("Уточните у пользователя, кому именно позвонить.")
+            }.trimEnd()
+        }
+    }
+
+    suspend fun searchContacts(args: JSONObject, context: Context): String = withContext(Dispatchers.IO) {
+        val query = args.optString("query", "").trim()
+        val limit = args.optInt("limit", 15).coerceIn(1, 30)
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return@withContext "Требуется разрешение на чтение контактов (READ_CONTACTS). Предоставьте его в настройках Android."
+        }
+
+        val contacts = ContactManager.searchContacts(context, query, limit)
+        if (contacts.isEmpty()) {
+            return@withContext if (query.isNotBlank()) {
+                "Контакты по запросу «$query» не найдены."
+            } else {
+                "В телефонной книге не найдено контактов."
+            }
+        }
+
+        buildString {
+            append("Найдено контактов: ${contacts.size}\n")
+            contacts.forEachIndexed { i, c ->
+                append("${i + 1}. ${c.name} — ${c.number} (${c.typeLabel})\n")
+            }
+        }.trimEnd()
+    }
+
     // --- Shell execution ---
 
     /**
@@ -2592,6 +2750,18 @@ object ToolDispatcher {
                     preview = "Runner уйдёт в фон."
                 )
             }
+            "call_phone" -> {
+                val name = args.optString("contact_name", "").trim()
+                val number = args.optString("phone_number", "").trim()
+                val target = args.optString("target", "").trim()
+                val display = name.ifBlank { target.ifBlank { number } }
+                CriticalActionInfo(
+                    title = "Телефонный вызов",
+                    details = "Абонент: ${display.ifBlank { "номер не указан" }}",
+                    warning = "Будет совершен исходящий телефонный вызов.",
+                    preview = "Runner выполнит вызов через системное приложение."
+                )
+            }
             else -> CriticalActionInfo(
                 title = "Выполнение операции",
                 details = "Инструмент: $cleanToolName",
@@ -2640,6 +2810,17 @@ object ToolDispatcher {
             "clipboard_write" -> "Пишу в буфер обмена"
             "open_app" -> "Открываю ${args.optString("app", "").trim().ifBlank { "приложение" }}"
             "open_url" -> "Открываю ссылку"
+            "call_phone" -> {
+                val name = args.optString("contact_name", "").trim()
+                val number = args.optString("phone_number", "").trim()
+                val target = args.optString("target", "").trim()
+                val display = name.ifBlank { target.ifBlank { number } }
+                if (display.isNotBlank()) "Звоню $display" else "Совершаю вызов"
+            }
+            "search_contacts" -> {
+                val q = args.optString("query", "").trim()
+                if (q.isNotBlank()) "Ищу контакт «$q»" else "Ищу контакты"
+            }
             "run_shell_command" -> "Выполняю команду"
             else -> cleanToolName
         }
@@ -2654,6 +2835,10 @@ object ToolDispatcher {
         val lines = output.lineSequence().take(10).toList()
         val flat = lines.joinToString(" ").take(600)
 
+        if (flat.startsWith("Выполняется прямой вызов") || flat.startsWith("Открыт экран набора номера")) {
+            return flat.take(60)
+        }
+
         // Нумерованный список: «1. Download/film.mkv — 2.4 GB»
         TOP_ENTRY.find(flat)?.let { return "макс. ${it.groupValues[1]}" }
 
@@ -2663,6 +2848,7 @@ object ToolDispatcher {
             val value = match.groupValues[2].toIntOrNull() ?: return@let
             val word = when {
                 noun.startsWith("совпад") -> plural(value, "совпадение", "совпадения", "совпадений")
+                noun.startsWith("контакт") -> plural(value, "контакт", "контакта", "контактов")
                 noun.startsWith("подпап") || noun.startsWith("пап") ->
                     plural(value, "папка", "папки", "папок")
                 noun.startsWith("элемент") -> plural(value, "элемент", "элемента", "элементов")

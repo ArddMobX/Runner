@@ -1,13 +1,16 @@
 package com.runner.app.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -144,6 +147,21 @@ private fun OverlayScreen(
 
     var isCapturingScreen by remember { mutableStateOf(false) }
     var capturedScreenshotUri by remember { mutableStateOf<Uri?>(null) }
+
+    val micLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.checkAllPermissions()
+            viewModel.startVoiceInput(
+                onPartialResult = { inputState.setText(it) },
+                onFinalResult = { inputState.setText(it) },
+                onError = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+            )
+        } else {
+            Toast.makeText(context, "Требуется разрешение на запись аудио для голосового ввода", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val screenCaptureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -446,11 +464,15 @@ private fun OverlayScreen(
                     },
                     onStop = { viewModel.stopGeneration() },
                     onStartListening = {
-                        viewModel.startVoiceInput(
-                            onPartialResult = { inputState.setText(it) },
-                            onFinalResult = { inputState.setText(it) },
-                            onError = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
-                        )
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            viewModel.startVoiceInput(
+                                onPartialResult = { inputState.setText(it) },
+                                onFinalResult = { inputState.setText(it) },
+                                onError = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                            )
+                        } else {
+                            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
                     },
                     onStopListening = { viewModel.stopVoiceInput() }
                 )

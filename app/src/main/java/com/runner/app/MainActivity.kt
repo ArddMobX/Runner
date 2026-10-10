@@ -1,7 +1,9 @@
 package com.runner.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -9,6 +11,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -55,9 +58,16 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        viewModel.checkAllPermissions()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        maybeRequestInitialPermissions()
         setContent {
             val themeConfig by viewModel.themeConfig.collectAsState()
             RunnerTheme(themeConfig = themeConfig) {
@@ -68,6 +78,25 @@ class MainActivity : ComponentActivity() {
                     AppNavigation(viewModel = viewModel)
                 }
             }
+        }
+    }
+
+    private fun maybeRequestInitialPermissions() {
+        val permissions = mutableListOf<String>()
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.READ_CONTACTS)
+        }
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.CALL_PHONE)
+        }
+        val prefs = getSharedPreferences("runner_permissions", Context.MODE_PRIVATE)
+        val requestedOnce = prefs.getBoolean("initial_permissions_requested", false)
+        if (!requestedOnce && permissions.isNotEmpty()) {
+            prefs.edit().putBoolean("initial_permissions_requested", true).apply()
+            permissionLauncher.launch(permissions.toTypedArray())
         }
     }
 
@@ -87,7 +116,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // Пользователь мог вернуться с системного экрана выдачи прав
-        viewModel.checkStoragePermission()
+        viewModel.checkAllPermissions()
     }
 }
 
@@ -202,10 +231,24 @@ fun AppNavigation(viewModel: MainViewModel) {
             Screen.SETTINGS -> SettingsScreen(
                 viewModel = viewModel,
                 onBackClick = { currentScreen = Screen.CHAT },
-                onOpenStorageSettings = { openStorageSettings(context) }
+                onOpenStorageSettings = { openStorageSettings(context) },
+                onOpenAppSettings = { openAppSettings(context) }
             )
         }
     }
+}
+
+/**
+ * Открывает системный экран настроек приложения (разрешения, микрофон, контакты, телефон).
+ */
+fun openAppSettings(context: Context) {
+    try {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:${context.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {}
 }
 
 /**

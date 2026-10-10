@@ -722,6 +722,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasStoragePermission = MutableStateFlow(false)
     val hasStoragePermission: StateFlow<Boolean> = _hasStoragePermission.asStateFlow()
 
+    private val _hasContactsPermission = MutableStateFlow(false)
+    val hasContactsPermission: StateFlow<Boolean> = _hasContactsPermission.asStateFlow()
+
+    private val _hasCallPermission = MutableStateFlow(false)
+    val hasCallPermission: StateFlow<Boolean> = _hasCallPermission.asStateFlow()
+
+    private val _hasAudioPermission = MutableStateFlow(false)
+    val hasAudioPermission: StateFlow<Boolean> = _hasAudioPermission.asStateFlow()
+
     /** Занято/всего для виджета хранилища на пустом экране (null — не удалось прочитать). */
     private val _storageStats = MutableStateFlow<ToolDispatcher.StorageStats?>(null)
     val storageStats: StateFlow<ToolDispatcher.StorageStats?> = _storageStats.asStateFlow()
@@ -900,7 +909,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val showStoragePrompt: StateFlow<Boolean> = _showStoragePrompt.asStateFlow()
 
     init {
-        checkStoragePermission()
+        checkAllPermissions()
         maybeShowStoragePrompt()
         // Уборка корзины при запуске: срок хранения, выставленный в настройках,
         // иначе оставался бы только обещанием в интерфейсе.
@@ -929,6 +938,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _showStoragePrompt.value = false
             refreshStorageStats()
         }
+    }
+
+    fun checkAllPermissions() {
+        checkStoragePermission()
+        val app = getApplication<Application>()
+        _hasContactsPermission.value = ContextCompat.checkSelfPermission(
+            app,
+            android.Manifest.permission.READ_CONTACTS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        _hasCallPermission.value = ContextCompat.checkSelfPermission(
+            app,
+            android.Manifest.permission.CALL_PHONE
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        _hasAudioPermission.value = ContextCompat.checkSelfPermission(
+            app,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
     /** Закрыть first-run диалог (в т.ч. кнопкой «Позже»). Больше не показываем. */

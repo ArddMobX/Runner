@@ -1,10 +1,15 @@
 package com.runner.app.ui
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -180,6 +185,21 @@ fun ChatScreen(
     val inputState = rememberChatInputState()
     var showModelPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    val micLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.checkAllPermissions()
+            viewModel.startVoiceInput(
+                onPartialResult = { partial -> inputState.setText(partial) },
+                onFinalResult = { final -> inputState.setText(final) },
+                onError = { error -> Toast.makeText(context, error, Toast.LENGTH_SHORT).show() }
+            )
+        } else {
+            Toast.makeText(context, "Требуется разрешение на запись аудио для голосового ввода", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Живое превью HTML/SVG: источник появляется из ответа модели или из write_file
     var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
@@ -508,17 +528,15 @@ fun ChatScreen(
                 onSend = { text, images -> viewModel.sendMessage(text, images) },
                 onStop = { viewModel.stopGeneration() },
                 onStartListening = {
-                    viewModel.startVoiceInput(
-                        onPartialResult = { partial ->
-                            inputState.setText(partial)
-                        },
-                        onFinalResult = { final ->
-                            inputState.setText(final)
-                        },
-                        onError = { error ->
-                            Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                        }
-                    )
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        viewModel.startVoiceInput(
+                            onPartialResult = { partial -> inputState.setText(partial) },
+                            onFinalResult = { final -> inputState.setText(final) },
+                            onError = { error -> Toast.makeText(context, error, Toast.LENGTH_SHORT).show() }
+                        )
+                    } else {
+                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
                 },
                 onStopListening = { viewModel.stopVoiceInput() }
             )

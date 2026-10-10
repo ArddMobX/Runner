@@ -298,6 +298,9 @@ dependencies {
     // MaterialKolor — генерация Material Design 3 ColorScheme из seed-цветов через Google Material Color Utilities
     implementation("com.materialkolor:material-kolor:1.7.1")
 
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+
     // Debugging Compose
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

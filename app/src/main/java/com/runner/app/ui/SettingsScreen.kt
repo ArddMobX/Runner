@@ -133,7 +133,8 @@ private sealed interface SettingsRoute {
 fun SettingsScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
-    onOpenStorageSettings: () -> Unit
+    onOpenStorageSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit = {}
 ) {
     var route by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Root) }
     BackHandler(enabled = route != SettingsRoute.Root) { route = SettingsRoute.Root }
@@ -207,7 +208,7 @@ fun SettingsScreen(
 
                 SettingsRoute.Agent -> AgentSettings(viewModel) { route = it }
 
-                SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings)
+                SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
 
                 SettingsRoute.Trash -> TrashListScreen(viewModel)
             }
@@ -224,6 +225,10 @@ private fun SettingsRoot(
     val activeProvider by viewModel.activeProvider.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
+    val hasContacts by viewModel.hasContactsPermission.collectAsState()
+    val hasCall by viewModel.hasCallPermission.collectAsState()
+    val hasAudio by viewModel.hasAudioPermission.collectAsState()
+    val allPermissionsGranted = hasStorage && hasContacts && hasCall && hasAudio
     val connectionState by viewModel.connectionTestState.collectAsState()
     val themeConfig by viewModel.themeConfig.collectAsState()
     val context = LocalContext.current
@@ -274,9 +279,9 @@ private fun SettingsRoot(
 
         SettingsGroup("Доступы") {
             SettingsRow(
-                label = "Доступ ко всем файлам",
-                value = if (hasStorage) "выдан" else "не выдан",
-                valueColor = if (hasStorage) StatusSuccess else StatusWarning,
+                label = "Разрешения и доступы",
+                value = if (allPermissionsGranted) "все выданы" else "настроить",
+                valueColor = if (allPermissionsGranted) StatusSuccess else StatusWarning,
                 onClick = { onNavigate(SettingsRoute.Access) },
                 icon = Icons.Outlined.FolderOpen
             )
@@ -2108,18 +2113,24 @@ private class SecretHeadersVisualTransformation : VisualTransformation {
 @Composable
 private fun AccessSettings(
     viewModel: MainViewModel,
-    onOpenStorageSettings: () -> Unit
+    onOpenStorageSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit = {}
 ) {
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
+    val hasContacts by viewModel.hasContactsPermission.collectAsState()
+    val hasCall by viewModel.hasCallPermission.collectAsState()
+    val hasAudio by viewModel.hasAudioPermission.collectAsState()
+    val hasPhoneAccess = hasContacts && hasCall
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        SettingsGroup {
+        // 1. Файлы и память
+        SettingsGroup("Файлы и память") {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -2134,7 +2145,7 @@ private fun AccessSettings(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (hasStorage) "Доступ выдан" else "Доступ не выдан",
+                        text = if (hasStorage) "Доступ ко всем файлам выдан" else "Доступ к файлам не выдан",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -2142,8 +2153,8 @@ private fun AccessSettings(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Нужен, чтобы агент читал и раскладывал файлы. Тумблер сам право не даёт, " +
-                            "включите «Доступ ко всем файлам» на системном экране.",
+                    text = "Нужен, чтобы агент читал, перемещал и анализировал файлы. " +
+                            "Включите «Доступ ко всем файлам» на системном экране.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp
@@ -2152,7 +2163,7 @@ private fun AccessSettings(
                 Button(
                     onClick = {
                         onOpenStorageSettings()
-                        viewModel.checkStoragePermission()
+                        viewModel.checkAllPermissions()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
@@ -2162,7 +2173,115 @@ private fun AccessSettings(
                     )
                 ) {
                     Text(
-                        text = "Открыть системные настройки",
+                        text = "Настройки доступа к памяти",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // 2. Телефон и контакты
+        SettingsGroup("Телефонные звонки и контакты") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasPhoneAccess) {
+                            Icons.Outlined.CheckCircle
+                        } else {
+                            Icons.Outlined.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = if (hasPhoneAccess) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = when {
+                            hasPhoneAccess -> "Доступ к звонкам и контактам выдан"
+                            hasContacts && !hasCall -> "Доступ к контактам выдан (звонки через диалер)"
+                            !hasContacts && hasCall -> "Звонки разрешены, контакты не выданы"
+                            else -> "Разрешения не выданы"
+                        },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Нужно, чтобы агент мгновенно совершал прямые телефонные звонки " +
+                            "по вашим запросам («Позвони Маме») и искал контакты в телефонной книге.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        onOpenAppSettings()
+                        viewModel.checkAllPermissions()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text(
+                        text = "Открыть разрешения приложения",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // 3. Микрофон и голос
+        SettingsGroup("Голосовой ввод (микрофон)") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasAudio) {
+                            Icons.Outlined.CheckCircle
+                        } else {
+                            Icons.Outlined.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = if (hasAudio) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (hasAudio) "Доступ к микрофону выдан" else "Доступ к микрофону не выдан",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Нужен для распознавания голосовых команд и диктовки сообщений через кнопку микрофона.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        onOpenAppSettings()
+                        viewModel.checkAllPermissions()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text(
+                        text = "Открыть разрешения приложения",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Medium
                     )
