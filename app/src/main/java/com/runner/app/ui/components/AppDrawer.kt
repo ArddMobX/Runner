@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -209,7 +209,7 @@ fun AppDrawerContent(
                         )
                     }
 
-                    items(pinnedSessions, key = { "pinned_${it.id}" }) { session ->
+                    itemsIndexed(pinnedSessions, key = { _, it -> "pinned_${it.id}" }) { index, session ->
                         SessionRow(
                             session = session,
                             isCurrent = session.id == currentSessionId,
@@ -221,6 +221,23 @@ fun AppDrawerContent(
                             onRename = { sessionToRename = session },
                             onDelete = { sessionToDelete = session },
                             onTogglePin = { onTogglePinSession(session.id, !session.isPinned) }
+                        )
+                        if (index < pinnedSessions.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 1.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                thickness = 0.5.dp
+                            )
+                        }
+                    }
+                }
+
+                if (pinnedSessions.isNotEmpty() && grouped.values.any { it.isNotEmpty() }) {
+                    item(key = "divider_pinned_groups") {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            thickness = 0.5.dp
                         )
                     }
                 }
@@ -239,7 +256,7 @@ fun AppDrawerContent(
                         )
                     }
 
-                    items(groupSessions, key = { it.id }) { session ->
+                    itemsIndexed(groupSessions, key = { _, it -> it.id }) { index, session ->
                         SessionRow(
                             session = session,
                             isCurrent = session.id == currentSessionId,
@@ -252,6 +269,13 @@ fun AppDrawerContent(
                             onDelete = { sessionToDelete = session },
                             onTogglePin = { onTogglePinSession(session.id, !session.isPinned) }
                         )
+                        if (index < groupSessions.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 1.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                thickness = 0.5.dp
+                            )
+                        }
                     }
                 }
             }
