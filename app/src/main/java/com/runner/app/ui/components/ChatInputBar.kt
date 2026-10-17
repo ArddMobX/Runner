@@ -301,7 +301,8 @@ fun ChatInputBar(
 
                 DropdownMenu(
                     expanded = showAttachMenu,
-                    onDismissRequest = { showAttachMenu = false }
+                    onDismissRequest = { showAttachMenu = false },
+                    modifier = Modifier.clip(RoundedCornerShape(18.dp))
                 ) {
                     DropdownMenuItem(
                         text = { Text("Камера", fontSize = 14.sp) },

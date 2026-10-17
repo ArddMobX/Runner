@@ -847,7 +847,7 @@ private fun MessageActionIcon(
 @Composable
 private fun MessageItem(
     message: ChatMessage,
-    isLastUserMessage: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") isLastUserMessage: Boolean = false,
     showToolDetails: Boolean,
     showStats: Boolean,
     planAwaitingId: String?,
@@ -890,7 +890,10 @@ private fun MessageItem(
                             .combinedClickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = {},
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    showContextMenu = true
+                                },
                                 onLongClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     showContextMenu = true
@@ -918,7 +921,8 @@ private fun MessageItem(
 
                     DropdownMenu(
                         expanded = showContextMenu,
-                        onDismissRequest = { showContextMenu = false }
+                        onDismissRequest = { showContextMenu = false },
+                        modifier = Modifier.clip(RoundedCornerShape(18.dp))
                     ) {
                         if (message.content.isNotBlank()) {
                             DropdownMenuItem(
@@ -986,40 +990,6 @@ private fun MessageItem(
                                 showContextMenu = false
                                 onRetryMessage(message.id)
                             }
-                        )
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = isLastUserMessage,
-                    enter = fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)) + expandVertically(animationSpec = MotionTokens.fluidSpring()),
-                    exit = fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)) + shrinkVertically(animationSpec = MotionTokens.fluidSpring())
-                ) {
-                    Row(
-                        modifier = Modifier.padding(top = 3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (message.content.isNotBlank()) {
-                            MessageActionIcon(
-                                icon = Icons.Outlined.ContentCopy,
-                                label = "Копировать",
-                                onClick = {
-                                    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    manager.setPrimaryClip(ClipData.newPlainText("Сообщение", message.content))
-                                    Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                            MessageActionIcon(
-                                icon = Icons.Outlined.Edit,
-                                label = "Изменить",
-                                onClick = { onEditMessage(message.content) }
-                            )
-                        }
-                        MessageActionIcon(
-                            icon = Icons.Outlined.Refresh,
-                            label = "Заново",
-                            onClick = { onRetryMessage(message.id) }
                         )
                     }
                 }

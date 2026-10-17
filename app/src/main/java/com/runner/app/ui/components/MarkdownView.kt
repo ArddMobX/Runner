@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,7 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -44,7 +47,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
-import com.runner.app.ui.theme.bounceClick
 
 sealed class MarkdownElement {
     data class Header(val level: Int, val content: String) : MarkdownElement()
@@ -218,6 +220,66 @@ private fun HeaderElement(
     )
 }
 
+private val SYNTAX_TOKEN_REGEX = Regex(
+    // 1: Comments (// ... or # ... or /* ... */)
+    "((?://|#)[^\\n]*|/\\*[\\s\\S]*?\\*/)" +
+    // 2: Strings ("..." or '...' or """...""")
+    "|(\"\"\"[\\s\\S]*?\"\"\"|\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*')" +
+    // 3: Numbers (0x..., 123, 3.14, 100L, 10f)
+    "|(\\b(?:0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?(?:[fFLuU]|px|dp|sp)?)\\b)" +
+    // 4: Keywords
+    "|(\\b(?:val|var|fun|class|interface|object|import|package|return|if|else|when|for|while|do|try|catch|finally|throw|new|public|private|protected|internal|override|suspend|data|sealed|enum|null|true|false|this|super|def|elif|except|raise|with|yield|lambda|async|await|None|True|False|in|is|not|and|or|pass|break|continue|function|const|let|export|default|switch|case|undefined|typeof|instanceof|echo|sudo|chmod|chown|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|TABLE|CREATE|DROP|ALTER|GROUP|ORDER|BY|LIMIT|HAVING)\\b)" +
+    // 5: Function calls
+    "|(\\b[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\())"
+)
+
+/**
+ * Быстрая и плавная подсветка синтаксиса для блоков кода.
+ * Раскрашивает ключевые слова, строки, числа, комментарии и вызовы функций.
+ */
+internal fun highlightCodeSyntax(
+    code: String,
+    keywordColor: Color = Color(0xFFCF85DE),  // Soft Magenta / Purple
+    stringColor: Color = Color(0xFFA8DF8E),   // Soft Mint Green
+    commentColor: Color = Color(0xFF8E92A4),  // Cool Muted Slate Gray
+    numberColor: Color = Color(0xFFFFB74D),   // Warm Amber Orange
+    functionColor: Color = Color(0xFF64B5F6)  // Sky Blue
+): AnnotatedString {
+    return buildAnnotatedString {
+        append(code)
+        SYNTAX_TOKEN_REGEX.findAll(code).forEach { match ->
+            val range = match.range
+            when {
+                match.groups[1] != null -> addStyle(
+                    SpanStyle(color = commentColor, fontStyle = FontStyle.Italic),
+                    range.first,
+                    range.last + 1
+                )
+                match.groups[2] != null -> addStyle(
+                    SpanStyle(color = stringColor),
+                    range.first,
+                    range.last + 1
+                )
+                match.groups[3] != null -> addStyle(
+                    SpanStyle(color = numberColor),
+                    range.first,
+                    range.last + 1
+                )
+                match.groups[4] != null -> addStyle(
+                    SpanStyle(color = keywordColor, fontWeight = FontWeight.SemiBold),
+                    range.first,
+                    range.last + 1
+                )
+                match.groups[5] != null -> addStyle(
+                    SpanStyle(color = functionColor),
+                    range.first,
+                    range.last + 1
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun CodeBlockElement(
     element: MarkdownElement.CodeBlock,
@@ -225,59 +287,81 @@ private fun CodeBlockElement(
     exitAlpha: () -> Float = { 1f }
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     var copied by remember { mutableStateOf(false) }
+
+    LaunchedEffect(copied) {
+        if (copied) {
+            kotlinx.coroutines.delay(2000)
+            copied = false
+        }
+    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth()
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
     ) {
         Column {
             // Header bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.5f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.7f))
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = element.language.ifBlank { "code" }.lowercase(),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = RunnerIcons.Code,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = element.language.ifBlank { "код" }.lowercase(),
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
 
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                ) {
-                    IconButton(
-                        onClick = {
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (copied) StatusSuccess.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)
+                        )
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             cm.setPrimaryClip(ClipData.newPlainText("Code", element.code))
                             copied = true
                             Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier
-                            .size(26.dp)
-                            .bounceClick {
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("Code", element.code))
-                                copied = true
-                                Toast.makeText(context, "Код скопирован", Toast.LENGTH_SHORT).show()
-                            }
-                    ) {
-                        Icon(
-                            imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
-                            contentDescription = "Копировать",
-                            tint = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        contentDescription = null,
+                        tint = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (copied) "Скопировано" else "Копировать",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -303,22 +387,27 @@ private fun CodeBlockElement(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(12.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     val primaryColor = MaterialTheme.colorScheme.primary
                     val codeAnnotated = remember(element.code, isStreaming) {
-                        buildAnnotatedString {
-                            append(element.code)
-                            if (isStreaming) {
+                        val highlighted = highlightCodeSyntax(
+                            code = element.code
+                        )
+                        if (isStreaming) {
+                            buildAnnotatedString {
+                                append(highlighted)
                                 appendInlineContent(CURSOR_INLINE_ID, "▋")
                             }
+                        } else {
+                            highlighted
                         }
                     }
                     Text(
                         text = codeAnnotated,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         inlineContent = if (isStreaming) cursorInlineContent(primaryColor, cursorWidth = 5.5.dp, cursorHeight = 13.dp, exitAlpha = exitAlpha) else emptyMap()
                     )
