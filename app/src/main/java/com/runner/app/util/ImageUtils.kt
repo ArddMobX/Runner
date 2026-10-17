@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -14,9 +15,39 @@ import java.util.UUID
 
 object ImageUtils {
 
+    private const val TAG = "ImageUtils"
+
+    /**
+     * Надёжно открывает InputStream для пути к файлу или content:// URI.
+     * Для локальных файлов в cacheDir читает напрямую через File.inputStream(),
+     * избегая проблем ContentResolver с file:// URI на современных версиях Android.
+     */
+    private fun openStream(context: Context, uriString: String): InputStream? {
+        return try {
+            if (uriString.startsWith("content://")) {
+                context.contentResolver.openInputStream(Uri.parse(uriString))
+            } else {
+                val filePath = if (uriString.startsWith("file://")) {
+                    Uri.parse(uriString).path.orEmpty()
+                } else {
+                    uriString
+                }
+                val file = File(filePath)
+                if (file.exists() && file.length() > 0) {
+                    file.inputStream()
+                } else {
+                    context.contentResolver.openInputStream(Uri.parse(uriString))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Не удалось открыть поток для $uriString", e)
+            null
+        }
+    }
+
     /**
      * Сжимает изображение, выравнивает ориентацию по EXIF и кодирует в Base64
-     * формата data:image/jpeg;base64,... для отправки в OpenAI Vision API.
+     * формата data:image/jpeg;base64,... для отправки в OpenAI/Gemini Vision API.
      */
     fun compressAndEncodeImage(
         context: Context,
@@ -24,24 +55,22 @@ object ImageUtils {
         maxDimension: Int = 1280,
         quality: Int = 80
     ): String? {
-        val uri = if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
-            Uri.parse(uriString)
-        } else {
-            Uri.fromFile(File(uriString))
-        }
-
         return try {
-            val resolver = context.contentResolver
-
             // 1. Читаем границы изображения
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(uri)?.use { input ->
+            openStream(context, uriString)?.use { input ->
                 BitmapFactory.decodeStream(input, null, options)
-            } ?: return null
+            } ?: run {
+                Log.e(TAG, "Не удалось прочитать границы изображения: $uriString")
+                return null
+            }
 
             val origWidth = options.outWidth
             val origHeight = options.outHeight
-            if (origWidth <= 0 || origHeight <= 0) return null
+            if (origWidth <= 0 || origHeight <= 0) {
+                Log.e(TAG, "Некорректный размер изображения ($origWidth x $origHeight): $uriString")
+                return null
+            }
 
             // 2. Рассчитываем inSampleSize для экономии оперативной памяти
             var sampleSize = 1
@@ -53,12 +82,15 @@ object ImageUtils {
             options.inSampleSize = sampleSize
             options.inPreferredConfig = Bitmap.Config.ARGB_8888
 
-            val sampledBitmap = resolver.openInputStream(uri)?.use { input ->
+            val sampledBitmap = openStream(context, uriString)?.use { input ->
                 BitmapFactory.decodeStream(input, null, options)
-            } ?: return null
+            } ?: run {
+                Log.e(TAG, "Не удалось декодировать сэмпл изображения: $uriString")
+                return null
+            }
 
             // 3. Учитываем поворот EXIF
-            val rotation = getExifRotation(context, uri)
+            val rotation = getExifRotation(context, uriString)
             val rotatedBitmap = if (rotation != 0) {
                 val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
                 Bitmap.createBitmap(sampledBitmap, 0, 0, sampledBitmap.width, sampledBitmap.height, matrix, true).also {
@@ -89,8 +121,11 @@ object ImageUtils {
             val bytes = outputStream.toByteArray()
             finalBitmap.recycle()
 
-            "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+            val base64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+            Log.i(TAG, "Изображение успешно закодировано в base64 (${bytes.size} байт, ${finalBitmap.width}x${finalBitmap.height}): $uriString")
+            base64
         } catch (e: Exception) {
+            Log.e(TAG, "Ошибка при обработке изображения $uriString", e)
             null
         }
     }
@@ -105,21 +140,40 @@ object ImageUtils {
             val fileName = "img_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}.jpg"
             val targetFile = File(dir, fileName)
 
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+            val bytesCopied = context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 targetFile.outputStream().use { output ->
                     input.copyTo(output)
                 }
+            } ?: 0L
+
+            if (bytesCopied > 0L && targetFile.exists() && targetFile.length() > 0L) {
+                targetFile.absolutePath
+            } else {
+                sourceUri.toString()
             }
-            targetFile.absolutePath
         } catch (e: Exception) {
+            Log.e(TAG, "Ошибка копирования в кэш $sourceUri", e)
             sourceUri.toString()
         }
     }
 
-    private fun getExifRotation(context: Context, uri: Uri): Int {
+    private fun getExifRotation(context: Context, uriString: String): Int {
         var input: InputStream? = null
         return try {
-            input = context.contentResolver.openInputStream(uri) ?: return 0
+            if (!uriString.startsWith("content://")) {
+                val filePath = if (uriString.startsWith("file://")) Uri.parse(uriString).path.orEmpty() else uriString
+                val file = File(filePath)
+                if (file.exists()) {
+                    val exif = ExifInterface(file.absolutePath)
+                    return when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                        ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                        else -> 0
+                    }
+                }
+            }
+            input = context.contentResolver.openInputStream(Uri.parse(uriString)) ?: return 0
             val exif = ExifInterface(input)
             when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90
