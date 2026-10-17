@@ -85,7 +85,31 @@ object RunnerIcons {
                 lineTo(15f, 21f)
                 lineTo(9f, 3f)
                 lineTo(6f, 12f)
+            }
+        }.build()
+    }
+
+    /** Lucide code < > — окно исходного кода. */
+    val Code: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Code",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = 2.2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(16f, 18f)
+                lineTo(22f, 12f)
+                lineTo(16f, 6f)
+                moveTo(8f, 6f)
                 lineTo(2f, 12f)
+                lineTo(8f, 18f)
             }
         }.build()
     }

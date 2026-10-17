@@ -475,7 +475,8 @@ private fun SessionRow(
 
         DropdownMenu(
             expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false }
+            onDismissRequest = { menuExpanded = false },
+            modifier = Modifier.clip(RoundedCornerShape(18.dp))
         ) {
             DropdownMenuItem(
                 text = {
