@@ -80,6 +80,15 @@ data class AppSettings(
      */
     val shellOutsideStorage: Boolean = false,
     /**
+     * Разрешить shell-командам запуск от root (`su`).
+     *
+     * Отдельный тумблер: root обходит и песочницу путей, и права приложения,
+     * поэтому включать его опаснее, чем «Shell вне памяти». По умолчанию
+     * выключено. Даже при включённом тумблере катастрофические команды
+     * (pm clear, uninstall, wipe, mkfs, dd of=/dev/) запрещены навсегда.
+     */
+    val allowRootShell: Boolean = false,
+    /**
      * Бюджет контекста в символах. Старые реплики отбрасываются перед отправкой,
      * чтобы длинная сессия не упёрлась в лимит модели и не упала с 400.
      * Значение приблизительное: точного токенайзера под каждую модель нет.
@@ -182,12 +191,22 @@ data class AppSettings(
             - Деструктивные операции (удаление, перемещение, запись, копирование, архивы,
               сортировка, shell, запись в буфер, запуск приложений и ссылок) требуют
               подтверждения пользователя. Если операцию отклонили, предложи альтернативу или остановись.
-            - Удаление и перемещение обратимы: и то и другое попадает в журнал и откатывается
-              кнопкой «Отменить». Поэтому не запугивай пользователя потерей данных и не
-              переспрашивай дважды, но и не удаляй и не перемещай то, о чём не просили.
+            - Удаление, перемещение и перезапись файла (write_file без append) обратимы: попадают
+              в журнал и откатываются кнопкой «Отменить». Дозапись (append) необратима.
+              Поэтому не запугивай пользователя потерей данных и не переспрашивай дважды,
+              но и не удаляй, не перемещай и не перезаписывай то, о чём не просили.
             - run_shell_command работает только с путями внутри /storage/emulated/0, если
-              пользователь не включил тумблер «Shell вне памяти». Не пытайся обойти это
-              ограничение и не предлагай пользователю его снимать без явной необходимости.
+              пользователь не включил тумблер «Shell вне памяти», и отклоняет команды с su,
+              если не включён тумблер «Root-команды». Не пытайся обойти эти ограничения,
+              не предлагай пользователю снимать их без явной необходимости и не проси
+              root для обычных задач.
+            - Кеш — это не данные. «Почисти кеш» означает удаление содержимого каталогов
+              cache, и только их. Данные приложений не трогай никогда: команды вроде
+              pm clear и удаление в /data запрещены навсегда, обходить запрет нельзя.
+              Если сомневаешься, что именно удаляет команда, — не выполняй её.
+            - Не расширяй задачу: делай ровно то, о чём попросили, и не выполняй «заодно»
+              другие оптимизации. Если для задачи нужны права или доступ, которых нет,
+              остановись и скажи об этом пользователю, а не ищи обходной путь.
             - Не задавай уточняющих вопросов по тривиальным деталям (имя файла, базовый текст,
               структура), если пользователь явно не просил об этом. Применяй стандартные
               общепринятые значения по умолчанию и сразу выполняй действие.
@@ -306,6 +325,7 @@ class SettingsStore(context: Context) {
                 ?.toSet()
                 .orEmpty(),
             shellOutsideStorage = prefs.getBoolean(KEY_SHELL_OUTSIDE_STORAGE, false),
+            allowRootShell = prefs.getBoolean(KEY_ALLOW_ROOT_SHELL, false),
             contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET),
             trashRetentionDays = prefs.getInt(
                 KEY_TRASH_RETENTION_DAYS,
@@ -337,6 +357,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_PRUNE_TOOLS, settings.pruneTools)
             .putStringSet(KEY_APPROVED_SIGNATURES, settings.approvedOperationSignatures)
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
+            .putBoolean(KEY_ALLOW_ROOT_SHELL, settings.allowRootShell)
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
             .putInt(KEY_TRASH_RETENTION_DAYS, settings.trashRetentionDays)
             .putBoolean(KEY_AUTO_SPEAK, settings.autoSpeakResponses)
@@ -374,6 +395,7 @@ class SettingsStore(context: Context) {
         const val KEY_PRUNE_TOOLS = "prune_tools"
         const val KEY_APPROVED_SIGNATURES = "approved_operation_signatures"
         const val KEY_SHELL_OUTSIDE_STORAGE = "shell_outside_storage"
+        const val KEY_ALLOW_ROOT_SHELL = "allow_root_shell"
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
         const val KEY_TRASH_RETENTION_DAYS = "trash_retention_days"
         const val KEY_AUTO_SPEAK = "auto_speak_responses"

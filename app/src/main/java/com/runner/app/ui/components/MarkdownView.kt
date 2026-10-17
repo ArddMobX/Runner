@@ -5,6 +5,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,6 +18,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
@@ -23,15 +31,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.bounceClick
 
@@ -46,28 +57,116 @@ sealed class MarkdownElement {
     data class Paragraph(val text: String) : MarkdownElement()
 }
 
+const val CURSOR_INLINE_ID = "streaming_cursor"
+
+/**
+ * Деликатный пульсирующий курсор генерации (streaming cursor).
+ * Выполняется аппаратно через graphicsLayer (нулевой оверхед на рекомпозицию).
+ */
+@Composable
+fun StreamingCursor(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    width: Dp = 6.5.dp,
+    height: Dp = 15.dp,
+    exitAlpha: () -> Float = { 1f }
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "streaming_cursor")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 550,
+                easing = MotionTokens.FluidCurve
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "cursor_alpha"
+    )
+
+    Box(
+        modifier = modifier
+            .padding(start = 2.dp, end = 1.dp)
+            .width(width)
+            .height(height)
+            .graphicsLayer { this.alpha = alpha * exitAlpha() }
+            .clip(RoundedCornerShape(1.5.dp))
+            .background(color)
+    )
+}
+
+fun cursorInlineContent(
+    color: Color,
+    cursorWidth: Dp = 6.5.dp,
+    cursorHeight: Dp = 15.dp,
+    exitAlpha: () -> Float = { 1f }
+): Map<String, InlineTextContent> = mapOf(
+    CURSOR_INLINE_ID to InlineTextContent(
+        Placeholder(
+            width = 9.sp,
+            height = 16.sp,
+            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+        )
+    ) {
+        StreamingCursor(
+            color = color,
+            width = cursorWidth,
+            height = cursorHeight,
+            exitAlpha = exitAlpha
+        )
+    }
+)
+
 @Composable
 fun MarkdownView(
     text: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isStreaming: Boolean = false
 ) {
     val elements = remember(text) { parseMarkdown(text) }
+
+    var showCursor by remember { mutableStateOf(isStreaming) }
+    val cursorExitAlpha = remember { Animatable(if (isStreaming) 1f else 0f) }
+
+    LaunchedEffect(isStreaming) {
+        if (isStreaming) {
+            showCursor = true
+            cursorExitAlpha.snapTo(1f)
+        } else if (showCursor) {
+            cursorExitAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = MotionTokens.DurationFast,
+                    easing = MotionTokens.FluidCurve
+                )
+            )
+            showCursor = false
+        }
+    }
 
     SelectionContainer {
         Column(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            elements.forEach { element ->
-                when (element) {
-                    is MarkdownElement.Header -> HeaderElement(element)
-                    is MarkdownElement.CodeBlock -> CodeBlockElement(element)
-                    is MarkdownElement.MathBlock -> MathBlockElement(element)
-                    is MarkdownElement.ListBlock -> ListBlockElement(element)
-                    is MarkdownElement.BulletItem -> BulletElement(element)
-                    is MarkdownElement.NumberedItem -> NumberedElement(element)
-                    is MarkdownElement.Blockquote -> BlockquoteElement(element)
-                    is MarkdownElement.Paragraph -> ParagraphElement(element)
+            if (elements.isEmpty() && showCursor) {
+                StreamingCursor(exitAlpha = { cursorExitAlpha.value })
+            } else {
+                elements.forEachIndexed { index, element ->
+                    val isLast = index == elements.lastIndex
+                    val elementStreaming = showCursor && isLast
+                    val exitAlpha = { cursorExitAlpha.value }
+                    when (element) {
+                        is MarkdownElement.Header -> HeaderElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.CodeBlock -> CodeBlockElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.MathBlock -> MathBlockElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.ListBlock -> ListBlockElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.BulletItem -> BulletElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.NumberedItem -> NumberedElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.Blockquote -> BlockquoteElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.Paragraph -> ParagraphElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                    }
                 }
             }
         }
@@ -75,7 +174,11 @@ fun MarkdownView(
 }
 
 @Composable
-private fun HeaderElement(element: MarkdownElement.Header) {
+private fun HeaderElement(
+    element: MarkdownElement.Header,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     // Шкала сжата: заголовки не должны перекрикивать основной текст (15sp).
     val (style, topPadding) = when (element.level) {
         1 -> MaterialTheme.typography.titleLarge.copy(
@@ -96,20 +199,31 @@ private fun HeaderElement(element: MarkdownElement.Header) {
             lineHeight = 21.sp
         ) to 5.dp
     }
-    Text(
-        text = renderInlineMarkdown(
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val annotated = remember(element.content, primaryColor, secondaryColor, isStreaming) {
+        renderInlineMarkdown(
             element.content,
-            primaryColor = MaterialTheme.colorScheme.primary,
-            secondaryColor = MaterialTheme.colorScheme.secondary
-        ),
+            primaryColor = primaryColor,
+            secondaryColor = secondaryColor,
+            showCursor = isStreaming
+        )
+    }
+    Text(
+        text = annotated,
         style = style,
         color = MaterialTheme.colorScheme.onSurface,
+        inlineContent = if (isStreaming) cursorInlineContent(primaryColor, cursorHeight = 16.dp, exitAlpha = exitAlpha) else emptyMap(),
         modifier = Modifier.padding(top = topPadding)
     )
 }
 
 @Composable
-private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
+private fun CodeBlockElement(
+    element: MarkdownElement.CodeBlock,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
 
@@ -173,12 +287,16 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
             val isFileList = remember(element.code) { looksLikeFileList(element.code) }
 
             if (isFileList) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     ToolOutputView(output = element.code)
+                    if (isStreaming) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        StreamingCursor(exitAlpha = exitAlpha)
+                    }
                 }
             } else {
                 Box(
@@ -187,12 +305,22 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
                         .horizontalScroll(rememberScrollState())
                         .padding(12.dp)
                 ) {
+                    val primaryColor = MaterialTheme.colorScheme.primary
+                    val codeAnnotated = remember(element.code, isStreaming) {
+                        buildAnnotatedString {
+                            append(element.code)
+                            if (isStreaming) {
+                                appendInlineContent(CURSOR_INLINE_ID, "▋")
+                            }
+                        }
+                    }
                     Text(
-                        text = element.code,
+                        text = codeAnnotated,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        inlineContent = if (isStreaming) cursorInlineContent(primaryColor, cursorWidth = 5.5.dp, cursorHeight = 13.dp, exitAlpha = exitAlpha) else emptyMap()
                     )
                 }
             }
@@ -201,7 +329,11 @@ private fun CodeBlockElement(element: MarkdownElement.CodeBlock) {
 }
 
 @Composable
-private fun MathBlockElement(element: MarkdownElement.MathBlock) {
+private fun MathBlockElement(
+    element: MarkdownElement.MathBlock,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -290,18 +422,27 @@ private fun MathBlockElement(element: MarkdownElement.MathBlock) {
             )
         }
     }
+    if (isStreaming) {
+        Spacer(modifier = Modifier.height(4.dp))
+        StreamingCursor(exitAlpha = exitAlpha)
+    }
 }
 
 @Composable
-private fun ListBlockElement(element: MarkdownElement.ListBlock) {
+private fun ListBlockElement(
+    element: MarkdownElement.ListBlock,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     Column(
         verticalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        element.items.forEach { item ->
+        element.items.forEachIndexed { idx, item ->
+            val isLast = idx == element.items.lastIndex
             when (item) {
-                is MarkdownElement.BulletItem -> BulletElement(item)
-                is MarkdownElement.NumberedItem -> NumberedElement(item)
+                is MarkdownElement.BulletItem -> BulletElement(item, isStreaming = isStreaming && isLast, exitAlpha = exitAlpha)
+                is MarkdownElement.NumberedItem -> NumberedElement(item, isStreaming = isStreaming && isLast, exitAlpha = exitAlpha)
                 else -> {}
             }
         }
@@ -309,7 +450,11 @@ private fun ListBlockElement(element: MarkdownElement.ListBlock) {
 }
 
 @Composable
-private fun BulletElement(element: MarkdownElement.BulletItem) {
+private fun BulletElement(
+    element: MarkdownElement.BulletItem,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -327,13 +472,20 @@ private fun BulletElement(element: MarkdownElement.BulletItem) {
         )
         MarkdownText(
             text = element.text,
-            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+            modifier = Modifier.weight(1f),
+            isStreaming = isStreaming,
+            exitAlpha = exitAlpha
         )
     }
 }
 
 @Composable
-private fun NumberedElement(element: MarkdownElement.NumberedItem) {
+private fun NumberedElement(
+    element: MarkdownElement.NumberedItem,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -352,13 +504,30 @@ private fun NumberedElement(element: MarkdownElement.NumberedItem) {
         )
         MarkdownText(
             text = element.text,
-            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+            modifier = Modifier.weight(1f),
+            isStreaming = isStreaming,
+            exitAlpha = exitAlpha
         )
     }
 }
 
 @Composable
-private fun BlockquoteElement(element: MarkdownElement.Blockquote) {
+private fun BlockquoteElement(
+    element: MarkdownElement.Blockquote,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val annotated = remember(element.text, primaryColor, secondaryColor, isStreaming) {
+        renderInlineMarkdown(
+            element.text,
+            primaryColor = primaryColor,
+            secondaryColor = secondaryColor,
+            showCursor = isStreaming
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -371,14 +540,11 @@ private fun BlockquoteElement(element: MarkdownElement.Blockquote) {
             .padding(10.dp)
     ) {
         Text(
-            text = renderInlineMarkdown(
-                element.text,
-                primaryColor = MaterialTheme.colorScheme.primary,
-                secondaryColor = MaterialTheme.colorScheme.secondary
-            ),
+            text = annotated,
             fontStyle = FontStyle.Italic,
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            inlineContent = if (isStreaming) cursorInlineContent(primaryColor, exitAlpha = exitAlpha) else emptyMap()
         )
     }
 }
@@ -428,17 +594,28 @@ private fun MarkdownText(
     text: String,
     style: TextStyle,
     color: Color = MaterialTheme.colorScheme.onSurface,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
     val segments = remember(text) { splitInline(text) }
 
     if (!shouldUseChips(segments)) {
+        val annotated = remember(text, primaryColor, secondaryColor, isStreaming) {
+            renderInlineMarkdown(
+                text = text,
+                primaryColor = primaryColor,
+                secondaryColor = secondaryColor,
+                showCursor = isStreaming
+            )
+        }
         Text(
-            text = renderInlineMarkdown(text, primaryColor, secondaryColor),
+            text = annotated,
             style = style,
             color = color,
+            inlineContent = if (isStreaming) cursorInlineContent(primaryColor, exitAlpha = exitAlpha) else emptyMap(),
             modifier = modifier
         )
         return
@@ -460,6 +637,13 @@ private fun MarkdownText(
 
                 is InlineSegment.Code -> InlineChip(text = segment.value)
             }
+        }
+        if (isStreaming) {
+            StreamingCursor(
+                color = primaryColor,
+                exitAlpha = exitAlpha,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
         }
     }
 }
@@ -492,10 +676,16 @@ private fun InlineChip(text: String) {
 }
 
 @Composable
-private fun ParagraphElement(element: MarkdownElement.Paragraph) {
+private fun ParagraphElement(
+    element: MarkdownElement.Paragraph,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
     MarkdownText(
         text = element.text,
-        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
+        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+        isStreaming = isStreaming,
+        exitAlpha = exitAlpha
     )
 }
 
@@ -661,7 +851,8 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
 fun renderInlineMarkdown(
     text: String,
     primaryColor: Color = Color(0xFF90CAF9),
-    secondaryColor: Color = Color(0xFF80CBC4)
+    secondaryColor: Color = Color(0xFF80CBC4),
+    showCursor: Boolean = false
 ): AnnotatedString {
     val sanitized = sanitizeMarkdown(text)
     return buildAnnotatedString {
@@ -672,7 +863,7 @@ fun renderInlineMarkdown(
 
         for (match in matches) {
             if (match.range.first > cursor) {
-                append(text.substring(cursor, match.range.first))
+                append(sanitized.substring(cursor, match.range.first))
             }
 
             val token = match.value
@@ -748,8 +939,12 @@ fun renderInlineMarkdown(
             cursor = match.range.last + 1
         }
 
-        if (cursor < text.length) {
-            append(text.substring(cursor))
+        if (cursor < sanitized.length) {
+            append(sanitized.substring(cursor))
+        }
+
+        if (showCursor) {
+            appendInlineContent(CURSOR_INLINE_ID, "▋")
         }
     }
 }

@@ -104,6 +104,7 @@ import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
 import com.runner.app.data.ThemeConfig
+import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.ProviderLogos
@@ -126,6 +127,9 @@ private sealed interface SettingsRoute {
 
     /** Журнал обратимых операций: удаления и перемещения. */
     data object Trash : SettingsRoute
+
+    /** Журнал shell-команд: выполненные и отклонённые. */
+    data object ShellLog : SettingsRoute
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -146,6 +150,7 @@ fun SettingsScreen(
         SettingsRoute.Agent -> "Агент"
         SettingsRoute.Access -> "Доступы"
         SettingsRoute.Trash -> "Корзина"
+        SettingsRoute.ShellLog -> "Журнал команд"
     }
 
     val goBack: () -> Unit = {
@@ -211,6 +216,8 @@ fun SettingsScreen(
                 SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
 
                 SettingsRoute.Trash -> TrashListScreen(viewModel)
+
+                SettingsRoute.ShellLog -> ShellLogScreen()
             }
         }
     }
@@ -1333,6 +1340,65 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
             }
+
+            SettingsDivider()
+
+            // Root — не «ещё один доступ», а принципиально другой уровень риска:
+            // su обходит и песочницу путей, и права приложения, и именно так
+            // произошёл инцидент со стиранием данных. Поэтому отдельный тумблер
+            // и постоянная защита: pm clear, uninstall, wipe, mkfs и dd на
+            // устройство запрещены даже при включённом root.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Root-команды (su)",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.allowRootShell) {
+                            "Каждое su-действие — по подтверждению"
+                        } else {
+                            "Команды с su отклоняются"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.allowRootShell,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(allowRootShell = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.allowRootShell) {
+                Text(
+                    text = "Команды с su получат права суперпользователя и смогут менять систему. " +
+                            "Катастрофические команды (pm clear, uninstall, wipe, mkfs, запись на диск) " +
+                            "заблокированы навсегда и при этом тумблере. Выключайте, когда доступ не нужен.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
+            }
+
+            SettingsDivider()
+
+            // Журнал: что агент пытался выполнить в shell и чем это закончилось.
+            // Нужен, чтобы разбирать инциденты по фактам, а не по памяти модели.
+            SettingsRow(
+                label = "Журнал команд",
+                value = "выполненные и отклонённые",
+                onClick = { onNavigate(SettingsRoute.ShellLog) },
+                icon = Icons.Outlined.Terminal
+            )
         }
 
         TrashSettings(viewModel, onNavigate)
@@ -1408,7 +1474,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     text = when {
                         trash.loading -> "Читаю журнал…"
                         trash.count == 0 ->
-                            "Пусто. Здесь будут появляться удалённое и перемещённое."
+                            "Пусто. Здесь будут появляться удалённое, перемещённое и перезаписанное."
                         else -> buildString {
                             append("Удалено: ${trash.deletions.size}")
                             if (trash.totalBytes > 0) {
@@ -1417,6 +1483,9 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                                 append(")")
                             }
                             append(" · Перемещено: ${trash.moves.size}")
+                            if (trash.overwrites.isNotEmpty()) {
+                                append(" · Перезаписано: ${trash.overwrites.size}")
+                            }
                         }
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1460,8 +1529,8 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "По истечении срока записи исчезают при следующем запуске. " +
-                            "Для удалённого это означает безвозвратное стирание, для " +
-                            "перемещённого — только потерю возможности откатить.",
+                            "Для удалённого и перезаписанного это означает безвозвратное " +
+                            "стирание, для перемещённого — только потерю возможности откатить.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
@@ -1515,7 +1584,8 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             title = { Text("Очистить корзину?") },
             text = {
                 Text(
-                    "Удалённое будет стёрто навсегда, вернуть его больше не получится. " +
+                    "Удалённое и старые версии перезаписанных файлов будут стёрты навсегда, " +
+                            "вернуть их больше не получится. " +
                             "Сейчас в корзине ${PluralUtils.files(trash.deletedFileCount)} " +
                             "на ${ToolDispatcher.formatFileSize(trash.totalBytes)}.\n\n" +
                             "Файлы, которые агент переместил, останутся на своих новых " +
@@ -1571,7 +1641,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             )
 
             trash.count == 0 -> Text(
-                text = "Журнал пуст. Удалённое и перемещённое будет появляться здесь.",
+                text = "Журнал пуст. Удалённое, перемещённое и перезаписанное будет появляться здесь.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
@@ -1587,6 +1657,9 @@ private fun TrashListScreen(viewModel: MainViewModel) {
                             append(")")
                         }
                         append(" · Перемещено: ${trash.moves.size}")
+                        if (trash.overwrites.isNotEmpty()) {
+                            append(" · Перезаписано: ${trash.overwrites.size}")
+                        }
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
@@ -1633,7 +1706,8 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             text = {
                 Text(
                     "Удалённое вернётся на исходные места, перемещённое — обратно туда, " +
-                            "откуда его взяли. Если место занято, файл получит новое имя."
+                            "откуда его взяли, а файлы с перезаписью получат обратно прежнее " +
+                            "содержимое. Если место занято, файл получит новое имя."
                 )
             },
             confirmButton = {
@@ -1658,9 +1732,9 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             title = { Text("Очистить журнал?") },
             text = {
                 Text(
-                    "Удалённое будет стёрто навсегда, вернуть его больше не получится. " +
-                            "Перемещённые файлы останутся на новых местах, но откатить " +
-                            "эти перемещения станет нельзя."
+                    "Удалённое и старые версии перезаписанных файлов будут стёрты " +
+                            "навсегда, вернуть их больше не получится. Перемещённые файлы " +
+                            "останутся на новых местах, но откатить эти перемещения станет нельзя."
                 )
             },
             confirmButton = {
@@ -1680,6 +1754,116 @@ private fun TrashListScreen(viewModel: MainViewModel) {
     }
 }
 
+/**
+ * Журнал shell-команд: что агент пытался выполнить и чем это закончилось.
+ *
+ * Появился после инцидента со стиранием данных приложений: разбираться было
+ * нечем — выполненные команды нигде не сохранялись. Показывает и отказы:
+ * попытка опасной команды — такой же факт, как её выполнение.
+ */
+@Composable
+private fun ShellLogScreen() {
+    val context = LocalContext.current
+    // Читаем при входе и по кнопке обновления: изменения приходят от действий
+    // агента, а наблюдателя за файлом в проекте нет.
+    var entries by remember { mutableStateOf(ShellLog.read(context)) }
+    var confirmClear by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "Что агент пытался выполнить в shell и чем это закончилось. " +
+                    "Хранятся последние 100 записей; файл не покидает устройство.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
+
+        if (entries.isEmpty()) {
+            Text(
+                text = "Журнал пуст.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp
+            )
+        } else {
+            SettingsGroup {
+                entries.forEach { entry ->
+                    Text(
+                        text = entry,
+                        color = if (entry.contains("ОТКАЗ")) {
+                            StatusWarning
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    onClick = { entries = ShellLog.read(context) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Обновить", fontSize = 13.sp)
+                }
+                TextButton(
+                    onClick = { confirmClear = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Очистить",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Очистить журнал?") },
+            text = {
+                Text(
+                    "Записи о командах будут стёрты. Это только следы выполнения: " +
+                            "сами операции и корзина не затрагиваются."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmClear = false
+                        ShellLog.clear(context)
+                        entries = emptyList()
+                    }
+                ) {
+                    Text("Очистить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("Отмена") }
+            }
+        )
+    }
+}
+
 /** Одна запись журнала: вид операции, имя объекта, когда и откуда. */
 @Composable
 private fun TrashEntryRow(entry: TrashStore.TrashEntry, onRestore: () -> Unit) {
@@ -1691,7 +1875,11 @@ private fun TrashEntryRow(entry: TrashStore.TrashEntry, onRestore: () -> Unit) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (entry.isMove) "ПЕРЕМЕЩЕНИЕ" else "УДАЛЕНИЕ",
+                text = when (entry.kind) {
+                    TrashStore.EntryKind.MOVE -> "ПЕРЕМЕЩЕНИЕ"
+                    TrashStore.EntryKind.OVERWRITE -> "ПЕРЕЗАПИСЬ"
+                    TrashStore.EntryKind.DELETE -> "УДАЛЕНИЕ"
+                },
                 color = if (entry.isMove) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 } else {
@@ -1735,6 +1923,13 @@ private fun trashEntrySubtitle(entry: TrashStore.TrashEntry): String {
     val first = entry.items.firstOrNull() ?: return TrashStore.formatDate(entry.at)
     val date = TrashStore.formatDate(entry.at)
 
+    if (entry.isOverwrite) {
+        return if (entry.items.size == 1) {
+            "$date · версия до перезаписи · ${folderOf(first.originalPath)}"
+        } else {
+            "$date · старые версии файлов"
+        }
+    }
     if (!entry.isMove) {
         return if (entry.items.size == 1) {
             "$date · из ${folderOf(first.originalPath)}"

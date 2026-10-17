@@ -560,7 +560,7 @@ class OpenAIClient {
                         if (itemExtra != null) {
                             accumulator.extraContent = itemExtra
                             val sig = itemExtra.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                                ?: itemExtra.optString("thought_signature")?.takeIf { it.isNotBlank() }
+                                ?: (itemExtra.opt("thought_signature") as? String)?.takeIf { it.isNotBlank() }
                             if (sig != null) {
                                 accumulator.thoughtSignature = sig
                             }

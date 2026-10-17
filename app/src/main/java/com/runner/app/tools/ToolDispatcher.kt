@@ -50,13 +50,238 @@ object ToolDispatcher {
     /**
      * Пути вне общей памяти, которые shell не трогает при выключенном тумблере.
      * Разрешены /system/bin и /system/xbin (там лежат сами утилиты) и
-     * /proc/meminfo (безобидная сводка о памяти). Проверка строковая, а не
-     * настоящая песочница, поэтому она намеренно перестраховывается.
+     * /proc/meminfo (безобидная сводка о памяти).
+     *
+     * Разделители в шаблоне перечислены явно и включают закрывающую скобку,
+     * точку с запятой, пайп и перенаправления: без них `/data)` или `/data;`
+     * проходили проверку — строка обрывалась на неизвестном разделителе.
+     * Проверка по-прежнему строковая, а не настоящая песочница, поэтому
+     * перестраховывается: лучше лишний отказ, чем обход.
      */
     private val SHELL_DENIED_PATH = Regex(
-        """/data(?:[/\s"']|$)|/system/(?!bin\b|xbin\b)|/system$|/proc(?!/meminfo)|""" +
-                """/dev(?:[/\s"']|$)|/sys(?:[/\s"']|$)|/vendor(?:[/\s"']|$)|/apex(?:[/\s"']|$)"""
+        """/data(?:[\s/).;,:|&<>"'}\]]|$)|""" +
+                """/system(?=[\s/).;,:|&<>"'}\]]|$)(?!/bin(?:[\s/).;,:|&<>"'}\]]|$)|/xbin(?:[\s/).;,:|&<>"'}\]]|$))|""" +
+                """/proc(?=[\s/).;,:|&<>"'}\]]|$)(?!/meminfo(?:[\s/).;,:|&<>"'}\]]|$))|""" +
+                """/dev(?:[\s/).;,:|&<>"'}\]]|$)|""" +
+                """/sys(?:[\s/).;,:|&<>"'}\]]|$)|""" +
+                """/vendor(?:[\s/).;,:|&<>"'}\]]|$)|""" +
+                """/apex(?:[\s/).;,:|&<>"'}\]]|$)"""
     )
+
+    /**
+     * Токены-пути, ведущие за пределы памяти: голый корень `/`, `~` и `..`.
+     * Проверка по токену, а не подстроке: `/sdcard` и `../Documents` не
+     * затрагиваются, а вот `cd /`, `ls ~`, `cd ..` отклоняются.
+     */
+    private val SHELL_BARE_PATH = Regex("""(?:^|[\s;&|"'=])(?:/|~|\.\.)(?=[\s;&|"']|$)""")
+
+    /**
+     * Подстановка переменных (`$VAR`, `${...}`, `$(...)`) и команд (обратные
+     * кавычки). Строковая проверка пути не видит путь, собранный в переменной
+     * (`D=/data; ls $D`), поэтому в песочнице подстановки запрещены целиком.
+     * Для shell, которым пользуется агент (df, du, ls, pm), они не нужны.
+     */
+    private val SHELL_EXPANSION = Regex("""[${'$'}`]""")
+
+    /**
+     * Катастрофические команды, запрещённые ВСЕГДА — независимо от тумблеров
+     * «Shell вне памяти» и «Root-команды» и от выданного пользователем root.
+     *
+     * Список появился после реального инцидента: агент получил root и выполнил
+     * `pm clear` вместо очистки кеша, стерев данные приложений. Root обнуляет
+     * песочницу путей, поэтому от катастрофы должна защищать проверка самой
+     * команды, а не путей.
+     *
+     * Запрещены: `pm clear` и `cmd package clear` (стереть данные приложения),
+     * `pm uninstall` и `cmd package uninstall` (удаление приложений), `wipe`,
+     * `mkfs` и `dd` с записью на блок-устройство (низкоуровневое стирание),
+     * `fastboot` (прошивка). В тексте комментариев НЕЛЬЗЯ писать «/» и «*»
+     * вместе: Kotlin вкладывает блочные комментарии, и такая пара открывает
+     * вложенный комментарий, ломая весь файл.
+     * Проверки «-delete» и удаления в /data — в [shellDataRefusal]:
+     * там нужен разбор путей, а не одно регулярное выражение.
+     *
+     * Шаблоны собираются списком: одна длинная конкатенация из десятка строк
+     * читается хуже, а каждая строка списка самодостаточна.
+     */
+    private val SHELL_FORBIDDEN_COMMAND = Regex(
+        listOf(
+            """(?<![A-Za-z0-9_.-])pm\s+clear(?![A-Za-z0-9_.-])""",
+            """(?<![A-Za-z0-9_.-])pm\s+uninstall(?![A-Za-z0-9_.-])""",
+            """(?<![A-Za-z0-9_.-])cmd\s+package\s+clear(?![A-Za-z0-9_.-])""",
+            """(?<![A-Za-z0-9_.-])cmd\s+package\s+uninstall(?![A-Za-z0-9_.-])""",
+            """(?<![A-Za-z0-9_.-])wipe(?![A-Za-z0-9_.-])""",
+            """(?<![A-Za-z0-9_.-])mkfs(?:\.\w+)?(?![A-Za-z0-9_.-])""",
+            """(?<![A-Za-z0-9_.-])dd(?![A-Za-z0-9_.-])[^;&|]*\bof\s*=\s*/dev/""",
+            """(?<![A-Za-z0-9_.-])fastboot(?![A-Za-z0-9_.-])"""
+        ).joinToString("|")
+    )
+
+    /**
+     * Запуск от root: `su`, `su -c ...`, `/system/xbin/su`, `sudo`.
+     * Ищем именно команду (начало сегмента), а не слово в аргументе:
+     * `cat /sdcard/su` — это чтение файла, а не запуск su.
+     */
+    private val SHELL_ROOT_INVOCATION = Regex(
+        """(?:^|[;&|()]\s*)(?:[^\s;&|()]*/)?(?:su|sudo)(?=[\s;&|()]|$)"""
+    )
+
+    /**
+     * Удаляющие операции, после которых разбираем, что именно удаляется.
+     * В lookbehind есть `/`: имя файла вроде /sdcard/rm — это не команда rm,
+     * и путь не должен превращать чтение в «команду удаления».
+     */
+    private val SHELL_DELETE_ACTION = Regex(
+        """(?<![A-Za-z0-9_./-])(?:rm|shred)(?![A-Za-z0-9_.-])|(?:^|\s)-delete(?:\s|$)"""
+    )
+
+    /** Все похожие на пути подстроки команды: нужны для разбора адресатов удаления. */
+    private val SHELL_PATH_TOKEN = Regex("""/[A-Za-z0-9_./*?-]+""")
+
+    /**
+     * Запрошена ли команда от root. Нужна и гейту подтверждения, и исполнителю.
+     */
+    fun isRootShellCommand(command: String): Boolean =
+        SHELL_ROOT_INVOCATION.containsMatchIn(command)
+
+    /**
+     * Проверяет команду на недопустимое удаление данных.
+     *
+     * Возвращает причину отказа или null. Два класса проблем:
+     *  1. Удаление под `/data`, кроме каталогов `cache`: в /data лежат данные
+     *     приложений, а чистка кеша — это ровно `.../cache`. Точка с `..`
+     *     отклоняется, иначе `.../cache/../databases` обходил бы правило.
+     *  2. Удаление самого корня общей памяти `/sdcard` или `/storage/emulated/0`:
+     *     это стирание всех файлов пользователя разом.
+     *
+     * Проверка консервативная: сомнительный путь отклоняется. Легитимные
+     * команды, которым нужен `find` по всем /data, отсекаются тоже — здесь
+     * это осознанный компромисс.
+     */
+    private fun shellDataRefusal(command: String): String? {
+        if (!SHELL_DELETE_ACTION.containsMatchIn(command)) return null
+        for (token in SHELL_PATH_TOKEN.findAll(command).map { it.value }) {
+            if (token.contains("..")) {
+                return "путь с '..' в команде удаления ($token)"
+            }
+            val normalized = token.trimEnd('/')
+            if (normalized.isEmpty() || normalized == "/") {
+                return "удаление корня системы ($token)"
+            }
+            if (normalized == "/sdcard" || normalized == "/storage" || normalized == "/storage/emulated" || normalized == "/storage/emulated/0") {
+                return "удаление корня общей памяти ($token)"
+            }
+            if (normalized == "/system" || token.startsWith("/system/") ||
+                normalized == "/vendor" || token.startsWith("/vendor/") ||
+                normalized == "/apex" || token.startsWith("/apex/") ||
+                normalized == "/dev" || token.startsWith("/dev/")
+            ) {
+                return "удаление системных файлов ($token)"
+            }
+            if (normalized == "/data" || token.startsWith("/data/")) {
+                val segments = token.split('/').filter { it.isNotBlank() && it != "." }
+                if (!segments.contains("cache")) {
+                    return "удаление данных приложения ($token)"
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Отказ проверки shell: короткая причина (для журнала) и полный текст
+     * ответа агенту.
+     */
+    private data class ShellRefusal(val reason: String, val message: String)
+
+    /** Текст отказа или null. Используется гейтом подтверждения и исполнителем. */
+    fun shellRefusal(
+        command: String,
+        allowOutsideStorage: Boolean,
+        allowRootShell: Boolean
+    ): String? = shellRefusalDetailed(command, allowOutsideStorage, allowRootShell)?.message
+
+    /**
+     * Абсолютные запреты shell: запрещённая команда, root без тумблера,
+     * удаление данных. Проверка песочницы путей сюда не входит (она параметр
+     * allowOutsideStorage=true пропускает): путь можно разрешить тумблером,
+     * а эти запреты не снимаются ничем.
+     *
+     * MainViewModel использует функцию до показа подтверждения: диалог для
+     * команды, которая всё равно не выполнится, нечестен, а модель должна
+     * узнать отказ сразу и попробовать другой подход.
+     */
+    fun shellPreRefusal(command: String, allowRootShell: Boolean): String? =
+        shellRefusalDetailed(command, allowOutsideStorage = true, allowRootShell = allowRootShell)?.message
+
+    /**
+     * Единая точка отказа для shell-команд. Вызывается ДО подтверждения
+     * (в MainViewModel) и повторно в исполнителе: второй раз — как страховка.
+     */
+    private fun shellRefusalDetailed(
+        command: String,
+        allowOutsideStorage: Boolean,
+        allowRootShell: Boolean
+    ): ShellRefusal? {
+        val forbidden = SHELL_FORBIDDEN_COMMAND.find(command)?.value
+        if (forbidden != null) {
+            return ShellRefusal(
+                reason = "запрещённая команда '$forbidden'",
+                message = "Ошибка: команда '$forbidden' запрещена навсегда. Она стирает данные " +
+                        "приложений или устройства, а это необратимо. Данные приложений не трогай " +
+                        "никогда; кеш чистится только удалением содержимого каталогов cache."
+            )
+        }
+        if (isRootShellCommand(command) && !allowRootShell) {
+            return ShellRefusal(
+                reason = "root выключен",
+                message = "Ошибка: команда выполнена от root (su), а root-режим выключен. " +
+                        "Root обходит песочницу и способен уничтожить данные, поэтому по умолчанию " +
+                        "запрещён. Если доступ действительно нужен, пользователь может включить " +
+                        "«Root-команды (su)» в настройках агента."
+            )
+        }
+        if (!allowOutsideStorage) {
+            val deniedPath = SHELL_DENIED_PATH.find(command)?.value
+            if (deniedPath != null) {
+                return ShellRefusal(
+                    reason = "путь вне памяти ($deniedPath)",
+                    message = "Ошибка: команда обращается к пути вне общей памяти ($deniedPath). " +
+                            "Файловые инструменты работают только внутри /storage/emulated/0. " +
+                            "Если доступ действительно нужен, включите тумблер «Shell вне памяти» " +
+                            "в настройках агента."
+                )
+            }
+            if (SHELL_EXPANSION.containsMatchIn(command)) {
+                return ShellRefusal(
+                    reason = "подстановка \$ или `",
+                    message = "Ошибка: команда использует подстановку переменных или команд (\$ или `). " +
+                            "В песочнице это запрещено: так путь вне памяти можно собрать в обход " +
+                            "проверки. Перепишите команду без подстановок; если доступ действительно " +
+                            "нужен, включите тумблер «Shell вне памяти» в настройках агента."
+                )
+            }
+            if (SHELL_BARE_PATH.containsMatchIn(command)) {
+                return ShellRefusal(
+                    reason = "голый путь /, ~ или ..",
+                    message = "Ошибка: команда обращается к корню файловой системы, домашнему каталогу " +
+                            "или родительской папке. Это вне общей памяти. Работайте с путями внутри " +
+                            "/storage/emulated/0; если доступ действительно нужен, включите тумблер " +
+                            "«Shell вне памяти» в настройках агента."
+                )
+            }
+        }
+        val dataReason = shellDataRefusal(command)
+        if (dataReason != null) {
+            return ShellRefusal(
+                reason = dataReason,
+                message = "Ошибка: команда отклонена — $dataReason. Удалять можно только кеш " +
+                        "(каталоги cache) и собственные папки внутри /storage/emulated/0. " +
+                        "Данные приложений не трогай никогда."
+            )
+        }
+        return null
+    }
 
     /**
      * Оборачивает вывод инструмента в конверт недоверенных данных, предварительно
@@ -575,7 +800,9 @@ object ToolDispatcher {
         argumentsJson: String,
         context: Context,
         /** Разрешить shell выходить за пределы /storage/emulated/0 (тумблер в настройках). */
-        shellOutsideStorage: Boolean = false
+        shellOutsideStorage: Boolean = false,
+        /** Разрешить команды с `su` (отдельный тумблер; выключен по умолчанию). */
+        allowRootShell: Boolean = false
     ): String = withContext(Dispatchers.IO) {
         val cleanToolName = toolName.substringAfterLast(":")
         val args = try {
@@ -701,7 +928,7 @@ object ToolDispatcher {
                 "run_shell_command" -> {
                     val command = args.optString("command", "").trim()
                     val timeout = args.optInt("timeout_seconds", 10).coerceIn(1, 30)
-                    runShellCommand(command, timeout, shellOutsideStorage)
+                    runShellCommand(command, timeout, shellOutsideStorage, allowRootShell, context)
                 }
 
                 else -> "Неизвестный инструмент: $cleanToolName"
@@ -773,8 +1000,24 @@ object ToolDispatcher {
                 file.appendText(content, Charsets.UTF_8)
                 "resolved_path: ${file.absolutePath}\nТекст успешно добавлен в конец файла: '${file.absolutePath}'. Новый размер: ${formatFileSize(file.length())}."
             } else {
+                // Прежнюю версию сохраняем ДО записи: если запись сорвётся
+                // на середине, уцелевшая версия будет только в корзине.
+                val overwritten = file.exists() && file.isFile
+                val backup = if (overwritten) TrashStore.recordOverwrite(file) else null
                 file.writeText(content, Charsets.UTF_8)
-                "resolved_path: ${file.absolutePath}\nФайл успешно записан: '${file.absolutePath}' (${formatFileSize(file.length())})."
+                buildString {
+                    append("resolved_path: ${file.absolutePath}\n")
+                    if (backup != null) {
+                        append(TrashStore.markerLine(backup.id, TrashStore.EntryKind.OVERWRITE)).append("\n")
+                    }
+                    append("Файл успешно записан: '${file.absolutePath}' (${formatFileSize(file.length())}).")
+                    when {
+                        backup != null ->
+                            append("\nПрежняя версия сохранена в корзине: вернуть её можно кнопкой «Отменить» в этом сообщении.")
+                        overwritten ->
+                            append("\nПрежняя версия не сохранена: файл больше ${formatFileSize(TrashStore.OVERWRITE_BACKUP_LIMIT_BYTES)} и в корзину не копировался.")
+                    }
+                }
             }
         } catch (e: Exception) {
             "Ошибка записи в файл: ${e.localizedMessage}"
@@ -881,7 +1124,7 @@ object ToolDispatcher {
 
         return buildString {
             append("resolved_path: ${file.absolutePath}\n")
-            append(TrashStore.markerLine(entry.id, isMove = false)).append("\n")
+            append(TrashStore.markerLine(entry.id)).append("\n")
             append("$subject перемещён в корзину. Данные не потеряны: верни их кнопкой «Отменить» в этом сообщении.")
         }
     }
@@ -965,7 +1208,7 @@ object ToolDispatcher {
             append("resolved_path_dst: ${dest.absolutePath}\n")
             append("resolved_path: ${dest.absolutePath}\n")
             if (entry != null) {
-                append(TrashStore.markerLine(entry.id, isMove = true)).append("\n")
+                append(TrashStore.markerLine(entry.id, TrashStore.EntryKind.MOVE)).append("\n")
             }
             append("$message: '${src.name}' -> '${dest.absolutePath}'.")
             if (entry != null) {
@@ -1376,12 +1619,12 @@ object ToolDispatcher {
     private fun urlHandlers(context: Context, urls: List<String>): List<AppCandidate> {
         val pm = context.packageManager
         val result = LinkedHashMap<String, AppCandidate>()
-        urls.forEach { url ->
+        urls.forEach urlLoop@ { url ->
             val parsed = try {
                 Uri.parse(url)
             } catch (e: Exception) {
                 null
-            } ?: return@forEach
+            } ?: return@urlLoop
             val intent = Intent(Intent.ACTION_VIEW, parsed).addCategory(Intent.CATEGORY_BROWSABLE)
             try {
                 pm.queryIntentActivities(intent, 0).forEach { info ->
@@ -1794,30 +2037,47 @@ object ToolDispatcher {
      * эту песочницу. Проверка грубая (ищет абсолютные пути в строке), поэтому
      * она намеренно консервативна: при сомнении команда отклоняется, а не
      * выполняется.
+     *
+     * [allowRootShell] — отдельный тумблер для команд с `su`. Даже при нём
+     * катастрофические команды (pm clear, wipe, mkfs…) запрещены навсегда.
+     * [context] нужен только для журнала [ShellLog]; без него команда
+     * выполняется как раньше, просто ничего не записывается.
      */
     fun runShellCommand(
         command: String,
         timeoutSeconds: Int,
-        allowOutsideStorage: Boolean = false
+        allowOutsideStorage: Boolean = false,
+        allowRootShell: Boolean = false,
+        context: Context? = null
     ): String {
         if (command.isBlank()) return "Ошибка: команда не задана."
 
-        if (!allowOutsideStorage) {
-            val deniedPath = SHELL_DENIED_PATH.find(command)?.value
-            if (deniedPath != null) {
-                return "Ошибка: команда обращается к пути вне общей памяти ($deniedPath). " +
-                        "Файловые инструменты работают только внутри /storage/emulated/0. " +
-                        "Если доступ действительно нужен, включите тумблер «Shell вне памяти» " +
-                        "в настройках агента."
-            }
+        fun journal(status: String) {
+            context?.let { ShellLog.append(it, status, command) }
+        }
+
+        // Единая проверка: катастрофические команды, root-гейт, песочница путей
+        // и защита данных приложений. Отказы пишутся в журнал: попытка опасной
+        // команды — тоже факт, по которому потом разбирается инцидент.
+        val refusal = shellRefusalDetailed(command, allowOutsideStorage, allowRootShell)
+        if (refusal != null) {
+            journal("ОТКАЗ (${refusal.reason})")
+            return refusal.message
         }
 
         var process: Process? = null
         var captured = ""
         return try {
-            process = ProcessBuilder("/system/bin/sh", "-c", command)
+            val builder = ProcessBuilder("/system/bin/sh", "-c", command)
                 .redirectErrorStream(true)
-                .start()
+            if (!allowOutsideStorage) {
+                // Рабочий каталог — корень памяти. Относительные пути тогда ведут
+                // внутрь песочницы, а не к системному корню, где стоит процесс
+                // по умолчанию. Абсолютные пути не затрагиваются.
+                val sandbox = Environment.getExternalStorageDirectory()
+                if (sandbox.isDirectory) builder.directory(sandbox)
+            }
+            process = builder.start()
 
             val target = process
             // Читаем вывод сразу и до конца: иначе пайп переполнится и процесс зависнет.
@@ -1838,6 +2098,7 @@ object ToolDispatcher {
                 if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
                 reader.join(500)
                 val partial = captured.trimEnd()
+                journal("ТАЙМАУТ (${timeoutSeconds}с)")
                 return buildString {
                     append("Команда '$command' превысила таймаут в $timeoutSeconds сек. и была остановлена.")
                     if (partial.isNotBlank()) {
@@ -1856,6 +2117,8 @@ object ToolDispatcher {
             val shown = lines.take(200)
             val rest = lines.size - shown.size
 
+            journal(if (code == 0) "ВЫПОЛНЕНО" else "ВЫПОЛНЕНО (код $code)")
+
             buildString {
                 append("Выполнено (код $code):\n")
                 if (shown.isNotEmpty() && shown.any { it.isNotBlank() }) {
@@ -1868,6 +2131,7 @@ object ToolDispatcher {
                 }
             }
         } catch (e: Exception) {
+            journal("ОШИБКА (${e.localizedMessage})")
             "Ошибка при выполнении shell-команды: ${e.localizedMessage}"
         } finally {
             process?.let {
@@ -1998,7 +2262,7 @@ object ToolDispatcher {
             buildString {
                 append("resolved_path: ${downloadsDir.absolutePath}\n")
                 if (entry != null) {
-                    append(TrashStore.markerLine(entry.id, isMove = true)).append("\n")
+                    append(TrashStore.markerLine(entry.id, TrashStore.EntryKind.MOVE)).append("\n")
                 }
                 append("Перемещено файлов: ${movedFiles.size} (категория '$category'):\n")
                 movedFiles.take(10).forEach { append("  • $it\n") }
@@ -2652,9 +2916,11 @@ object ToolDispatcher {
                     title = if (append) "Дозапись в файл" else "Перезапись файла",
                     details = "Файл: $path",
                     warning = if (append) {
-                        "Текст будет добавлен в конец существующего файла."
+                        "Текст будет добавлен в конец существующего файла. Отменить дозапись нельзя."
                     } else {
-                        "Содержимое файла будет полностью перезаписано."
+                        "Содержимое файла будет полностью перезаписано. Прежняя версия сохранится " +
+                                "в корзине, и её можно будет вернуть кнопкой «Отменить» (не сохраняются " +
+                                "файлы больше ${formatFileSize(TrashStore.OVERWRITE_BACKUP_LIMIT_BYTES)})."
                     },
                     preview = writePreview(path, content, append)
                 )
@@ -2683,10 +2949,17 @@ object ToolDispatcher {
             }
             "run_shell_command" -> {
                 val command = args.optString("command", "").trim()
+                val rootRequested = isRootShellCommand(command)
                 CriticalActionInfo(
-                    title = "Выполнение shell-команды",
+                    title = if (rootRequested) "Выполнение shell-команды (root)" else "Выполнение shell-команды",
                     details = command,
-                    warning = "Команда запускается в sh с правами приложения. Проверьте команду перед запуском.",
+                    warning = if (rootRequested) {
+                        "Команда запускается от root (su): права суперпользователя обходят песочницу " +
+                                "и способны изменить систему или уничтожить данные. Проверьте команду " +
+                                "перед запуском."
+                    } else {
+                        "Команда запускается в sh с правами приложения. Проверьте команду перед запуском."
+                    },
                     preview = "Длина команды: ${command.length} символов"
                 )
             }
@@ -3007,7 +3280,7 @@ object ToolDispatcher {
             buildString {
                 append("Удалено файлов: ${result.movedNames.size} из ${paths.size}.\n")
                 if (entry != null) {
-                    append(TrashStore.markerLine(entry.id, isMove = false)).append("\n")
+                    append(TrashStore.markerLine(entry.id)).append("\n")
                     result.movedNames.take(20).forEach { append("  • $it\n") }
                 }
                 if (failed.isNotEmpty()) {

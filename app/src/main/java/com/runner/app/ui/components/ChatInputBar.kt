@@ -30,12 +30,18 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -52,8 +58,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -135,20 +143,49 @@ fun ChatInputBar(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val textValue = inputState.textFieldValue
     val rawText = textValue.text
     val selectedImages = inputState.selectedImages
     val hasContent = rawText.isNotBlank() || selectedImages.isNotEmpty()
-    val canSend = hasContent && !isRunning
+    val canSend = canSendMessage(hasContent = hasContent, isRunning = isRunning, isListening = isListening)
     var isFocused by remember { mutableStateOf(false) }
     val isActive = isFocused || hasContent || isListening
 
-    // Лаунчер галереи (фото): по нажатию на «+» сразу открывается системная галерея
+    var showAttachMenu by remember { mutableStateOf(false) }
+    var currentCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Лаунчер галереи (фото): выбор существующих изображений
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
             inputState.addImages(uris)
+        }
+    }
+
+    // Лаунчер камеры: запускает системную камеру и сохраняет результат во временный файл
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            currentCameraUri?.let { uri ->
+                inputState.addImages(listOf(uri))
+            }
+        }
+        currentCameraUri = null
+    }
+
+    fun launchCamera() {
+        try {
+            val cameraDir = File(context.cacheDir, "camera").apply { mkdirs() }
+            val photoFile = File(cameraDir, "photo_${System.currentTimeMillis()}.jpg")
+            val authority = "${context.packageName}.fileprovider"
+            val uri = FileProvider.getUriForFile(context, authority, photoFile)
+            currentCameraUri = uri
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Не удалось открыть камеру: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -177,12 +214,14 @@ fun ChatInputBar(
         val trimmed = inputState.text.trim()
         val images = inputState.selectedImages
         if ((trimmed.isNotEmpty() || images.isNotEmpty()) && !isRunning) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             inputState.clear()
             onSend(trimmed, images)
         }
     }
 
     fun handleMicClick() {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         if (isListening) {
             onStopListening?.invoke()
         } else {
@@ -197,6 +236,11 @@ fun ChatInputBar(
                 audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         }
+    }
+
+    fun handleStop() {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        onStop()
     }
 
     Column(
@@ -231,23 +275,67 @@ fun ChatInputBar(
                 .padding(horizontal = 6.dp, vertical = 5.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            // Кнопка «+»: по тапу сразу открывает системную галерею для картинок.
+            // Кнопка «+»: открывает меню выбора — камера или галерея.
             // Геометрически выровнена по размеру (38dp) и центру со строкой ввода и кнопкой микрофона.
             Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .bounceClick(enabled = !isRunning, scaleDown = 0.90f) {
-                        imagePickerLauncher.launch("image/*")
-                    },
+                modifier = Modifier.size(38.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = "Прикрепить фото",
-                    tint = if (!isRunning) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                    modifier = Modifier.size(22.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .bounceClick(enabled = !isRunning, scaleDown = 0.90f) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showAttachMenu = true
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = "Прикрепить фото или сделать снимок",
+                        tint = if (!isRunning) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showAttachMenu,
+                    onDismissRequest = { showAttachMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Камера", fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.CameraAlt,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showAttachMenu = false
+                            launchCamera()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Галерея", fontSize = 14.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Image,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showAttachMenu = false
+                            imagePickerLauncher.launch("image/*")
+                        }
+                    )
+                }
             }
 
             BasicTextField(
@@ -275,7 +363,7 @@ fun ChatInputBar(
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (rawText.isEmpty()) {
                             Text(
-                                text = if (isListening) "Слушаю речь..." else "Задать задачу",
+                                text = if (isListening) "Слушаю речь..." else "Задать задачу или сказать голосом...",
                                 color = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                 fontSize = 15.sp,
                                 lineHeight = 22.sp
@@ -292,7 +380,7 @@ fun ChatInputBar(
                 isListening = isListening,
                 rmsLevel = rmsLevel,
                 onSend = { handleSend() },
-                onStop = onStop,
+                onStop = { handleStop() },
                 onMicClick = { handleMicClick() }
             )
         }
@@ -383,6 +471,27 @@ private fun SelectedImageThumbnail(
  * - Есть текст или фото: акцентный синий ArrowUp (Отправить).
  * - Поле пустое и не выполняется: микрофон (Голосовой ввод), пульсирующий во время записи.
  */
+internal enum class ActionButtonMode {
+    STOP,
+    RECORDING,
+    SEND,
+    MIC
+}
+
+internal fun canSendMessage(hasContent: Boolean, isRunning: Boolean, isListening: Boolean): Boolean =
+    hasContent && !isRunning && !isListening
+
+internal fun resolveActionButtonMode(
+    isRunning: Boolean,
+    isListening: Boolean,
+    canSend: Boolean
+): ActionButtonMode = when {
+    isRunning -> ActionButtonMode.STOP
+    isListening -> ActionButtonMode.RECORDING
+    canSend -> ActionButtonMode.SEND
+    else -> ActionButtonMode.MIC
+}
+
 @Composable
 private fun SendMicStopButton(
     isRunning: Boolean,
@@ -394,33 +503,33 @@ private fun SendMicStopButton(
     onMicClick: () -> Unit
 ) {
     val enabled = true
+    val mode = resolveActionButtonMode(isRunning = isRunning, isListening = isListening, canSend = canSend)
 
     val background by animateColorAsState(
-        targetValue = when {
-            isRunning -> MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
-            canSend -> MaterialTheme.colorScheme.primary
-            isListening -> MaterialTheme.colorScheme.error.copy(alpha = 0.25f)
-            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
+        targetValue = when (mode) {
+            ActionButtonMode.STOP -> MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+            ActionButtonMode.RECORDING -> MaterialTheme.colorScheme.error.copy(alpha = 0.25f)
+            ActionButtonMode.SEND -> MaterialTheme.colorScheme.primary
+            ActionButtonMode.MIC -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
         },
         animationSpec = MotionTokens.fluidTween(220),
         label = "send_background"
     )
 
     val iconTint by animateColorAsState(
-        targetValue = when {
-            isRunning -> MaterialTheme.colorScheme.error
-            canSend -> MaterialTheme.colorScheme.onPrimary
-            isListening -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.outline
+        targetValue = when (mode) {
+            ActionButtonMode.STOP, ActionButtonMode.RECORDING -> MaterialTheme.colorScheme.error
+            ActionButtonMode.SEND -> MaterialTheme.colorScheme.onPrimary
+            ActionButtonMode.MIC -> MaterialTheme.colorScheme.primary
         },
         animationSpec = MotionTokens.fluidTween(220),
         label = "send_tint"
     )
 
-    val baseScale = when {
-        isListening -> 1f + (rmsLevel / 10f).coerceIn(0f, 1f) * 0.15f
-        canSend || isRunning -> 1f
-        else -> 0.94f
+    val baseScale = when (mode) {
+        ActionButtonMode.RECORDING -> 1f + (rmsLevel / 10f).coerceIn(0f, 1f) * 0.15f
+        ActionButtonMode.SEND, ActionButtonMode.STOP -> 1f
+        ActionButtonMode.MIC -> 0.94f
     }
 
     val buttonScale by animateFloatAsState(
@@ -439,25 +548,25 @@ private fun SendMicStopButton(
             .clip(CircleShape)
             .background(background)
             .bounceClick(enabled = enabled, scaleDown = 0.90f) {
-                when {
-                    isRunning -> onStop()
-                    canSend -> onSend()
-                    else -> onMicClick()
+                when (mode) {
+                    ActionButtonMode.STOP -> onStop()
+                    ActionButtonMode.RECORDING, ActionButtonMode.MIC -> onMicClick()
+                    ActionButtonMode.SEND -> onSend()
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        val icon = when {
-            isRunning -> RunnerIcons.StopSquare
-            canSend -> RunnerIcons.ArrowUp
-            else -> Icons.Outlined.Mic
+        val icon = when (mode) {
+            ActionButtonMode.STOP -> RunnerIcons.StopSquare
+            ActionButtonMode.RECORDING, ActionButtonMode.MIC -> Icons.Outlined.Mic
+            ActionButtonMode.SEND -> RunnerIcons.ArrowUp
         }
 
-        val desc = when {
-            isRunning -> "Остановить"
-            canSend -> "Отправить"
-            isListening -> "Остановить запись"
-            else -> "Голосовой ввод"
+        val desc = when (mode) {
+            ActionButtonMode.STOP -> "Остановить"
+            ActionButtonMode.RECORDING -> "Остановить запись"
+            ActionButtonMode.SEND -> "Отправить"
+            ActionButtonMode.MIC -> "Голосовой ввод"
         }
 
         Icon(

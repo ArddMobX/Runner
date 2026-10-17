@@ -43,17 +43,17 @@ data class Provider(
     fun modelIds(): List<String> = models.map { it.id.removePrefix("models/") }
 
     /**
-     * Тип провайдера: сначала по id пресета, потом по хосту Base URL.
-     * Пользователь может переименовать провайдера, но id остаётся прежним.
+     * Тип провайдера: сначала по id пресета, потом по точному хосту Base URL.
+     *
+     * Имя в определении НЕ участвует: провайдер, названный «Gemini через прокси»,
+     * получал Google-специфичные подстановки (`thought_signature`) на чужом хосте.
+     * Гейт по имени — угадывание, а ошибка тут стоит лишних 400-х от провайдера.
+     * id пресета остаётся рабочим ориентиром: его пользователь не переименует.
      */
     val kind: ProviderKind get() = when {
-        id == "gemini" || name.contains("gemini", ignoreCase = true) -> ProviderKind.GEMINI
-        id == "deepseek" || name.contains("deepseek", ignoreCase = true) -> ProviderKind.DEEPSEEK
-        else -> when (hostOf(baseUrl)) {
-            "generativelanguage.googleapis.com" -> ProviderKind.GEMINI
-            "api.deepseek.com" -> ProviderKind.DEEPSEEK
-            else -> ProviderKind.OPENAI_COMPATIBLE
-        }
+        id == "gemini" || hostOf(baseUrl) == "generativelanguage.googleapis.com" -> ProviderKind.GEMINI
+        id == "deepseek" || hostOf(baseUrl) == "api.deepseek.com" -> ProviderKind.DEEPSEEK
+        else -> ProviderKind.OPENAI_COMPATIBLE
     }
 
     /** Base URL ведёт ровно на официальный DeepSeek, а не на похожий по имени прокси. */

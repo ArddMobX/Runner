@@ -18,7 +18,7 @@ import java.util.UUID
  * действие» и «снять её и рискнуть». Корзина убирает эту вилку: ошибку можно
  * откатить, поэтому подтверждения разрешено ослаблять.
  *
- * Запись описывает ОДНУ операцию и может быть двух видов:
+ * Запись описывает ОДНУ операцию и может быть трёх видов:
  *
  * - **Удаление.** Объекты физически лежат внутри корзины
  *   (`items/<id>/<слот>/<имя>`), `storedInTrash = true`. Они занимают место,
@@ -26,9 +26,14 @@ import java.util.UUID
  * - **Перемещение.** Объекты стоят на новых местах, корзина их не занимает
  *   (`storedInTrash = false`). Запись хранит только пару «откуда → куда»,
  *   чтобы перемещение можно было откатить.
+ * - **Перезапись.** Прежняя версия файла лежит в корзине (занимает место),
+ *   а сам файл никуда не исчезал — на его месте уже новый текст. Откат
+ *   записывает прежнее содержимое обратно, а не переносит файл.
+ *   У перезаписи есть явное поле `op` в журнале: вывести вид из расположения
+ *   объектов здесь нельзя — содержимое лежит и в корзине, и на месте файла.
  *
- * Вид записи не хранится отдельным полем: он выводится из расположения объектов.
- * Так не бывает расхождения между флагом и фактическим положением файла.
+ * Удаление и перемещение вид записи не хранят: он выводится из расположения
+ * объектов. Так не бывает расхождения между флагом и фактическим положением файла.
  *
  * Раскладка на диске:
  *
@@ -54,13 +59,22 @@ object TrashStore {
     /** Маркер «эту запись уже откатили»: кнопка отмены больше не показывается. */
     const val RESTORED_PREFIX = "trash_restored:"
 
-    /** Разбор маркера: id и, для перемещений, признак вида операции. */
+    /**
+     * Файлы больше этого размера при перезаписи не версионируются: копия
+     * стоила бы столько же места, сколько сам файл, а такой обмен скрытым
+     * образом удваивал бы занятое место. Ограничение честно проговаривается
+     * в выводе инструмента и в диалоге подтверждения.
+     */
+    const val OVERWRITE_BACKUP_LIMIT_BYTES: Long = 25L * 1024 * 1024
+
+    /** Разбор маркера: id и, для перемещений и перезаписей, признак вида операции. */
     private val MARKER_REGEX = Regex("""(?m)^trash_id:\s*([A-Za-z0-9\-]+)(?:\s+kind=(\w+))?\s*$""")
 
     private const val KIND_MOVE = "move"
+    private const val KIND_OVERWRITE = "overwrite"
 
-    /** Вид записи: удаление (объект в корзине) или перемещение. */
-    enum class EntryKind { DELETE, MOVE }
+    /** Вид записи: удаление (объект в корзине), перемещение или перезапись. */
+    enum class EntryKind { DELETE, MOVE, OVERWRITE }
 
     /**
      * Объект операции.
@@ -84,15 +98,24 @@ object TrashStore {
         val at: Long,
         val items: List<TrashItem>,
         /** Занятые корзиной байты. У перемещений — ноль: объекты стоят на новых местах. */
-        val totalBytes: Long
+        val totalBytes: Long,
+        /**
+         * Явно объявленный вид записи. null — вид выводится из расположения
+         * объектов (старые записи журнала и записи об удалении/перемещении).
+         * Перезапись так вывести нельзя: прежняя версия лежит в корзине
+         * (`storedInTrash = true`), но файл на месте, и откат у неё другой.
+         */
+        val declaredKind: EntryKind? = null
     ) {
         val fileCount: Int get() = items.sumOf { it.fileCount }
 
         /** Удаление, если хотя бы один объект реально лежит в корзине. */
         val kind: EntryKind
-            get() = if (items.any { it.storedInTrash }) EntryKind.DELETE else EntryKind.MOVE
+            get() = declaredKind
+                ?: if (items.any { it.storedInTrash }) EntryKind.DELETE else EntryKind.MOVE
 
         val isMove: Boolean get() = kind == EntryKind.MOVE
+        val isOverwrite: Boolean get() = kind == EntryKind.OVERWRITE
     }
 
     data class TrashResult(
@@ -109,7 +132,10 @@ object TrashStore {
     )
 
     /** Ссылка на запись, которую можно откатить, из вывода инструмента. */
-    data class UndoRef(val entryId: String, val isMove: Boolean)
+    data class UndoRef(val entryId: String, val kind: EntryKind) {
+        val isMove: Boolean get() = kind == EntryKind.MOVE
+        val isOverwrite: Boolean get() = kind == EntryKind.OVERWRITE
+    }
 
     /** Корень корзины. Всегда внутри общей памяти, иначе файловые тулы до него не дойдут. */
     fun root(): File = File(Environment.getExternalStorageDirectory(), DIR_NAME)
@@ -264,6 +290,62 @@ object TrashStore {
         return entry
     }
 
+    /**
+     * Сохраняет прежнее содержимое файла перед перезаписью (`write_file`).
+     *
+     * Копия делается ДО записи нового текста: если запись сорвётся на середине,
+     * уцелевшая версия будет только здесь, поэтому журнал обязан быть записан
+     * до того, как новое содержимое коснётся файла.
+     *
+     * Возвращает null, если версию сохранить не удалось: большие файлы
+     * не копируются ([OVERWRITE_BACKUP_LIMIT_BYTES]), а объект остаётся
+     * неоткатываемым. Неудачную запись журнала тоже не маскируем.
+     */
+    fun recordOverwrite(file: File): TrashEntry? {
+        if (!file.isFile) return null
+        if (file.length() > OVERWRITE_BACKUP_LIMIT_BYTES) return null
+
+        val id = newEntryId()
+        val entryRoot = File(File(root(), ITEMS_DIR), id)
+        val slot = File(entryRoot, "0")
+        if (!slot.mkdirs() && !slot.isDirectory) return null
+
+        val copy = File(slot, file.name)
+        try {
+            file.inputStream().use { input ->
+                copy.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (e: Exception) {
+            entryRoot.deleteRecursively()
+            return null
+        }
+
+        val item = TrashItem(
+            originalPath = file.absolutePath,
+            name = file.name,
+            isDirectory = false,
+            sizeBytes = copy.length(),
+            fileCount = 1,
+            currentPath = copy.absolutePath,
+            storedInTrash = true
+        )
+        val entry = TrashEntry(
+            id = id,
+            at = System.currentTimeMillis(),
+            items = listOf(item),
+            totalBytes = copy.length(),
+            declaredKind = EntryKind.OVERWRITE
+        )
+
+        val manifest = readManifest()
+        manifest.add(0, entry)
+        if (!writeManifest(manifest)) {
+            entryRoot.deleteRecursively()
+            return null
+        }
+        return entry
+    }
+
     // --- Откат ---
 
     /** Возвращает объекты записи на исходные места. */
@@ -271,6 +353,13 @@ object TrashStore {
         val manifest = readManifest()
         val entry = manifest.firstOrNull { it.id == entryId }
             ?: return RestoreOutcome(0, 0, emptyList())
+
+        // Перезапись откатывается не переносом, а записью: файл никуда
+        // не исчезал, на его месте — новый текст, и «вернуть» здесь значит
+        // положить прежнюю версию обратно поверх текущей.
+        if (entry.kind == EntryKind.OVERWRITE) {
+            return restoreOverwrite(manifest, entry)
+        }
 
         var restored = 0
         var failed = 0
@@ -319,6 +408,62 @@ object TrashStore {
         writeManifest(rest)
 
         return RestoreOutcome(restored, failed, renamedTo)
+    }
+
+    /**
+     * Откат перезаписи: прежнее содержимое пишется обратно поверх текущего.
+     *
+     * Имя файла не меняется и `_restored` не добавляется: откат перезаписи —
+     * это возврат версии, а не возврат объекта, место которого могли занять.
+     */
+    private fun restoreOverwrite(
+        manifest: MutableList<TrashEntry>,
+        entry: TrashEntry
+    ): RestoreOutcome {
+        var restored = 0
+        var failed = 0
+        val leftovers = mutableListOf<TrashItem>()
+
+        entry.items.forEach { item ->
+            val stored = File(item.currentPath)
+            val target = File(item.originalPath)
+            val ok = try {
+                if (!stored.exists()) {
+                    false
+                } else {
+                    target.parentFile?.mkdirs()
+                    stored.inputStream().use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    true
+                }
+            } catch (e: Exception) {
+                false
+            }
+            if (ok) restored++ else {
+                failed++
+                leftovers += item
+            }
+        }
+
+        // Запись убираем только когда всё вернулось; иначе остаток остаётся
+        // в журнале и доступен повторным нажатием.
+        val rest = manifest.mapNotNull { candidate ->
+            when {
+                candidate.id != entry.id -> candidate
+                leftovers.isEmpty() -> null
+                else -> candidate.copy(
+                    items = leftovers,
+                    totalBytes = leftovers.sumOf { it.sizeBytes }
+                )
+            }
+        }
+        if (leftovers.isEmpty()) {
+            File(File(root(), ITEMS_DIR), entry.id).deleteRecursively()
+        }
+        writeManifest(rest)
+
+        return RestoreOutcome(restored, failed, emptyList())
     }
 
     /** Откатывает все записи журнала. Возвращает число возвращённых объектов. */
@@ -409,8 +554,11 @@ object TrashStore {
 
     // --- Маркеры в выводе инструмента ---
 
-    fun markerLine(entryId: String, isMove: Boolean): String =
-        if (isMove) "$ID_PREFIX $entryId kind=$KIND_MOVE" else "$ID_PREFIX $entryId"
+    fun markerLine(entryId: String, kind: EntryKind = EntryKind.DELETE): String = when (kind) {
+        EntryKind.MOVE -> "$ID_PREFIX $entryId kind=$KIND_MOVE"
+        EntryKind.OVERWRITE -> "$ID_PREFIX $entryId kind=$KIND_OVERWRITE"
+        EntryKind.DELETE -> "$ID_PREFIX $entryId"
+    }
 
     /** Запись, которую можно откатить, если маркер есть в выводе инструмента. */
     fun undoRefFromOutput(output: String?): UndoRef? {
@@ -418,7 +566,12 @@ object TrashStore {
         val match = MARKER_REGEX.find(output) ?: return null
         val id = match.groupValues[1]
         if (id.isEmpty()) return null
-        return UndoRef(entryId = id, isMove = match.groupValues[2] == KIND_MOVE)
+        val kind = when (match.groupValues[2]) {
+            KIND_MOVE -> EntryKind.MOVE
+            KIND_OVERWRITE -> EntryKind.OVERWRITE
+            else -> EntryKind.DELETE
+        }
+        return UndoRef(entryId = id, kind = kind)
     }
 
     /** Только id записи. Нужен там, где вид операции неважен. */
@@ -564,7 +717,15 @@ object TrashStore {
                     // описывала только удаление.
                     at = obj.optLong("at", obj.optLong("deletedAt", 0L)),
                     items = items,
-                    totalBytes = obj.optLong("totalBytes", 0L)
+                    totalBytes = obj.optLong("totalBytes", 0L),
+                    // Поле появилось вместе с перезаписью. Старые записи его
+                    // не имеют — вид у них и так выводится из расположения.
+                    declaredKind = when (obj.optString("op", "").lowercase()) {
+                        "delete" -> EntryKind.DELETE
+                        "move" -> EntryKind.MOVE
+                        "overwrite" -> EntryKind.OVERWRITE
+                        else -> null
+                    }
                 )
             }.toMutableList()
         } catch (e: Exception) {
@@ -599,6 +760,7 @@ object TrashStore {
                     put("id", entry.id)
                     put("at", entry.at)
                     put("totalBytes", entry.totalBytes)
+                    entry.declaredKind?.let { put("op", it.name.lowercase()) }
                     put("items", items)
                 }
             )

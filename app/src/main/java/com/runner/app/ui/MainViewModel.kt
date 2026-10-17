@@ -30,6 +30,7 @@ import com.runner.app.data.db.ChatDatabase
 import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
+import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import kotlinx.coroutines.Dispatchers
@@ -130,6 +131,29 @@ private const val NO_TOOLS_MARKER = "БЕЗ_ИНСТРУМЕНТОВ"
 
 /** Жёсткий потолок шагов в плане (лимит исполнения всё равно задаёт maxSteps). */
 private const val MAX_PLAN_STEPS = 12
+
+/**
+ * Сколько одинаковых вызовов ПОДРЯД терпим, прежде чем решить, что модель
+ * зациклилась. Тексты «не повторяй операцию» в промпте — просьба к модели,
+ * а не защита: без счётчика зациклившаяся модель просто выжигает maxSteps,
+ * и пользователь видит «достигнут лимит» без причины.
+ */
+private const val LOOP_REPEAT_LIMIT = 3
+
+/**
+ * Предел памяти для набора «недоверенных» строк за сессию. Набор живёт весь
+ * сеанс и без предела рос бы с каждым прочитанным файлом. Держим последние:
+ * актуальная защита не должна незаметно съедать память.
+ */
+private const val UNTRUSTED_LINES_LIMIT = 2_000
+
+/**
+ * Минимальная длина значения, которое план может предодобрить подстрокой.
+ * Короткие значения («all», имя приложения из трёх букв) слишком легко
+ * случайно оказываются частью текста шага, а предодобрение — это молчаливое
+ * выполнение операции. При сомнении честнее спросить.
+ */
+private const val PREAPPROVE_MIN_VALUE_LEN = 4
 
 /** Сколько последних реплик диалога отдаём планировщику для контекста уточнений. */
 private const val PLAN_HISTORY_TAIL = 10
@@ -347,12 +371,28 @@ private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson
 
     return candidates.any { step ->
         val haystack = normalizeForMatch(step.rawText)
-        values.all { value -> haystack.contains(normalizeForMatch(value)) }
+        values.all { value ->
+            val needle = normalizeForMatch(value)
+            // Короткие значения не предодобряем: совпадение подстроки длиной
+            // 1–3 символа — почти наверняка случайность, а не совпадение шага.
+            needle.length >= PREAPPROVE_MIN_VALUE_LEN && haystack.contains(needle)
+        }
     }
 }
 
 /** Инструменты, чей вывод считается недоверенным содержимым. */
 private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf("read_file", "list_dir", "clipboard_read")
+
+/**
+ * Команда из аргументов run_shell_command. Пустая строка, если JSON не
+ * разобрался: тогда пред-проверка [ToolDispatcher.shellPreRefusal] пропускается,
+ * а окончательное решение всё равно принимает исполнитель.
+ */
+private fun shellCommandOf(argsJson: String): String = try {
+    if (argsJson.isBlank()) "" else JSONObject(argsJson).optString("command", "").trim()
+} catch (e: Exception) {
+    ""
+}
 
 /**
  * Подпись операции для списка «больше не спрашивать».
@@ -769,10 +809,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val count: Int get() = entries.size
 
         /** Удаления: объекты лежат в корзине и занимают её место. */
-        val deletions: List<TrashStore.TrashEntry> get() = entries.filter { !it.isMove }
+        val deletions: List<TrashStore.TrashEntry>
+            get() = entries.filter { it.kind == TrashStore.EntryKind.DELETE }
 
         /** Перемещения: объекты стоят на новых местах, место занимает не корзина. */
         val moves: List<TrashStore.TrashEntry> get() = entries.filter { it.isMove }
+
+        /** Перезаписи: в корзине лежит прежняя версия файла. */
+        val overwrites: List<TrashStore.TrashEntry> get() = entries.filter { it.isOverwrite }
 
         val totalBytes: Long get() = entries.sumOf { it.totalBytes }
         val deletedFileCount: Int get() = deletions.sumOf { it.fileCount }
@@ -822,8 +866,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val summary = when {
                 outcome.restored == 0 && outcome.failed > 0 ->
-                    "Не удалось откатить операцию: объект занят другим приложением, " +
-                            "перемещён или путь недоступен."
+                    "Не удалось откатить операцию: файл недоступен " +
+                            "или его не удалось записать (занят другим приложением)."
                 outcome.renamedTo.isNotEmpty() ->
                     "Возвращено объектов: ${outcome.restored}. " +
                             "Исходное место было занято, поэтому файл получил новое имя: " +
@@ -1653,6 +1697,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // тайминги прилипали к чужому, более старому сообщению.
         var turnAssistantId: String? = null
 
+        // Детектор зацикливания: считаем ПОДРЯД идущие одинаковые вызовы
+        // в этом ходе. Счётчик переживает шаги: модель, повторяющая вызов
+        // через шаг, для пользователя ничем не лучше повторяющей подряд.
+        var lastCallSignature: String? = null
+        var repeatedCalls = 0
+
         while (step < currentSettings.maxSteps && !stopRequested) {
             step++
             _currentStatus.value = "Шаг $step · $model"
@@ -1716,7 +1766,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 is AIResponseResult.TextResult -> {
                     val reply = result.text.ifBlank { "Готово." }
-                    _streamingText.value = ""
                     turnAssistantId = saveAssistantMessage(
                         sessionId = sessionId,
                         text = reply,
@@ -1725,6 +1774,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         completionTokens = metrics.completionTokens,
                         tokensPerSecond = metrics.tokensPerSecond
                     )
+                    _streamingText.value = ""
                     if (_settings.value.autoSpeakResponses) {
                         voiceManager.speak(reply, turnAssistantId)
                     }
@@ -1748,11 +1798,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     persistContext(sessionId)
 
                     val executed = mutableSetOf<Int>()
+                    var loopDetected = false
+                    var loopToolName = ""
                     result.toolCalls.forEachIndexed { index, call ->
-                        if (!stopRequested) {
-                            executeToolCall(sessionId, call)
-                            executed += index
+                        if (stopRequested || loopDetected) return@forEachIndexed
+
+                        // Подпись — имя плюс аргументы целиком: «list_dir Download»
+                        // и «list_dir Documents» — разные вызовы, и повтором
+                        // считается только полное совпадение.
+                        val signature = call.name.substringAfterLast(":") + "\u0000" + call.arguments
+                        if (signature == lastCallSignature) {
+                            repeatedCalls++
+                        } else {
+                            lastCallSignature = signature
+                            repeatedCalls = 1
                         }
+
+                        // Лимит терпимости достигнут: вызов НЕ выполняем.
+                        if (repeatedCalls >= LOOP_REPEAT_LIMIT) {
+                            loopDetected = true
+                            loopToolName = call.name.substringAfterLast(":")
+                            return@forEachIndexed
+                        }
+
+                        executeToolCall(sessionId, call)
+                        executed += index
                     }
 
                     // Стоп посреди пачки тулов оставлял assistant с tool_calls без
@@ -1767,6 +1837,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
                             reasoningMs = metrics.reasoningMillis.takeIf { it > 0L }
                         )
+                    }
+
+                    if (loopDetected) {
+                        appendSystemInfo(
+                            "Обнаружено зацикливание: модель $repeatedCalls-й раз подряд " +
+                                    "вызывает '$loopToolName' с теми же аргументами. " +
+                                    "Задача остановлена, чтобы не выжигать лимит запросов. " +
+                                    "Переформулируйте запрос или уточните, что именно нужно.",
+                            null
+                        )
+                        attachTurnStats(
+                            sessionId, turnStartedAt, totalPromptTokens,
+                            totalCompletionTokens, trackStats, turnAssistantId
+                        )
+                        return
                     }
                 }
             }
@@ -1899,7 +1984,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             call.name,
             call.arguments,
             getApplication(),
-            _settings.value.shellOutsideStorage
+            _settings.value.shellOutsideStorage,
+            _settings.value.allowRootShell
         )
     }
 
@@ -1952,6 +2038,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // а «покажи, что будет сделано». Тексты ответов поэтому разные.
         val blockedByDryRun = dryRunActive && isDangerous
 
+        // Абсолютные запреты shell (запрещённая команда, root без тумблера,
+        // удаление данных приложений) отсекаются до подтверждения. Показывать
+        // диалог для команды, которая всё равно не выполнится, нечестно, а
+        // модель должна сразу узнать отказ. Песочница путей сюда не входит:
+        // её отказ срабатывает при выполнении, после подтверждения — так
+        // пользователь видит, что именно предлагалось выполнить.
+        val isShellCall = call.name.substringAfterLast(":") == "run_shell_command"
+        val commandLine = if (isShellCall) shellCommandOf(call.arguments) else ""
+        val shellPreRefusal = if (isShellCall && commandLine.isNotEmpty()) {
+            ToolDispatcher.shellPreRefusal(commandLine, _settings.value.allowRootShell)
+        } else {
+            null
+        }
+
         // Подключение инструментов — не операция над файлами, а часть диалога:
         // ни подтверждений, ни режимов у неё быть не должно.
         val isEnableTools = call.name.substringAfterLast(":") == ToolDispatcher.ENABLE_TOOLS
@@ -1974,6 +2074,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val output = if (isEnableTools) {
             enableTools(call.arguments)
+        } else if (shellPreRefusal != null) {
+            // Абсолютный запрет важнее режимов: «попроси выключить режим» не
+            // помогло бы с командой, запрещённой навсегда. Попытку тоже пишем
+            // в журнал — это факт, по которому потом разбирается инцидент.
+            declined = true
+            ShellLog.append(
+                getApplication(),
+                "ОТКАЗ (до подтверждения)",
+                commandLine
+            )
+            shellPreRefusal
         } else if (blockedByReadOnly) {
             // «Только чтение» проверяем раньше сухого прогона: она запрещает
             // операцию совсем, поэтому её сообщение правдивее. Сообщение прогона
@@ -2048,7 +2159,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .map { it.trim() }
                 .filter { it.length in 4..300 && it.none { ch -> ch == '\u0000' } }
                 .toSet()
-            if (lines.isNotEmpty()) untrustedLines = untrustedLines + lines
+            if (lines.isNotEmpty()) {
+                // Держим последние строки: набор нужен для сверки ближайших
+                // вызовов, а память на длинной сессии расти не должна.
+                untrustedLines = (untrustedLines + lines)
+                    .toList()
+                    .takeLast(UNTRUSTED_LINES_LIMIT)
+                    .toSet()
+            }
         }
 
         val isError = !declined && looksLikeToolError(output)
@@ -2109,15 +2227,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun finalizeStreamedText(sessionId: String, stopped: Boolean): String? {
         val partial = _streamingText.value.trim()
-        _streamingText.value = ""
 
         if (partial.isBlank()) {
+            _streamingText.value = ""
             if (stopped) appendSystemInfo("Генерация остановлена.", null)
             return null
         }
 
         val text = if (stopped) "$partial\n\n_Остановлено._" else partial
         val id = saveAssistantMessage(sessionId, text)
+        _streamingText.value = ""
         conversationJson.put(
             JSONObject().apply {
                 put("role", "assistant")
