@@ -16,11 +16,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -70,17 +66,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.runner.app.MainActivity
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
+import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.rememberChatInputState
 import com.runner.app.ui.theme.RunnerTheme
+import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.ScreenCaptureManager
 import kotlinx.coroutines.launch
@@ -390,25 +386,19 @@ private fun OverlayScreen(
                                 .verticalScroll(rememberScrollState())
                                 .padding(12.dp)
                         ) {
-                            if (isRunning && currentStatus != null) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = currentStatus.orEmpty(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
+                            if (isRunning) {
+                                AgentStatusIndicator(
+                                    status = currentStatus,
+                                    dotColor = SecondaryMint,
+                                    dotSize = 5.dp,
+                                    height = 24.dp,
+                                    horizontalPadding = 0.dp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
                             }
 
                             val displayText = if (streamingText.isNotBlank()) streamingText else lastAssistant?.content.orEmpty()
-                            MarkdownView(text = displayText)
+                            MarkdownView(text = displayText, isStreaming = streamingText.isNotBlank())
 
                             if (!isRunning && lastAssistant != null) {
                                 Spacer(modifier = Modifier.height(8.dp))

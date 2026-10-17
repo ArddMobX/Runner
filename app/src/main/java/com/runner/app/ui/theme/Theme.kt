@@ -64,8 +64,15 @@ fun RunnerTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
+            // На Android 15 (API 35) color-сеттеры системных панелей устарели
+            // и всё равно игнорируются: панели прозрачны поверх контента.
+            // До 15 цвета ещё работают — сохраняем прежнее поведение, но без
+            // обращения к устаревшему API там, где он ничего не делает.
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                window.statusBarColor = colorScheme.background.toArgb()
+                window.navigationBarColor = colorScheme.background.toArgb()
+            }
             val isLight = !isDark
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = isLight

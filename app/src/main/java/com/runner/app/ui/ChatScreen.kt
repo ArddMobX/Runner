@@ -11,7 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
@@ -24,9 +23,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +42,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -46,15 +50,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -68,7 +66,6 @@ import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VolumeUp
@@ -77,6 +74,11 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -88,11 +90,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -115,30 +118,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
+import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
-import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.components.WebPreviewDialog
 import com.runner.app.ui.components.WebPreviewSource
@@ -146,6 +146,7 @@ import com.runner.app.ui.components.findWebPreviewInMarkdown
 import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
@@ -205,11 +206,6 @@ fun ChatScreen(
     var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
-    val storageStats by viewModel.storageStats.collectAsState()
-
-    LaunchedEffect(isEmptyChat) {
-        if (isEmptyChat) viewModel.refreshStorageStats()
-    }
 
     // Плеер и синтез речи глушим при уходе с экрана:
     // иначе они продолжат звучать поверх других экранов
@@ -291,7 +287,13 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { undoCandidate = null },
             title = {
-                Text(if (entry.isMove) "Отменить перемещение?" else "Вернуть из корзины?")
+                Text(
+                    when {
+                        entry.isMove -> "Отменить перемещение?"
+                        entry.isOverwrite -> "Вернуть прежнюю версию?"
+                        else -> "Вернуть из корзины?"
+                    }
+                )
             },
             text = {
                 Text(
@@ -306,14 +308,14 @@ fun ChatScreen(
                             }
                         )
                         append("\n\n")
-                        append(
-                            if (entry.isMove) {
-                                "Объекты вернутся туда, откуда их взяли."
-                            } else {
-                                "Объекты вернутся на исходные места."
-                            }
-                        )
-                        append(" Если место занято, файл получит новое имя.")
+                        when {
+                            entry.isMove ->
+                                append("Объекты вернутся туда, откуда их взяли. Если место занято, файл получит новое имя.")
+                            entry.isOverwrite ->
+                                append("Прежнее содержимое файла будет записано поверх текущего. Текущий текст будет потерян.")
+                            else ->
+                                append("Объекты вернутся на исходные места. Если место занято, файл получит новое имя.")
+                        }
                     }
                 )
             },
@@ -407,9 +409,8 @@ fun ChatScreen(
         ) {
             if (isEmptyChat) {
                 EmptyChatState(
-                    modifier = Modifier.weight(1f),
-                    storageStats = storageStats,
-                    onSuggestion = { inputState.setText(it) }
+                    onSuggestion = { inputState.setText(it) },
+                    modifier = Modifier.weight(1f)
                 )
             } else {
                 Column(modifier = Modifier.weight(1f)) {
@@ -422,6 +423,7 @@ fun ChatScreen(
                         // Серии одинаковых вызовов схлопываем в один аккордеон,
                         // чтобы «Выполняю команду...» не захламляли экран.
                         val chatItems = remember(messages) { groupChatItems(messages) }
+                        val lastUserMessageId = remember(messages) { findLastUserMessageId(messages) }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
@@ -448,6 +450,7 @@ fun ChatScreen(
                                     when (item) {
                                         is ChatListItem.Single -> MessageItem(
                                             message = item.message,
+                                            isLastUserMessage = item.message.id == lastUserMessageId,
                                             showToolDetails = appSettings.showToolDetails,
                                             showStats = appSettings.showStats,
                                             planAwaitingId = pendingPlan?.id,
@@ -481,7 +484,13 @@ fun ChatScreen(
 
                             if (streamingText.isNotBlank()) {
                                 item(key = "streaming") {
-                                    StreamingBubble(text = streamingText)
+                                    Box(
+                                        modifier = Modifier.animateItemPlacement(
+                                            animationSpec = MotionTokens.fluidSpring()
+                                        )
+                                    ) {
+                                        StreamingBubble(text = streamingText)
+                                    }
                                 }
                             }
                         }
@@ -495,29 +504,10 @@ fun ChatScreen(
 
             AnimatedVisibility(
                 visible = isRunning,
-                enter = expandVertically(animationSpec = MotionTokens.fluidSpring()) + fadeIn(),
-                exit = shrinkVertically(animationSpec = MotionTokens.fluidSpring()) + fadeOut()
+                enter = expandVertically(animationSpec = MotionTokens.fluidSpring()) + fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)),
+                exit = shrinkVertically(animationSpec = MotionTokens.fluidSpring()) + fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast))
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(11.dp),
-                        strokeWidth = 1.6.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(9.dp))
-                    Text(
-                        text = currentStatus ?: "Работаю",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                AgentStatusIndicator(status = currentStatus)
             }
 
             ChatInputBar(
@@ -662,216 +652,158 @@ private fun ModelChip(
 
 
 /**
- * Экран пустого чата: блок прижат к низу (ближе к пальцу и полю ввода),
- * сверху — свободное пространство. Живой виджет хранилища задаёт контекст
- * системной утилиты, сетка 2×2 — короткие сценарии с описаниями.
+ * Главный экран пустого чата (Empty State):
+ * Спокойная центрированная типографика в стиле Claude / ChatGPT с большим
+ * количеством свободного пространства и горизонтальный скроллируемый ряд
+ * лёгких капсул-подсказок (Pill Chips) над полем ввода.
  */
 @Composable
 private fun EmptyChatState(
-    modifier: Modifier = Modifier,
-    storageStats: ToolDispatcher.StorageStats?,
-    onSuggestion: (String) -> Unit
+    onSuggestion: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val suggestions = listOf(
-        Suggestion(
-            Icons.Outlined.FolderOpen, "Разобрать Download",
-            "Разбери папку Download: архивы и свежие файлы"
-        ),
-        Suggestion(
-            Icons.Outlined.DeleteOutline, "Очистить мусор",
-            "Найди мусор: кэш, пустые папки и тяжелые логи"
-        ),
-        Suggestion(
-            Icons.Outlined.VideoLibrary, "Тяжёлые файлы",
-            "Найди файлы тяжелее 50 МБ: видео и музыку"
-        ),
-        Suggestion(
-            Icons.Outlined.ContentPaste, "Буфер обмена",
-            "Прочитай буфер обмена"
+    val suggestions = remember {
+        listOf(
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.DeleteOutline,
+                title = "Очистить кэш",
+                prompt = "Найди мусор: кэш, пустые папки и временные файлы",
+                isMint = true
+            ),
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.VideoLibrary,
+                title = "Тяжёлые файлы",
+                prompt = "Найди файлы тяжелее 50 МБ: видео, архивы и загрузки",
+                isMint = false
+            ),
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.FolderOpen,
+                title = "Разобрать Download",
+                prompt = "Разбери папку Download: архивы и свежие файлы",
+                isMint = true
+            ),
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.ContentPaste,
+                title = "Буфер обмена",
+                prompt = "Прочитай буфер обмена",
+                isMint = false
+            )
         )
-    )
+    }
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.Start
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.weight(0.4f))
+        Spacer(modifier = Modifier.weight(1f))
 
-        Text(
-            text = "Чем помочь?",
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = (-0.5).sp
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Агент для работы с файлами, памятью и терминалом.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.5.sp,
-            lineHeight = 18.sp
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        StorageWidget(
-            stats = storageStats,
-            onClick = { onSuggestion("Сделай сводку по памяти устройства") }
-        )
-        if (storageStats?.totalBytes ?: 0L > 0L) {
-            Spacer(modifier = Modifier.height(12.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Чем заняться?",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.4).sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Спросите о файлах, памяти или выберите сценарий",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.Center
+            )
         }
 
-        Row(
+        Spacer(modifier = Modifier.weight(1f))
+
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            SuggestionCard(
-                modifier = Modifier.weight(1f),
-                suggestion = suggestions[0],
-                onClick = { onSuggestion(suggestions[0].prompt) }
-            )
-            SuggestionCard(
-                modifier = Modifier.weight(1f),
-                suggestion = suggestions[1],
-                onClick = { onSuggestion(suggestions[1].prompt) }
-            )
+            items(suggestions, key = { it.title }) { suggestion ->
+                EmptyStateChip(
+                    suggestion = suggestion,
+                    onClick = { onSuggestion(suggestion.prompt) }
+                )
+            }
         }
         Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SuggestionCard(
-                modifier = Modifier.weight(1f),
-                suggestion = suggestions[2],
-                onClick = { onSuggestion(suggestions[2].prompt) }
-            )
-            SuggestionCard(
-                modifier = Modifier.weight(1f),
-                suggestion = suggestions[3],
-                onClick = { onSuggestion(suggestions[3].prompt) }
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(0.6f))
     }
 }
 
-private data class Suggestion(
+private data class EmptyStateSuggestion(
     val icon: ImageVector,
     val title: String,
-    val prompt: String
+    val prompt: String,
+    val isMint: Boolean = false
 )
 
 /**
- * Живой виджет хранилища: тонкий прогресс-бар и подпись
- * «Занято X из Y (N%)». Тап по карточке запускает анализ памяти.
+ * Лёгкая плавающая пилюля-подсказка (Pill Chip) со скруглением 20dp,
+ * деликатным bounceClick и тонким фирменным акцентом Ice Blue / Mint.
  */
 @Composable
-private fun StorageWidget(
-    stats: ToolDispatcher.StorageStats?,
-    onClick: (() -> Unit)? = null
+private fun EmptyStateChip(
+    suggestion: EmptyStateSuggestion,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    if (stats == null || stats.totalBytes <= 0L) return
-    val ratio = (stats.usedBytes.toFloat() / stats.totalBytes).coerceIn(0f, 1f)
-
-    // Полоса заливается плавно: при первом показе цифры прыгали с нуля
-    val animatedRatio by animateFloatAsState(
-        targetValue = ratio,
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
-        label = "storage_ratio"
-    )
-    val percent = (animatedRatio * 100).toInt()
-    val barColor = when {
-        percent >= 90 -> MaterialTheme.colorScheme.error
-        percent >= 75 -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
+    val haptic = LocalHapticFeedback.current
+    val accent = if (suggestion.isMint) {
+        SecondaryMint
+    } else {
+        MaterialTheme.colorScheme.primary
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(12.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Хранилище устройства",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = "$percent%",
-                color = barColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-        LinearProgressIndicator(
-            progress = animatedRatio,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp)),
-            color = barColor,
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-        )
-        Text(
-            text = "Занято ${ToolDispatcher.formatFileSize(stats.usedBytes)} " +
-                    "из ${ToolDispatcher.formatFileSize(stats.totalBytes)} ($percent%)",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp
-        )
+    val handleClick = {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onClick()
     }
-}
 
-@Composable
-private fun SuggestionCard(
-    modifier: Modifier = Modifier,
-    suggestion: Suggestion,
-    onClick: () -> Unit
-) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .bounceClick(scaleDown = 0.96f, onClick = handleClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick {
+                    handleClick()
+                    true
+                }
+            }
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)), RoundedCornerShape(12.dp))
-            .bounceClick(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .border(
+                BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                ),
+                RoundedCornerShape(20.dp)
+            )
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = suggestion.icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(19.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
+        Icon(
+            imageVector = suggestion.icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(15.dp)
+        )
+        Spacer(modifier = Modifier.width(7.dp))
         Text(
             text = suggestion.title,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
         )
     }
 }
@@ -883,25 +815,39 @@ private fun MessageActionIcon(
     label: String,
     onClick: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
+    val handleClick = {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onClick()
+    }
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(32.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .bounceClick(scaleDown = 0.88f, onClick = handleClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick {
+                    handleClick()
+                    true
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp)
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+            modifier = Modifier.size(15.dp)
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageItem(
     message: ChatMessage,
+    isLastUserMessage: Boolean = false,
     showToolDetails: Boolean,
     showStats: Boolean,
     planAwaitingId: String?,
@@ -919,57 +865,163 @@ private fun MessageItem(
     when (message.role) {
         MessageRole.USER -> {
             val context = LocalContext.current
+            val haptic = LocalHapticFeedback.current
+            var showContextMenu by remember { mutableStateOf(false) }
+
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.End
             ) {
+                val bubbleShape = RoundedCornerShape(
+                    topStart = 18.dp,
+                    topEnd = 18.dp,
+                    bottomStart = 18.dp,
+                    bottomEnd = 4.dp
+                )
+                val maxBubbleWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
+
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                    modifier = Modifier.widthIn(max = maxBubbleWidth)
                 ) {
-                    Column {
-                        if (message.imageUris.isNotEmpty()) {
-                            MessageImageGrid(message.imageUris)
+                    Box(
+                        modifier = Modifier
+                            .clip(bubbleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {},
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showContextMenu = true
+                                },
+                                onLongClickLabel = "Действия с сообщением"
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Column {
+                            if (message.imageUris.isNotEmpty()) {
+                                MessageImageGrid(message.imageUris)
+                                if (message.content.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
                             if (message.content.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = message.content,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
                             }
                         }
+                    }
+
+                    DropdownMenu(
+                        expanded = showContextMenu,
+                        onDismissRequest = { showContextMenu = false }
+                    ) {
                         if (message.content.isNotBlank()) {
-                            Text(
-                                text = message.content,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.bodyLarge
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Копировать",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 14.sp
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ContentCopy,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showContextMenu = false
+                                    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    manager.setPrimaryClip(ClipData.newPlainText("Сообщение", message.content))
+                                    Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Изменить",
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 14.sp
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showContextMenu = false
+                                    onEditMessage(message.content)
+                                }
                             )
                         }
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Заново",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 14.sp
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Refresh,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                showContextMenu = false
+                                onRetryMessage(message.id)
+                            }
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    MessageActionIcon(
-                        icon = Icons.Outlined.ContentCopy,
-                        label = "Копировать",
-                        onClick = {
-                            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            manager.setPrimaryClip(ClipData.newPlainText("Сообщение", message.content))
-                            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                AnimatedVisibility(
+                    visible = isLastUserMessage,
+                    enter = fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)) + expandVertically(animationSpec = MotionTokens.fluidSpring()),
+                    exit = fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)) + shrinkVertically(animationSpec = MotionTokens.fluidSpring())
+                ) {
+                    Row(
+                        modifier = Modifier.padding(top = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (message.content.isNotBlank()) {
+                            MessageActionIcon(
+                                icon = Icons.Outlined.ContentCopy,
+                                label = "Копировать",
+                                onClick = {
+                                    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    manager.setPrimaryClip(ClipData.newPlainText("Сообщение", message.content))
+                                    Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                            MessageActionIcon(
+                                icon = Icons.Outlined.Edit,
+                                label = "Изменить",
+                                onClick = { onEditMessage(message.content) }
+                            )
                         }
-                    )
-                    MessageActionIcon(
-                        icon = Icons.Outlined.Edit,
-                        label = "Изменить",
-                        // Текст уходит в поле ввода, менять историю молча не станем
-                        onClick = { onEditMessage(message.content) }
-                    )
-                    MessageActionIcon(
-                        icon = Icons.Outlined.Refresh,
-                        label = "Заново",
-                        onClick = { onRetryMessage(message.id) }
-                    )
+                        MessageActionIcon(
+                            icon = Icons.Outlined.Refresh,
+                            label = "Заново",
+                            onClick = { onRetryMessage(message.id) }
+                        )
+                    }
                 }
             }
         }
@@ -1002,32 +1054,46 @@ private fun MessageItem(
                     )
                 }
 
-                Row(
-                    modifier = Modifier.padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val isCurrentSpeaking = isSpeaking && activeUtteranceId == message.id
-                    @Suppress("DEPRECATION")
-                    val volumeIcon = Icons.Outlined.VolumeUp
-                    MessageActionIcon(
-                        icon = if (isCurrentSpeaking) Icons.Outlined.Stop else volumeIcon,
-                        label = if (isCurrentSpeaking) "Остановить" else "Озвучить",
-                        onClick = { onToggleSpeak(message.id, message.content) }
-                    )
-                    MessageActionIcon(
-                        icon = Icons.Outlined.ContentCopy,
-                        label = "Копировать",
-                        onClick = {
-                            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            manager.setPrimaryClip(ClipData.newPlainText("Ответ", message.content))
-                            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
+                val hasContent = message.content.isNotBlank()
+                val hasStats = showStats && (message.durationMs != null || message.tokensPerSecond != null || message.promptTokens != null || message.completionTokens != null)
 
-                if (showStats) {
-                    ResponseStats(message)
+                if (hasContent || hasStats) {
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        modifier = Modifier.padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (hasContent) {
+                            val isCurrentSpeaking = isSpeaking && activeUtteranceId == message.id
+                            @Suppress("DEPRECATION")
+                            val volumeIcon = Icons.Outlined.VolumeUp
+                            MessageActionIcon(
+                                icon = if (isCurrentSpeaking) Icons.Outlined.Stop else volumeIcon,
+                                label = if (isCurrentSpeaking) "Остановить" else "Озвучить",
+                                onClick = { onToggleSpeak(message.id, message.content) }
+                            )
+                            MessageActionIcon(
+                                icon = Icons.Outlined.ContentCopy,
+                                label = "Копировать",
+                                onClick = {
+                                    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    manager.setPrimaryClip(ClipData.newPlainText("Ответ", message.content))
+                                    Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+
+                        if (hasStats) {
+                            ResponseStats(
+                                message = message,
+                                modifier = Modifier.padding(
+                                    start = if (hasContent) 2.dp else 0.dp,
+                                    top = if (hasContent) 6.dp else 0.dp
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1114,8 +1180,12 @@ private fun MessageImageItem(path: String) {
 }
 
 /** Плашка под ответом: сколько занял весь пайплайн, токены и скорость генерации. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ResponseStats(message: ChatMessage) {
+private fun ResponseStats(
+    message: ChatMessage,
+    modifier: Modifier = Modifier
+) {
     val parts = buildList {
         message.durationMs?.let { add("⏱ ${formatDuration(it)}") }
         val prompt = message.promptTokens
@@ -1128,15 +1198,15 @@ private fun ResponseStats(message: ChatMessage) {
 
     if (parts.isEmpty()) return
 
-    Row(
-        modifier = Modifier.padding(top = 6.dp, start = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         parts.forEach { part ->
             Text(
                 text = part,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
                 fontSize = 10.5.sp,
                 fontFamily = FontFamily.Monospace
             )
@@ -1230,17 +1300,7 @@ private fun StreamingBubble(text: String) {
                 .fillMaxWidth(0.96f)
                 .padding(vertical = 2.dp)
         ) {
-            Column {
-                MarkdownView(text = text)
-                Spacer(modifier = Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .width(22.dp)
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                )
-            }
+            MarkdownView(text = text, isStreaming = true)
         }
     }
 }
@@ -1257,6 +1317,7 @@ private fun PlanCard(
     onApprove: () -> Unit,
     onReject: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     val steps = remember(message.content) { parsePlanStepsUi(message.content) }
 
     // Пока план ждёт решения — раскрыт, иначе его нельзя осознанно утвердить.
@@ -1361,7 +1422,10 @@ private fun PlanCard(
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
-                        onClick = onApprove,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onApprove()
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(42.dp),
@@ -1370,7 +1434,10 @@ private fun PlanCard(
                         Text("Утвердить", fontSize = 13.sp)
                     }
                     OutlinedButton(
-                        onClick = onReject,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onReject()
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(42.dp),
@@ -1395,10 +1462,17 @@ private fun parsePlanStepsUi(text: String): List<String> {
  * Элемент ленты чата: одиночное сообщение либо схлопнутая серия
  * одинаковых вызовов инструментов.
  */
-private sealed interface ChatListItem {
+internal sealed interface ChatListItem {
     data class Single(val message: ChatMessage) : ChatListItem
     data class ToolGroup(val messages: List<ChatMessage>) : ChatListItem
 }
+
+/**
+ * Находит ID последнего сообщения пользователя в диалоге,
+ * чтобы показывать быстрые действия только для него.
+ */
+internal fun findLastUserMessageId(messages: List<ChatMessage>): String? =
+    messages.findLast { it.role == MessageRole.USER }?.id
 
 /**
  * Схлопывает ЛЮБУЮ идущую подряд серию завершённых вызовов в одну карточку,
@@ -1406,7 +1480,7 @@ private sealed interface ChatListItem {
  * плодятся отдельные плашки и полезный ответ в них тонет.
  * Живые (isRunning) вызовы и одиночные не группируем.
  */
-private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
+internal fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
     val out = mutableListOf<ChatListItem>()
     var run = mutableListOf<ChatMessage>()
     fun flush() {
@@ -1425,6 +1499,13 @@ private fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
     }
     flush()
     return out
+}
+
+/** Подпись кнопки отмены: вид операции виден прямо на кнопке. */
+internal fun undoLabel(ref: TrashStore.UndoRef): String = when (ref.kind) {
+    TrashStore.EntryKind.MOVE -> "Отменить перемещение"
+    TrashStore.EntryKind.OVERWRITE -> "Отменить перезапись"
+    TrashStore.EntryKind.DELETE -> "Отменить удаление"
 }
 
 /**
@@ -1509,7 +1590,7 @@ private fun ToolGroupCard(
                 Spacer(modifier = Modifier.height(7.dp))
                 val ref = undoRefs.first()
                 UndoTrashButton(
-                    label = if (ref.isMove) "Отменить перемещение" else "Отменить удаление",
+                    label = undoLabel(ref),
                     onClick = { onUndoTrash(ref.entryId) }
                 )
             }
@@ -1558,7 +1639,7 @@ private fun ToolGroupCard(
                     TrashStore.undoRefFromOutput(m.toolOutput)?.let { ref ->
                         Spacer(modifier = Modifier.height(6.dp))
                         UndoTrashButton(
-                            label = if (ref.isMove) "Отменить перемещение" else "Отменить удаление",
+                            label = undoLabel(ref),
                             onClick = { onUndoTrash(ref.entryId) }
                         )
                     }
@@ -1670,7 +1751,7 @@ private fun ToolCard(
             if (undoRef != null) {
                 Spacer(modifier = Modifier.height(7.dp))
                 UndoTrashButton(
-                    label = if (undoRef.isMove) "Отменить перемещение" else "Отменить удаление",
+                    label = undoLabel(undoRef),
                     onClick = { onUndoTrash(undoRef.entryId) }
                 )
             }
@@ -1796,6 +1877,7 @@ private fun ReadOnlyBadge() {
  */
 @Composable
 private fun UndoTrashButton(label: String, onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(8.dp)
     Box(
         modifier = Modifier
@@ -1806,7 +1888,10 @@ private fun UndoTrashButton(label: String, onClick: () -> Unit) {
                 BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
                 shape
             )
-            .clickable { onClick() }
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),

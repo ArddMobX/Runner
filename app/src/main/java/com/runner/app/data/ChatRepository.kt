@@ -13,11 +13,11 @@ import java.util.UUID
 class ChatRepository(private val dao: ChatDao) {
 
     fun observeSessions(query: String = ""): Flow<List<SessionEntity>> =
-        if (query.isBlank()) dao.observeSessions() else dao.searchSessionsFullText(query.trim())
+        if (query.isBlank()) dao.observeSessions() else dao.searchSessionsFullText(escapeLike(query.trim()))
 
     /** Совпадения внутри сообщений — для сниппетов в списке чатов. */
     suspend fun findMessageMatches(query: String): List<MessageMatch> =
-        if (query.isBlank()) emptyList() else dao.findMessageMatches(query.trim())
+        if (query.isBlank()) emptyList() else dao.findMessageMatches(escapeLike(query.trim()))
 
     suspend fun loadMessages(sessionId: String): List<MessageEntity> = dao.loadMessages(sessionId)
 
@@ -66,5 +66,16 @@ class ChatRepository(private val dao: ChatDao) {
     companion object {
         const val NEW_CHAT_TITLE = "Новый чат"
         const val MAX_TITLE_LENGTH = 60
+
+        /**
+         * Экранирует спецсимволы LIKE. Запросы в ChatDao объявлены с
+         * `ESCAPE '\'`, поэтому символы `%` и `_` из поисковой строки должны
+         * приходить уже с обратным слешем. Порядок замен важен: сначала
+         * экранируется сам обратный слеш, иначе он заэкранирует экранирующие.
+         */
+        fun escapeLike(raw: String): String = raw
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
     }
 }
