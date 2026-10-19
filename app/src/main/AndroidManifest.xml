@@ -86,7 +86,33 @@
             android:exported="true"
             android:theme="@style/Theme.Runner.Overlay"
             android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Системная служба цифрового ассистента Android (VoiceInteractionService) -->
+        <service
+            android:name=".service.RunnerVoiceInteractionService"
+            android:label="@string/assistant_service_name"
+            android:icon="@mipmap/ic_launcher"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction_service" />
+        </service>
+
+        <!-- Служба управления сессиями системного ассистента -->
+        <service
+            android:name=".service.RunnerVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
 
         <!-- FileProvider для съёмки с камеры -->
         <provider

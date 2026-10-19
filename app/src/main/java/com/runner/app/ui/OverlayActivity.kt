@@ -89,21 +89,28 @@ class OverlayActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_AUTO_SCREENSHOT = "extra_auto_screenshot"
+        const val EXTRA_SCREENSHOT_URI = "extra_screenshot_uri"
     }
 
     private val viewModel: MainViewModel by viewModels()
+    private val pendingScreenshotUri = mutableStateOf<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val autoScreenshot = intent?.getBooleanExtra(EXTRA_AUTO_SCREENSHOT, false) ?: false
+        extractScreenshotUri(intent)
+        val isAssist = intent?.action == Intent.ACTION_ASSIST
+        val autoScreenshot = isAssist || (intent?.getBooleanExtra(EXTRA_AUTO_SCREENSHOT, false) ?: false)
 
         setContent {
             val themeConfig by viewModel.themeConfig.collectAsState()
+            val screenshotUri by pendingScreenshotUri
+
             RunnerTheme(themeConfig = themeConfig) {
                 OverlayScreen(
                     viewModel = viewModel,
-                    initialAutoScreenshot = autoScreenshot,
+                    initialAutoScreenshot = autoScreenshot && screenshotUri == null,
+                    initialScreenshotUri = screenshotUri,
                     onOpenInFullChat = { sessionId ->
                         val fullIntent = Intent(this, MainActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -117,12 +124,28 @@ class OverlayActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractScreenshotUri(intent)
+    }
+
+    private fun extractScreenshotUri(intent: Intent?) {
+        val uriStr = intent?.getStringExtra(EXTRA_SCREENSHOT_URI)
+        if (!uriStr.isNullOrBlank()) {
+            try {
+                pendingScreenshotUri.value = Uri.parse(uriStr)
+            } catch (_: Exception) {}
+        }
+    }
 }
 
 @Composable
 private fun OverlayScreen(
     viewModel: MainViewModel,
     initialAutoScreenshot: Boolean,
+    initialScreenshotUri: Uri?,
     onOpenInFullChat: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -142,7 +165,14 @@ private fun OverlayScreen(
     val activeProvider by viewModel.activeProvider.collectAsState()
 
     var isCapturingScreen by remember { mutableStateOf(false) }
-    var capturedScreenshotUri by remember { mutableStateOf<Uri?>(null) }
+    var capturedScreenshotUri by remember { mutableStateOf<Uri?>(initialScreenshotUri) }
+
+    LaunchedEffect(initialScreenshotUri) {
+        if (initialScreenshotUri != null) {
+            capturedScreenshotUri = initialScreenshotUri
+            inputState.addImages(listOf(initialScreenshotUri))
+        }
+    }
 
     val micLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -192,8 +222,8 @@ private fun OverlayScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (initialAutoScreenshot) {
+    LaunchedEffect(initialAutoScreenshot) {
+        if (initialAutoScreenshot && capturedScreenshotUri == null) {
             triggerScreenCapture()
         }
     }

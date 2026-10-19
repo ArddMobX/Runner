@@ -1,7 +1,9 @@
 package com.runner.app.ui
 
+import android.app.role.RoleManager
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
@@ -2311,6 +2313,7 @@ private fun AccessSettings(
     onOpenStorageSettings: () -> Unit,
     onOpenAppSettings: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
     val hasContacts by viewModel.hasContactsPermission.collectAsState()
     val hasCall by viewModel.hasCallPermission.collectAsState()
@@ -2477,6 +2480,85 @@ private fun AccessSettings(
                 ) {
                     Text(
                         text = "Открыть разрешения приложения",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // 4. Системный цифровой ассистент Android
+        var isAssistantActive by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = context.getSystemService(RoleManager::class.java)
+                isAssistantActive = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+            }
+        }
+
+        SettingsGroup("Системный ассистент Android") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isAssistantActive) Icons.Outlined.CheckCircle else Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = if (isAssistantActive) StatusSuccess else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (isAssistantActive) "Помощник по умолчанию активен" else "Вызов ассистента жестом или кнопкой",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Позволяет вызывать Runner долгим удержанием кнопки питания, свайпом из нижнего угла экрана или кнопкой Домой поверх любого открытого приложения.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                val roleManager = context.getSystemService(RoleManager::class.java)
+                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                                    context.startActivity(intent)
+                                } else {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
+                                }
+                            } else {
+                                context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
+                            }
+                        } catch (_: Exception) {
+                            try {
+                                context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                            } catch (_: Exception) {}
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isAssistantActive) {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        contentColor = if (isAssistantActive) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onPrimary
+                        }
+                    )
+                ) {
+                    Text(
+                        text = if (isAssistantActive) "Настройки ассистента в Android" else "Назначить помощником по умолчанию",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Medium
                     )
