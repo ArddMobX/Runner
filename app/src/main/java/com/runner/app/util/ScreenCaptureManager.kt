@@ -29,6 +29,18 @@ object ScreenCaptureManager {
         return manager.createScreenCaptureIntent()
     }
 
+    /**
+     * Сохраняет Bitmap в кэш-директорию скриншотов и возвращает Uri.
+     */
+    fun saveBitmap(context: Context, bitmap: Bitmap): Uri {
+        val file = File(context.cacheDir, "screenshots").apply { mkdirs() }
+        val outFile = File(file, "screen_${System.currentTimeMillis()}.jpg")
+        FileOutputStream(outFile).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        }
+        return Uri.fromFile(outFile)
+    }
+
     suspend fun captureScreen(
         activity: Activity,
         resultCode: Int,
@@ -95,15 +107,11 @@ object ScreenCaptureManager {
                             val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
                             if (cropped != bitmap) bitmap.recycle()
 
-                            val file = File(context.cacheDir, "screenshots").apply { mkdirs() }
-                            val outFile = File(file, "screen_${System.currentTimeMillis()}.jpg")
-                            FileOutputStream(outFile).use { out ->
-                                cropped.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                            }
+                            val uri = saveBitmap(context, cropped)
                             cropped.recycle()
 
                             cleanup()
-                            continuation.resume(Uri.fromFile(outFile))
+                            continuation.resume(uri)
                         }
                     } catch (e: Exception) {
                         if (!isResumed) {

@@ -3,4 +3,5 @@
     <string name="app_name">Runner</string>
     <string name="tile_name">Спросить Runner</string>
     <string name="tile_subtitle">Ассистент</string>
+    <string name="assistant_service_name">Ассистент Runner</string>
 </resources>
