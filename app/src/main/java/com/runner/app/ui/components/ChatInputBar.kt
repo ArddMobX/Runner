@@ -53,6 +53,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -136,6 +142,7 @@ fun ChatInputBar(
     isRunning: Boolean,
     isListening: Boolean = false,
     rmsLevel: Float = 0f,
+    sendOnEnter: Boolean = false,
     onSend: (String, List<Uri>) -> Unit,
     onStop: () -> Unit,
     onStartListening: (() -> Unit)? = null,
@@ -345,7 +352,17 @@ fun ChatInputBar(
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
-                    .onFocusChanged { isFocused = it.isFocused },
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .onKeyEvent { keyEvent ->
+                        if (sendOnEnter && keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Enter && !keyEvent.isShiftPressed) {
+                            if (canSend) {
+                                handleSend()
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    },
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 15.sp,
@@ -357,9 +374,15 @@ fun ChatInputBar(
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     autoCorrect = true,
-                    imeAction = ImeAction.None
+                    imeAction = if (sendOnEnter) ImeAction.Send else ImeAction.Default
                 ),
-                keyboardActions = KeyboardActions.Default,
+                keyboardActions = KeyboardActions(
+                    onSend = {
+                        if (sendOnEnter && canSend) {
+                            handleSend()
+                        }
+                    }
+                ),
                 decorationBox = { innerTextField ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (rawText.isEmpty()) {

@@ -953,6 +953,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val showStoragePrompt: StateFlow<Boolean> = _showStoragePrompt.asStateFlow()
 
     init {
+        ToolDispatcher.defaultWorkingDir = _settings.value.defaultWorkingDir
         checkAllPermissions()
         maybeShowStoragePrompt()
         // Уборка корзины при запуске: срок хранения, выставленный в настройках,
@@ -1186,6 +1187,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSettings(newSettings: AppSettings) {
         _settings.value = newSettings
         settingsStore.save(newSettings)
+        ToolDispatcher.defaultWorkingDir = newSettings.defaultWorkingDir
+    }
+
+    /**
+     * Сбрасывает настройки приложения к заводским значениям,
+     * сохраняя статус согласия с дисклеймером. API-ключи и чаты не затрагиваются.
+     */
+    fun resetSettingsToDefault() {
+        val currentDisclaimer = _settings.value.disclaimerAccepted
+        val defaultSettings = AppSettings(disclaimerAccepted = currentDisclaimer)
+        updateSettings(defaultSettings)
     }
 
     fun setThemeMode(mode: AppThemeMode) {
@@ -2292,7 +2304,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var content = AppSettings.buildFinalSystemPrompt(
             _settings.value.userInstructions,
             readOnly = _settings.value.readOnlyMode,
-            dryRun = dryRunActive
+            dryRun = dryRunActive,
+            workingDir = _settings.value.defaultWorkingDir
         )
         // Пояснение к урезанному набору. Без него модель просто не знает, что
         // инструмент существует, и отвечает «не могу» вместо подключения.

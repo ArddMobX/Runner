@@ -4,8 +4,14 @@ import android.app.role.RoleManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -43,12 +49,16 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.FolderSpecial
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Terminal
@@ -68,6 +78,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -290,6 +302,16 @@ private fun SettingsRoot(
                 onClick = { onNavigate(SettingsRoute.Agent) },
                 icon = Icons.Outlined.Tune
             )
+            SettingsDivider()
+            SettingsRow(
+                label = "Рабочая папка проекта",
+                value = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() }?.let {
+                    val name = it.trimEnd('/').substringAfterLast('/')
+                    if (name.isNotEmpty()) name else it
+                } ?: "Вся память",
+                onClick = { onNavigate(SettingsRoute.Agent) },
+                icon = Icons.Outlined.FolderSpecial
+            )
         }
 
         SettingsGroup("Доступы") {
@@ -410,6 +432,68 @@ private fun SettingsRoot(
                     checked = appSettings.planningEnabled,
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(planningEnabled = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Не гасить экран во время работы",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Экран остаётся включённым, пока агент выполняет шаги задачи",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.keepScreenOnWhileRunning,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(keepScreenOnWhileRunning = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Enter отправляет сообщение",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.sendOnEnter) {
+                            "Enter отправляет запрос, Shift+Enter переносит строку"
+                        } else {
+                            "Enter переносит строку, отправка по кнопке со стрелкой"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.sendOnEnter,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(sendOnEnter = it))
                     },
                     colors = runnerSwitchColors()
                 )
@@ -767,6 +851,62 @@ private fun SettingsRoot(
             )
         }
 
+        SettingsGroup("Сброс") {
+            var showResetDialog by remember { mutableStateOf(false) }
+
+            SettingsRow(
+                label = "Сбросить все настройки",
+                value = "К заводским значениям",
+                valueColor = MaterialTheme.colorScheme.error,
+                onClick = { showResetDialog = true },
+                icon = Icons.Outlined.RestartAlt
+            )
+
+            if (showResetDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetDialog = false },
+                    title = {
+                        Text(
+                            text = "Сбросить настройки?",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "Все параметры приложения вернутся к исходным заводским значениям. API-ключи провайдеров и история чатов не будут удалены.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                viewModel.resetSettingsToDefault()
+                                showResetDialog = false
+                            }
+                        ) {
+                            Text(
+                                text = "Сбросить",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showResetDialog = false }) {
+                            Text(
+                                text = "Отмена",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
@@ -946,6 +1086,13 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             UserInstructionsField(
                 instructions = appSettings.userInstructions,
                 onInstructionsChange = { viewModel.updateSettings(appSettings.copy(userInstructions = it)) }
+            )
+
+            SettingsDivider()
+
+            WorkingDirField(
+                currentDir = appSettings.defaultWorkingDir,
+                onDirChange = { viewModel.updateSettings(appSettings.copy(defaultWorkingDir = it)) }
             )
 
             SettingsDivider()
@@ -2060,6 +2207,192 @@ private fun UserInstructionsField(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun WorkingDirField(
+    currentDir: String,
+    onDirChange: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var showManualPathDialog by remember { mutableStateOf(false) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val resolved = uriToStoragePath(uri)
+            if (resolved != null) {
+                onDirChange(resolved)
+            } else {
+                Toast.makeText(context, "Выбрана папка: $uri", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Column(modifier = Modifier.padding(14.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Рабочая папка проекта",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = if (currentDir.isNotBlank()) currentDir else "Не выбрана (/storage/emulated/0)",
+                    color = if (currentDir.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontFamily = if (currentDir.isNotBlank()) FontFamily.Monospace else FontFamily.Default,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (currentDir.isNotBlank()) {
+                IconButton(
+                    onClick = { onDirChange("") },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Сбросить папку",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { folderPickerLauncher.launch(null) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FolderOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Обзор...",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            OutlinedButton(
+                onClick = { showManualPathDialog = true },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Edit,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Ввести путь",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Агент считает эту папку корневой для проекта: относительные пути резолвятся от неё, а команды shell выполняются внутри неё.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.5.sp
+        )
+    }
+
+    if (showManualPathDialog) {
+        var manualPath by remember { mutableStateOf(currentDir) }
+        AlertDialog(
+            onDismissRequest = { showManualPathDialog = false },
+            title = {
+                Text(
+                    text = "Путь к рабочей папке",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Укажи путь внутри /storage/emulated/0",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = manualPath,
+                        onValueChange = { manualPath = it },
+                        singleLine = true,
+                        placeholder = { Text("/storage/emulated/0/Projects/MyApp", fontSize = 12.sp) },
+                        textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDirChange(manualPath.trim())
+                        showManualPathDialog = false
+                    }
+                ) {
+                    Text("Сохранить", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManualPathDialog = false }) {
+                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+}
+
+private fun uriToStoragePath(uri: Uri): String? {
+    return try {
+        val treeDocId = DocumentsContract.getTreeDocumentId(uri)
+        if (treeDocId.startsWith("primary:")) {
+            val subPath = treeDocId.removePrefix("primary:").trimStart('/')
+            val root = Environment.getExternalStorageDirectory().canonicalPath
+            if (subPath.isEmpty()) root else "$root/$subPath"
+        } else if (treeDocId.contains(":")) {
+            val parts = treeDocId.split(":", limit = 2)
+            val subPath = parts.getOrNull(1)?.trimStart('/').orEmpty()
+            val storageId = parts[0]
+            val basePath = "/storage/$storageId"
+            if (subPath.isEmpty()) basePath else "$basePath/$subPath"
+        } else {
+            null
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 
