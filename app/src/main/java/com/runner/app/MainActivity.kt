@@ -96,12 +96,27 @@ class MainActivity : ComponentActivity() {
         if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.CALL_PHONE)
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         val prefs = getSharedPreferences("runner_permissions", Context.MODE_PRIVATE)
         val requestedOnce = prefs.getBoolean("initial_permissions_requested", false)
         if (!requestedOnce && permissions.isNotEmpty()) {
             prefs.edit().putBoolean("initial_permissions_requested", true).apply()
             permissionLauncher.launch(permissions.toTypedArray())
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.setAppInForeground(false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -178,6 +193,20 @@ fun AppNavigation(viewModel: MainViewModel) {
         }
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // Скрытие в недавних задачах и блокировка скриншотов (FLAG_SECURE)
+    val secureScreen = appSettings.secureScreenMode
+    DisposableEffect(secureScreen) {
+        val window = (context as? Activity)?.window
+        if (secureScreen) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 

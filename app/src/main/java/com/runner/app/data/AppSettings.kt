@@ -108,7 +108,11 @@ data class AppSettings(
     /** Рабочая папка проекта по умолчанию (пусто = /storage/emulated/0). */
     val defaultWorkingDir: String = "",
     /** Нажатие Enter на клавиатуре отправляет сообщение (иначе переносит строку). */
-    val sendOnEnter: Boolean = false
+    val sendOnEnter: Boolean = false,
+    /** Отправлять системное уведомление при завершении задачи или запросе подтверждения в фоне. */
+    val notifyOnCompletion: Boolean = true,
+    /** Блокировать скриншоты и скрывать превью приложения в списке недавних задач (FLAG_SECURE). */
+    val secureScreenMode: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -346,7 +350,9 @@ class SettingsStore(context: Context) {
             autoSpeakResponses = prefs.getBoolean(KEY_AUTO_SPEAK, false),
             keepScreenOnWhileRunning = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
             defaultWorkingDir = prefs.getString(KEY_DEFAULT_WORKING_DIR, "").orEmpty(),
-            sendOnEnter = prefs.getBoolean(KEY_SEND_ON_ENTER, false)
+            sendOnEnter = prefs.getBoolean(KEY_SEND_ON_ENTER, false),
+            notifyOnCompletion = prefs.getBoolean(KEY_NOTIFY_ON_COMPLETION, true),
+            secureScreenMode = prefs.getBoolean(KEY_SECURE_SCREEN_MODE, false)
         )
     }
 
@@ -379,6 +385,8 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOnWhileRunning)
             .putString(KEY_DEFAULT_WORKING_DIR, settings.defaultWorkingDir)
             .putBoolean(KEY_SEND_ON_ENTER, settings.sendOnEnter)
+            .putBoolean(KEY_NOTIFY_ON_COMPLETION, settings.notifyOnCompletion)
+            .putBoolean(KEY_SECURE_SCREEN_MODE, settings.secureScreenMode)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -420,5 +428,7 @@ class SettingsStore(context: Context) {
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on_while_running"
         const val KEY_DEFAULT_WORKING_DIR = "default_working_dir"
         const val KEY_SEND_ON_ENTER = "send_on_enter"
+        const val KEY_NOTIFY_ON_COMPLETION = "notify_on_completion"
+        const val KEY_SECURE_SCREEN_MODE = "secure_screen_mode"
     }
 }
