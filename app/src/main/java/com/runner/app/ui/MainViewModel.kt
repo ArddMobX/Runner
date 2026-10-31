@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runner.app.util.ImageUtils
+import com.runner.app.util.TaskNotificationManager
 import com.runner.app.util.VoiceManager
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
@@ -708,6 +709,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopSpeaking() {
         voiceManager.stopSpeaking()
+    }
+
+    /** Приложение находится на переднем плане. */
+    @Volatile
+    private var isAppInForeground: Boolean = true
+
+    fun setAppInForeground(inForeground: Boolean) {
+        isAppInForeground = inForeground
+        if (inForeground) {
+            TaskNotificationManager.cancelAll(getApplication())
+        } else {
+            if (_settings.value.notifyOnCompletion) {
+                val pendingConf = _pendingConfirmation.value
+                val pendingP = _pendingPlan.value
+                val currentSession = _currentSessionId.value
+                if (pendingConf != null) {
+                    TaskNotificationManager.notifyConfirmationRequired(
+                        getApplication(),
+                        sessionId = currentSession,
+                        actionTitle = pendingConf.title
+                    )
+                } else if (pendingP != null) {
+                    TaskNotificationManager.notifyConfirmationRequired(
+                        getApplication(),
+                        sessionId = currentSession,
+                        actionTitle = "Утверждение плана действий"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun maybeNotifyTaskCompleted(sessionId: String) {
+        if (!isAppInForeground && _settings.value.notifyOnCompletion && !stopRequested) {
+            val lastAssistantMsg = _messages.value.lastOrNull { it.role == MessageRole.ASSISTANT }?.content
+            val sessionTitle = _currentSessionTitle.value.ifBlank {
+                sessions.value.firstOrNull { it.id == sessionId }?.title
+            }
+            TaskNotificationManager.notifyTaskCompleted(
+                getApplication(),
+                sessionId = sessionId,
+                sessionTitle = sessionTitle,
+                previewText = lastAssistantMsg
+            )
+        }
     }
 
     private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
@@ -1463,6 +1509,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
+                maybeNotifyTaskCompleted(sessionId)
             }
         }
     }
@@ -1531,6 +1578,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
+                maybeNotifyTaskCompleted(sessionId)
             }
         }
     }
@@ -1669,6 +1717,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (continuation.isActive) continuation.resume(decision)
                 }
             )
+            if (!isAppInForeground && _settings.value.notifyOnCompletion) {
+                TaskNotificationManager.notifyConfirmationRequired(
+                    getApplication(),
+                    sessionId = sessionId,
+                    actionTitle = "Утверждение плана действий"
+                )
+            }
         }
         _pendingPlan.value = null
 
@@ -2125,6 +2180,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (continuation.isActive) continuation.resume(userDecision)
                     }
                 )
+                if (!isAppInForeground && _settings.value.notifyOnCompletion) {
+                    TaskNotificationManager.notifyConfirmationRequired(
+                        getApplication(),
+                        sessionId = sessionId,
+                        actionTitle = info.title
+                    )
+                }
             }
             _pendingConfirmation.value = null
 

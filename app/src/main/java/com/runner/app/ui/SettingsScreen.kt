@@ -1,9 +1,11 @@
 package com.runner.app.ui
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -12,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -263,6 +266,16 @@ private fun SettingsRoot(
     val proxyUrl = appSettings.reverseProxyUrl
     val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
 
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.updateSettings(appSettings.copy(notifyOnCompletion = true))
+        } else {
+            Toast.makeText(context, "Требуется разрешение на отправку уведомлений", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -322,6 +335,35 @@ private fun SettingsRoot(
                 onClick = { onNavigate(SettingsRoute.Access) },
                 icon = Icons.Outlined.FolderOpen
             )
+        }
+
+        SettingsGroup("Безопасность") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Скрывать в недавних приложениях",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Блокирует скриншоты и скрывает экран в списке задач для защиты ключей и путей (FLAG_SECURE)",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.secureScreenMode,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(secureScreenMode = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
         }
 
         SettingsGroup("Тема") {
@@ -494,6 +536,49 @@ private fun SettingsRoot(
                     checked = appSettings.sendOnEnter,
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(sendOnEnter = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Уведомления о завершении задач",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Системное уведомление, если приложение свёрнуто или требуется подтверждение",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.notifyOnCompletion,
+                    onCheckedChange = { enabled ->
+                        if (enabled) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                val hasPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (!hasPermission) {
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    return@Switch
+                                }
+                            }
+                            viewModel.updateSettings(appSettings.copy(notifyOnCompletion = true))
+                        } else {
+                            viewModel.updateSettings(appSettings.copy(notifyOnCompletion = false))
+                        }
                     },
                     colors = runnerSwitchColors()
                 )
