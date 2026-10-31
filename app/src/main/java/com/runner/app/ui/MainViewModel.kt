@@ -8,12 +8,15 @@ import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runner.app.util.HapticManager
 import com.runner.app.util.ImageUtils
 import com.runner.app.util.TaskNotificationManager
 import com.runner.app.util.VoiceManager
+import com.runner.app.util.VoiceOption
 import com.runner.app.data.AIResponseResult
 import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
+import com.runner.app.data.InstructionProfile
 import com.runner.app.data.ChatRepository
 import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
@@ -590,6 +593,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ChatRepository(ChatDatabase.get(application).chatDao())
     private val apiClient = OpenAIClient()
     val voiceManager = VoiceManager(application)
+    val hapticManager = HapticManager(application)
 
     // --- Провайдеры ---
 
@@ -705,6 +709,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             voiceManager.speak(text, messageId)
         }
+    }
+
+    val availableVoices: StateFlow<List<VoiceOption>> = voiceManager.availableVoices
+
+    fun previewTtsVoice(text: String = "Привет! Это проверка голоса в Runner.") {
+        voiceManager.previewVoice(text)
+    }
+
+    fun testHaptic(intensity: Int) {
+        hapticManager.testVibration(intensity)
     }
 
     fun stopSpeaking() {
@@ -1000,6 +1014,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ToolDispatcher.defaultWorkingDir = _settings.value.defaultWorkingDir
+        voiceManager.setTtsParameters(_settings.value.ttsSpeed, _settings.value.ttsPitch, _settings.value.ttsVoiceName)
         checkAllPermissions()
         maybeShowStoragePrompt()
         // Уборка корзины при запуске: срок хранения, выставленный в настройках,
@@ -1247,6 +1262,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _settings.value = newSettings
         settingsStore.save(newSettings)
         ToolDispatcher.defaultWorkingDir = newSettings.defaultWorkingDir
+        voiceManager.setTtsParameters(newSettings.ttsSpeed, newSettings.ttsPitch, newSettings.ttsVoiceName)
+    }
+
+    /** Выбрать активный профиль инструкций */
+    fun selectInstructionProfile(profileId: String) {
+        val current = _settings.value
+        val targetProfile = current.instructionProfiles.firstOrNull { it.id == profileId }
+        val newInstructions = targetProfile?.instructions ?: current.userInstructions
+        val newSettings = current.copy(
+            activeInstructionProfileId = profileId,
+            userInstructions = newInstructions
+        )
+        updateSettings(newSettings)
+    }
+
+    /** Обновить текст инструкций текущего активного профиля */
+    fun updateActiveProfileInstructions(instructions: String) {
+        val current = _settings.value
+        val updatedProfiles = current.instructionProfiles.map { profile ->
+            if (profile.id == current.activeInstructionProfileId) {
+                profile.copy(instructions = instructions)
+            } else {
+                profile
+            }
+        }
+        val newSettings = current.copy(
+            instructionProfiles = updatedProfiles,
+            userInstructions = instructions
+        )
+        updateSettings(newSettings)
+    }
+
+    /** Создать новый пользовательский профиль инструкций */
+    fun addInstructionProfile(title: String, instructions: String) {
+        val current = _settings.value
+        val id = "profile_" + System.currentTimeMillis()
+        val newProfile = InstructionProfile(
+            id = id,
+            title = title.trim().ifBlank { "Мой профиль" },
+            instructions = instructions.trim(),
+            isBuiltIn = false
+        )
+        val updatedProfiles = current.instructionProfiles + newProfile
+        val newSettings = current.copy(
+            instructionProfiles = updatedProfiles,
+            activeInstructionProfileId = id,
+            userInstructions = newProfile.instructions
+        )
+        updateSettings(newSettings)
+    }
+
+    /** Удалить пользовательский профиль инструкций */
+    fun deleteInstructionProfile(profileId: String) {
+        val current = _settings.value
+        val updatedProfiles = current.instructionProfiles.filterNot { it.id == profileId && !it.isBuiltIn }
+        val newActiveId = if (current.activeInstructionProfileId == profileId) {
+            AppSettings.DEFAULT_PROFILE_ID
+        } else {
+            current.activeInstructionProfileId
+        }
+        val newInstructions = updatedProfiles.firstOrNull { it.id == newActiveId }?.instructions.orEmpty()
+        val newSettings = current.copy(
+            instructionProfiles = updatedProfiles,
+            activeInstructionProfileId = newActiveId,
+            userInstructions = newInstructions
+        )
+        updateSettings(newSettings)
     }
 
     /**
@@ -1361,6 +1443,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val text = prompt.trim()
         if (text.isEmpty() && images.isEmpty()) return
         if (_isRunning.value) return
+
+        hapticManager.onSendMessage(_settings.value)
 
         val provider = activeProvider.value
         if (provider == null || provider.apiKey.isBlank()) {
@@ -1522,6 +1606,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
+                if (!stopRequested) {
+                    hapticManager.onTaskComplete(_settings.value)
+                }
                 maybeNotifyTaskCompleted(sessionId)
             }
         }
@@ -1591,6 +1678,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
+                if (!stopRequested) {
+                    hapticManager.onTaskComplete(_settings.value)
+                }
                 maybeNotifyTaskCompleted(sessionId)
             }
         }
@@ -1722,6 +1812,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _currentStatus.value = "Жду подтверждения плана"
+        hapticManager.onConfirmationRequired(_settings.value)
         val approved = suspendCancellableCoroutine { continuation ->
             _pendingPlan.value = PlanProposal(
                 id = planMessageId,
@@ -1846,6 +1937,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     _streamingText.value = ""
                 }
+                hapticManager.onError(_settings.value)
                 appendSystemInfo(
                     "Достигнут лимит токенов на задачу ($currentTaskTokens из ${currentSettings.maxTaskTokens}). Выполнение приостановлено для экономии баланса.",
                     null
@@ -1863,6 +1955,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 is AIResponseResult.Error -> {
                     turnAssistantId = finalizeStreamedText(sessionId, stopped = false) ?: turnAssistantId
+                    hapticManager.onError(_settings.value)
                     appendSystemInfo(result.message, null)
                     attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
                     return
@@ -2202,6 +2295,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             dryRunRefusal(call)
         } else if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
+            hapticManager.onConfirmationRequired(_settings.value)
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
 
             val decision = suspendCancellableCoroutine { continuation ->
@@ -2401,7 +2495,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun systemMessage(): JSONObject {
         var content = AppSettings.buildFinalSystemPrompt(
-            _settings.value.userInstructions,
+            _settings.value.effectiveInstructions,
             readOnly = _settings.value.readOnlyMode,
             dryRun = dryRunActive,
             workingDir = _settings.value.defaultWorkingDir

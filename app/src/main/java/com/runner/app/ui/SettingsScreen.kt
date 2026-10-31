@@ -64,11 +64,13 @@ import androidx.compose.material.icons.outlined.FolderSpecial
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
@@ -121,9 +123,11 @@ import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
+import com.runner.app.data.InstructionProfile
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
+import com.runner.app.util.VoiceOption
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
@@ -247,6 +251,16 @@ fun SettingsScreen(
     }
 }
 
+
+private data class SearchableSetting(
+    val title: String,
+    val section: String,
+    val description: String,
+    val icon: ImageVector? = null,
+    val route: SettingsRoute? = null,
+    val onClick: (() -> Unit)? = null
+)
+
 @Composable
 private fun SettingsRoot(
     viewModel: MainViewModel,
@@ -265,6 +279,8 @@ private fun SettingsRoot(
     val themeConfig by viewModel.themeConfig.collectAsState()
     val context = LocalContext.current
 
+    var searchQuery by remember { mutableStateOf("") }
+
     val proxyUrl = appSettings.reverseProxyUrl
     val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
 
@@ -278,6 +294,207 @@ private fun SettingsRoot(
         }
     }
 
+    val searchableItems = remember(providers, activeProvider, appSettings, allPermissionsGranted) {
+        listOf(
+            SearchableSetting(
+                title = "Провайдеры и ключи",
+                section = "Провайдеры",
+                description = "Ключей: ${providers.count { it.apiKey.isNotBlank() }} · Активен: ${activeProvider?.name ?: "не выбран"}",
+                icon = Icons.Outlined.VpnKey,
+                route = SettingsRoute.Providers
+            ),
+            SearchableSetting(
+                title = "Модель",
+                section = "Провайдеры",
+                description = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
+                icon = Icons.Outlined.SmartToy,
+                route = SettingsRoute.Providers
+            ),
+            SearchableSetting(
+                title = "Профили инструкций",
+                section = "Агент",
+                description = "Пресеты системного промпта («Стандартный», «Краткий», «Подробный», «Осторожный»)",
+                icon = Icons.Outlined.Terminal,
+                route = SettingsRoute.Agent
+            ),
+            SearchableSetting(
+                title = "Температура и шаги",
+                section = "Агент",
+                description = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
+                icon = Icons.Outlined.Tune,
+                route = SettingsRoute.Agent
+            ),
+            SearchableSetting(
+                title = "Рабочая папка проекта",
+                section = "Агент",
+                description = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() } ?: "Вся память",
+                icon = Icons.Outlined.FolderSpecial,
+                route = SettingsRoute.Agent
+            ),
+            SearchableSetting(
+                title = "Разрешения и доступы",
+                section = "Доступы",
+                description = if (allPermissionsGranted) "Все разрешения выданы" else "Требуется настройка",
+                icon = Icons.Outlined.FolderOpen,
+                route = SettingsRoute.Access
+            ),
+            SearchableSetting(
+                title = "Скрывать в недавних (FLAG_SECURE)",
+                section = "Безопасность",
+                description = if (appSettings.secureScreenMode) "Включено (скриншоты заблокированы)" else "Выключено",
+                icon = Icons.Outlined.VisibilityOff,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(secureScreenMode = !appSettings.secureScreenMode))
+                }
+            ),
+            SearchableSetting(
+                title = "Тема оформления и AMOLED",
+                section = "Тема",
+                description = "Тёмная/светлая тема, динамический цвет, чистый чёрный AMOLED",
+                icon = Icons.Outlined.AutoAwesome
+            ),
+            SearchableSetting(
+                title = "Масштаб текста",
+                section = "Интерфейс",
+                description = "${(appSettings.textScale * 100).roundToInt()}%",
+                icon = Icons.Outlined.Tune
+            ),
+            SearchableSetting(
+                title = "Детали вызовов инструментов",
+                section = "Интерфейс",
+                description = if (appSettings.showToolDetails) "Показываются аргументы и вывод" else "Скрыты",
+                icon = Icons.Outlined.Terminal,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(showToolDetails = !appSettings.showToolDetails))
+                }
+            ),
+            SearchableSetting(
+                title = "Время генерации и статистика",
+                section = "Интерфейс",
+                description = if (appSettings.showStats) "Показывается под сообщениями" else "Скрыта",
+                icon = Icons.Outlined.Tune,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(showStats = !appSettings.showStats))
+                }
+            ),
+            SearchableSetting(
+                title = "Планирование шагов",
+                section = "Интерфейс",
+                description = if (appSettings.planningEnabled) "Включено: составление плана перед выполнением" else "Выключено",
+                icon = Icons.Outlined.CheckCircle,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(planningEnabled = !appSettings.planningEnabled))
+                }
+            ),
+            SearchableSetting(
+                title = "Не гасить экран во время работы",
+                section = "Интерфейс",
+                description = if (appSettings.keepScreenOnWhileRunning) "Экран всегда включён во время задачи" else "Стандартный таймаут экрана",
+                icon = Icons.Outlined.Visibility,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(keepScreenOnWhileRunning = !appSettings.keepScreenOnWhileRunning))
+                }
+            ),
+            SearchableSetting(
+                title = "Enter отправляет сообщение",
+                section = "Интерфейс",
+                description = if (appSettings.sendOnEnter) "Enter отправляет, Shift+Enter переносит" else "Enter переносит строку",
+                icon = Icons.Outlined.Edit,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(sendOnEnter = !appSettings.sendOnEnter))
+                }
+            ),
+            SearchableSetting(
+                title = "Уведомления о завершении задач",
+                section = "Интерфейс",
+                description = if (appSettings.notifyOnCompletion) "Уведомления включены" else "Выключены",
+                icon = Icons.Outlined.SmartToy,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(notifyOnCompletion = !appSettings.notifyOnCompletion))
+                }
+            ),
+            SearchableSetting(
+                title = "Озвучка ответов голосом (TTS)",
+                section = "Озвучка и речь",
+                description = if (appSettings.autoSpeakResponses) "Автоозвучка включена (${appSettings.ttsSpeed}x)" else "Автоозвучка отключена",
+                icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(autoSpeakResponses = !appSettings.autoSpeakResponses))
+                }
+            ),
+            SearchableSetting(
+                title = "Тактильный отклик (вибрация)",
+                section = "Вибрация",
+                description = if (appSettings.hapticEnabled) "Вибрация включена (${appSettings.hapticIntensity})" else "Вибрация отключена",
+                icon = Icons.Outlined.Tune,
+                onClick = {
+                    viewModel.updateSettings(appSettings.copy(hapticEnabled = !appSettings.hapticEnabled))
+                }
+            ),
+            SearchableSetting(
+                title = "Reverse proxy",
+                section = "Сеть и прокси",
+                description = proxyUrl.ifBlank { "Прямое подключение к Base URL" },
+                icon = Icons.Outlined.Refresh
+            ),
+            SearchableSetting(
+                title = "Проверка связи",
+                section = "Сеть и прокси",
+                description = "Тестирование пинга до API",
+                icon = Icons.Outlined.CheckCircle,
+                onClick = { viewModel.testConnection() }
+            ),
+            SearchableSetting(
+                title = "Таймауты сети",
+                section = "Сеть и прокси",
+                description = "Подключение ${appSettings.connectTimeoutSeconds}с · Ответ ${appSettings.responseTimeoutSeconds}с",
+                icon = Icons.Outlined.Tune
+            ),
+            SearchableSetting(
+                title = "Бюджет контекста",
+                section = "Сеть и прокси",
+                description = when {
+                    appSettings.contextBudgetChars >= 1_000_000 -> "${appSettings.contextBudgetChars / 1_000_000}M символов"
+                    else -> "${appSettings.contextBudgetChars / 1000}K символов"
+                },
+                icon = Icons.Outlined.Tune
+            ),
+            SearchableSetting(
+                title = "Кастомные заголовки (Headers)",
+                section = "Сеть и прокси",
+                description = if (appSettings.customHeaders.isNotBlank()) "Заданы (${appSettings.customHeaders.lines().size} строк)" else "Не заданы",
+                icon = Icons.Outlined.Terminal
+            ),
+            SearchableSetting(
+                title = "Корзина удалённых файлов",
+                section = "Опасные действия",
+                description = "Восстановление файлов, удалённых агентом",
+                icon = Icons.Outlined.Restore,
+                route = SettingsRoute.Trash
+            ),
+            SearchableSetting(
+                title = "Поддержать проект",
+                section = "О проекте",
+                description = "TON и Telegram Stars",
+                icon = Icons.Outlined.FavoriteBorder,
+                onClick = onOpenSupport
+            ),
+            SearchableSetting(
+                title = "Telegram-канал",
+                section = "О проекте",
+                description = "@runner_agent — новости разработки",
+                icon = RunnerIcons.Telegram,
+                onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
+            ),
+            SearchableSetting(
+                title = "Сбросить все настройки",
+                section = "Сброс",
+                description = "К заводским значениям",
+                icon = Icons.Outlined.RestartAlt
+            )
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -285,49 +502,151 @@ private fun SettingsRoot(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        SettingsGroup("Провайдеры") {
-            val keysCount = providers.count { it.apiKey.isNotBlank() }
-            SettingsRow(
-                label = "Провайдеры и ключи",
-                value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "не выбран"}",
-                onClick = { onNavigate(SettingsRoute.Providers) },
-                icon = Icons.Outlined.VpnKey
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Модель",
-                // Показываем человеческое имя, технический ID живёт в списке выбора
-                value = formatModelName(activeProvider?.activeModel.orEmpty()),
-                onClick = { onNavigate(SettingsRoute.Providers) },
-                icon = Icons.Outlined.SmartToy
-            )
-        }
+        // Поле поиска настроек
+        BasicTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    RoundedCornerShape(12.dp)
+                ),
+            textStyle = TextStyle(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.5.sp
+            ),
+            singleLine = true,
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = "Поиск",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Поиск по настройкам...",
+                                color = MaterialTheme.colorScheme.outline,
+                                fontSize = 13.5.sp
+                            )
+                        }
+                        innerTextField()
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Очистить",
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        )
 
-        SettingsGroup("Агент") {
-            SettingsRow(
-                label = "Доп. инструкции",
-                value = appSettings.userInstructions.trim().takeIf { it.isNotEmpty() }?.let { "${it.length} символов" } ?: "Не заданы",
-                onClick = { onNavigate(SettingsRoute.Agent) },
-                icon = Icons.Outlined.Terminal
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Температура и шаги",
-                value = "${appSettings.temperature} · ${PluralUtils.steps(appSettings.maxSteps)}",
-                onClick = { onNavigate(SettingsRoute.Agent) },
-                icon = Icons.Outlined.Tune
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Рабочая папка проекта",
-                value = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() }?.let {
-                    val name = it.trimEnd('/').substringAfterLast('/')
-                    if (name.isNotEmpty()) name else it
-                } ?: "Вся память",
-                onClick = { onNavigate(SettingsRoute.Agent) },
-                icon = Icons.Outlined.FolderSpecial
-            )
-        }
+        val trimmedQuery = searchQuery.trim()
+        if (trimmedQuery.isNotEmpty()) {
+            val matches = remember(trimmedQuery, searchableItems) {
+                searchableItems.filter {
+                    it.title.contains(trimmedQuery, ignoreCase = true) ||
+                    it.section.contains(trimmedQuery, ignoreCase = true) ||
+                    it.description.contains(trimmedQuery, ignoreCase = true)
+                }
+            }
+
+            if (matches.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Ничего не найдено по запросу «$trimmedQuery»",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 13.5.sp
+                    )
+                }
+            } else {
+                SettingsGroup("Найдено (${matches.size})") {
+                    matches.forEachIndexed { index, item ->
+                        if (index > 0) SettingsDivider()
+                        SettingsRow(
+                            label = item.title,
+                            value = "${item.section} · ${item.description}",
+                            onClick = {
+                                if (item.route != null) {
+                                    onNavigate(item.route)
+                                } else {
+                                    item.onClick?.invoke()
+                                    searchQuery = ""
+                                }
+                            },
+                            icon = item.icon
+                        )
+                    }
+                }
+            }
+        } else {
+            SettingsGroup("Провайдеры") {
+                val keysCount = providers.count { it.apiKey.isNotBlank() }
+                SettingsRow(
+                    label = "Провайдеры и ключи",
+                    value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "не выбран"}",
+                    onClick = { onNavigate(SettingsRoute.Providers) },
+                    icon = Icons.Outlined.VpnKey
+                )
+                SettingsDivider()
+                SettingsRow(
+                    label = "Модель",
+                    // Показываем человеческое имя, технический ID живёт в списке выбора
+                    value = formatModelName(activeProvider?.activeModel.orEmpty()),
+                    onClick = { onNavigate(SettingsRoute.Providers) },
+                    icon = Icons.Outlined.SmartToy
+                )
+            }
+
+            SettingsGroup("Агент") {
+                val activeProfile = appSettings.instructionProfiles.firstOrNull { it.id == appSettings.activeInstructionProfileId }
+                SettingsRow(
+                    label = "Профиль инструкций",
+                    value = "${activeProfile?.title ?: "Стандартный"} · ${appSettings.effectiveInstructions.trim().takeIf { it.isNotEmpty() }?.let { "${it.length} симв." } ?: "Без промпта"}",
+                    onClick = { onNavigate(SettingsRoute.Agent) },
+                    icon = Icons.Outlined.Terminal
+                )
+                SettingsDivider()
+                SettingsRow(
+                    label = "Температура и шаги",
+                    value = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
+                    onClick = { onNavigate(SettingsRoute.Agent) },
+                    icon = Icons.Outlined.Tune
+                )
+                SettingsDivider()
+                SettingsRow(
+                    label = "Рабочая папка проекта",
+                    value = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() }?.let {
+                        val name = it.trimEnd('/').substringAfterLast('/')
+                        if (name.isNotEmpty()) name else it
+                    } ?: "Вся память",
+                    onClick = { onNavigate(SettingsRoute.Agent) },
+                    icon = Icons.Outlined.FolderSpecial
+                )
+            }
 
         SettingsGroup("Доступы") {
             SettingsRow(
@@ -586,6 +905,10 @@ private fun SettingsRoot(
                 )
             }
         }
+
+        TtsSettingsCard(viewModel = viewModel, appSettings = appSettings)
+
+        VibrationSettingsCard(viewModel = viewModel, appSettings = appSettings)
 
         SettingsGroup("Сеть и прокси") {
             // 1. Поле Reverse Proxy
@@ -993,6 +1316,7 @@ private fun SettingsRoot(
                 )
             }
         }
+    }
 
         Spacer(modifier = Modifier.height(12.dp))
     }
@@ -1218,9 +1542,9 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         SettingsGroup {
-            UserInstructionsField(
-                instructions = appSettings.userInstructions,
-                onInstructionsChange = { viewModel.updateSettings(appSettings.copy(userInstructions = it)) }
+            InstructionProfilesField(
+                viewModel = viewModel,
+                appSettings = appSettings
             )
 
             SettingsDivider()
@@ -2329,30 +2653,44 @@ private fun folderOf(path: String): String {
 }
 
 /**
- * Пользовательские доп. инструкции: многострочное поле в терминальном стиле,
- * всегда видно целиком. Кнопка очистки — только когда текст введён.
- * Базовый промпт зашит в код (CORE_SYSTEM_PROMPT) и здесь не показывается.
+ * Профили системных инструкций: переключение между пресетами («Краткий», «Подробный», «Осторожный»)
+ * в 1 тап, редактирование инструкций и создание собственных профилей.
  */
 @Composable
-private fun UserInstructionsField(
-    instructions: String,
-    onInstructionsChange: (String) -> Unit
+private fun InstructionProfilesField(
+    viewModel: MainViewModel,
+    appSettings: AppSettings
 ) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newProfileTitle by remember { mutableStateOf("") }
+    var newProfileInstructions by remember { mutableStateOf("") }
+
+    val activeProfile = appSettings.instructionProfiles.firstOrNull { it.id == appSettings.activeInstructionProfileId }
+        ?: appSettings.instructionProfiles.firstOrNull()
+        ?: AppSettings.DEFAULT_PROFILES.first()
+
     Column(modifier = Modifier.padding(14.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "Дополнительные инструкции",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-            if (instructions.isNotBlank()) {
+            Column {
+                Text(
+                    text = "Профили инструкций",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Быстрое переключение поведения агента",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+            }
+            if (activeProfile.instructions.isNotBlank()) {
                 TextButton(
-                    onClick = { onInstructionsChange("") },
+                    onClick = { viewModel.updateActiveProfileInstructions("") },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
@@ -2363,7 +2701,100 @@ private fun UserInstructionsField(
                 }
             }
         }
+
         Spacer(modifier = Modifier.height(10.dp))
+
+        // Ряд профилей: чипы пресетов и кнопка создания
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            appSettings.instructionProfiles.forEach { profile ->
+                val isSelected = profile.id == appSettings.activeInstructionProfileId
+                val border = if (isSelected) {
+                    BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                } else {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                }
+                val bgColor = if (isSelected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLowest
+                }
+                val textColor = if (isSelected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = bgColor,
+                    border = border,
+                    modifier = Modifier
+                        .bounceClick { viewModel.selectInstructionProfile(profile.id) }
+                        .clickable { viewModel.selectInstructionProfile(profile.id) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = profile.title,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = textColor
+                        )
+                        if (!profile.isBuiltIn && isSelected) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Удалить профиль",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clickable { viewModel.deleteInstructionProfile(profile.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Кнопка "+ Новый"
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .bounceClick { showCreateDialog = true }
+                    .clickable { showCreateDialog = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = "Новый профиль",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Новый",
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Поле ввода инструкций активного профиля
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2375,8 +2806,8 @@ private fun UserInstructionsField(
                 )
         ) {
             BasicTextField(
-                value = instructions,
-                onValueChange = onInstructionsChange,
+                value = activeProfile.instructions,
+                onValueChange = { viewModel.updateActiveProfileInstructions(it) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 96.dp)
@@ -2388,10 +2819,16 @@ private fun UserInstructionsField(
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 decorationBox = { innerTextField ->
-                    if (instructions.isEmpty()) {
+                    if (activeProfile.instructions.isEmpty()) {
                         Text(
-                            text = "Задайте стиль общения, язык или дополнительные правила поведения агента...",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = when (activeProfile.id) {
+                                "standard" -> "Стандартный режим (без дополнительных инструкций). Задайте свои правила, если необходимо..."
+                                "brief" -> "Краткий режим: модель отвечает максимально коротко, без лишних слов..."
+                                "detailed" -> "Подробный режим: модель объясняет шаги и ход рассуждений..."
+                                "cautious" -> "Осторожный режим: модель переспрашивает перед любыми действиями..."
+                                else -> "Инструкции для профиля «${activeProfile.title}»..."
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                             fontSize = 13.sp,
                             lineHeight = 19.sp
                         )
@@ -2399,6 +2836,395 @@ private fun UserInstructionsField(
                     innerTextField()
                 }
             )
+        }
+    }
+
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showCreateDialog = false
+                newProfileTitle = ""
+                newProfileInstructions = ""
+            },
+            title = { Text("Новый профиль инструкций") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = newProfileTitle,
+                        onValueChange = { newProfileTitle = it },
+                        label = { Text("Название профиля") },
+                        placeholder = { Text("Например: Кодинг / Переводчик / Эксперт") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newProfileInstructions,
+                        onValueChange = { newProfileInstructions = it },
+                        label = { Text("Инструкции") },
+                        placeholder = { Text("Правила и стиль поведения агента...") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 80.dp),
+                        maxLines = 6
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newProfileTitle.isNotBlank()) {
+                            viewModel.addInstructionProfile(newProfileTitle, newProfileInstructions)
+                            showCreateDialog = false
+                            newProfileTitle = ""
+                            newProfileInstructions = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("Создать")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCreateDialog = false
+                    newProfileTitle = ""
+                    newProfileInstructions = ""
+                }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun TtsSettingsCard(
+    viewModel: MainViewModel,
+    appSettings: AppSettings
+) {
+    val availableVoices by viewModel.availableVoices.collectAsState()
+
+    SettingsGroup("Озвучка и речь (TTS)") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Озвучивать ответы голосом (TTS)",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = if (appSettings.autoSpeakResponses) {
+                        "Агент автоматически читает ответы вслух"
+                    } else {
+                        "Озвучка только по кнопке у сообщений"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+            }
+            Switch(
+                checked = appSettings.autoSpeakResponses,
+                onCheckedChange = {
+                    viewModel.updateSettings(appSettings.copy(autoSpeakResponses = it))
+                },
+                colors = runnerSwitchColors()
+            )
+        }
+
+        SettingsDivider()
+
+        // Скорость речи
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "Скорость речи",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            SegmentedChips(
+                options = AppSettings.TTS_SPEED_PRESETS.map { speed ->
+                    speed to "${speed}x"
+                },
+                selected = appSettings.ttsSpeed,
+                onSelect = {
+                    viewModel.updateSettings(appSettings.copy(ttsSpeed = it))
+                }
+            )
+        }
+
+        SettingsDivider()
+
+        // Высота тона речи
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "Высота тона речи",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            SegmentedChips(
+                options = listOf(
+                    0.8f to "Низкий",
+                    1.0f to "Обычный",
+                    1.2f to "Высокий"
+                ),
+                selected = appSettings.ttsPitch,
+                onSelect = {
+                    viewModel.updateSettings(appSettings.copy(ttsPitch = it))
+                }
+            )
+        }
+
+        // Выбор системного голоса (если доступен список)
+        if (availableVoices.isNotEmpty()) {
+            SettingsDivider()
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Голос озвучки",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isDefSelected = appSettings.ttsVoiceName.isBlank()
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isDefSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLowest,
+                        border = if (isDefSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .bounceClick { viewModel.updateSettings(appSettings.copy(ttsVoiceName = "")) }
+                            .clickable { viewModel.updateSettings(appSettings.copy(ttsVoiceName = "")) }
+                    ) {
+                        Text(
+                            text = "По умолчанию",
+                            fontSize = 12.sp,
+                            color = if (isDefSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    availableVoices.forEach { voice ->
+                        val isSelected = appSettings.ttsVoiceName == voice.name
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .bounceClick { viewModel.updateSettings(appSettings.copy(ttsVoiceName = voice.name)) }
+                                .clickable { viewModel.updateSettings(appSettings.copy(ttsVoiceName = voice.name)) }
+                        ) {
+                            Text(
+                                text = voice.displayName,
+                                fontSize = 12.sp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        SettingsDivider()
+
+        // Кнопка «Прослушать пример»
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Проверить звучание",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.5.sp
+            )
+            OutlinedButton(
+                onClick = { viewModel.previewTtsVoice() },
+                modifier = Modifier.bounceClick { viewModel.previewTtsVoice() },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Слушать пример", fontSize = 12.5.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VibrationSettingsCard(
+    viewModel: MainViewModel,
+    appSettings: AppSettings
+) {
+    SettingsGroup("Вибрация и тактильный отклик") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Тактильный отклик (вибрация)",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = if (appSettings.hapticEnabled) "Вибрация включена для ключевых событий" else "Вибрация полностью отключена",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+            }
+            Switch(
+                checked = appSettings.hapticEnabled,
+                onCheckedChange = {
+                    viewModel.updateSettings(appSettings.copy(hapticEnabled = it))
+                    if (it) viewModel.testHaptic(appSettings.hapticIntensity)
+                },
+                colors = runnerSwitchColors()
+            )
+        }
+
+        if (appSettings.hapticEnabled) {
+            SettingsDivider()
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Сила вибрации",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = listOf(
+                        1 to "Слабая",
+                        2 to "Средняя",
+                        3 to "Сильная"
+                    ),
+                    selected = appSettings.hapticIntensity,
+                    onSelect = {
+                        viewModel.updateSettings(appSettings.copy(hapticIntensity = it))
+                        viewModel.testHaptic(it)
+                    }
+                )
+            }
+
+            SettingsDivider()
+
+            Text(
+                text = "События для вибрации",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 4.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Отправка сообщения",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.5.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = appSettings.hapticOnSend,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(hapticOnSend = it))
+                        if (it) viewModel.testHaptic(appSettings.hapticIntensity)
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Завершение задачи",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.5.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = appSettings.hapticOnComplete,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(hapticOnComplete = it))
+                        if (it) viewModel.testHaptic(appSettings.hapticIntensity)
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Запрос подтверждения (план или операция)",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.5.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = appSettings.hapticOnConfirm,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(hapticOnConfirm = it))
+                        if (it) viewModel.testHaptic(appSettings.hapticIntensity)
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Ошибка при выполнении",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.5.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = appSettings.hapticOnError,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(hapticOnError = it))
+                        if (it) viewModel.testHaptic(appSettings.hapticIntensity)
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
         }
     }
 }

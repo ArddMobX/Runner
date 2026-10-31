@@ -8,12 +8,22 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
+
+/**
+ * Описание системного голоса для озвучки.
+ */
+data class VoiceOption(
+    val name: String,
+    val displayName: String,
+    val locale: String
+)
 
 /**
  * Менеджер голосовых функций: распознавание речи (STT) и синтез речи (TTS)
@@ -151,12 +161,67 @@ class VoiceManager(private val context: Context) {
     private val _activeUtteranceId = MutableStateFlow<String?>(null)
     val activeUtteranceId: StateFlow<String?> = _activeUtteranceId.asStateFlow()
 
+    private val _availableVoices = MutableStateFlow<List<VoiceOption>>(emptyList())
+    val availableVoices: StateFlow<List<VoiceOption>> = _availableVoices.asStateFlow()
+
+    private var currentSpeed: Float = 1.0f
+    private var currentPitch: Float = 1.0f
+    private var currentVoiceName: String = ""
+
     private var onSpeechDoneCallback: (() -> Unit)? = null
 
     init {
         mainHandler.post {
             initTts()
         }
+    }
+
+    fun setTtsParameters(speed: Float, pitch: Float, voiceName: String) {
+        currentSpeed = speed
+        currentPitch = pitch
+        currentVoiceName = voiceName
+        mainHandler.post {
+            applyTtsParameters()
+        }
+    }
+
+    private fun applyTtsParameters() {
+        val engine = tts ?: return
+        if (!isTtsReady) return
+        try {
+            engine.setSpeechRate(currentSpeed.coerceIn(0.5f, 2.5f))
+            engine.setPitch(currentPitch.coerceIn(0.5f, 2.0f))
+            if (currentVoiceName.isNotBlank()) {
+                val matched = engine.voices?.firstOrNull { it.name == currentVoiceName }
+                if (matched != null) {
+                    engine.voice = matched
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun loadAvailableVoices() {
+        val engine = tts ?: return
+        try {
+            val voices = engine.voices
+            if (voices != null) {
+                val currentLoc = Locale.getDefault()
+                val list = voices.filter { v ->
+                    v.locale.language == currentLoc.language || v.locale.language == "ru" || v.locale.language == "en"
+                }.map { v ->
+                    val lang = v.locale.displayLanguage.replaceFirstChar { it.uppercase() }
+                    val country = if (v.locale.country.isNotBlank()) " (${v.locale.country})" else ""
+                    val shortName = v.name.substringAfterLast("-").substringAfterLast("#")
+                    val displayName = "$lang$country #$shortName"
+                    VoiceOption(
+                        name = v.name,
+                        displayName = displayName,
+                        locale = v.locale.displayName
+                    )
+                }.sortedBy { it.displayName }
+                _availableVoices.value = list
+            }
+        } catch (_: Exception) {}
     }
 
     private fun initTts() {
@@ -167,7 +232,9 @@ class VoiceManager(private val context: Context) {
                 if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                     tts?.language = Locale.US
                 }
+                applyTtsParameters()
                 setupUtteranceListener()
+                loadAvailableVoices()
             } else {
                 isTtsReady = false
             }
@@ -221,6 +288,13 @@ class VoiceManager(private val context: Context) {
 
             tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         }
+    }
+
+    /**
+     * Воспроизводит тестовую фразу для предпросмотра выбранного голоса и параметров.
+     */
+    fun previewVoice(text: String = "Привет! Это проверка голоса в Runner.") {
+        speak(text, "preview_${System.currentTimeMillis()}")
     }
 
     fun stopSpeaking() {
