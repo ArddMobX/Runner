@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.widget.Toast
+import com.runner.app.util.StoragePathUtils
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1805,7 +1806,9 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             WorkingDirField(
                 currentDir = appSettings.defaultWorkingDir,
-                onDirChange = { viewModel.updateSettings(appSettings.copy(defaultWorkingDir = it)) }
+                autoApprove = appSettings.autoApproveInWorkingDir,
+                onDirChange = { viewModel.updateSettings(appSettings.copy(defaultWorkingDir = it)) },
+                onAutoApproveChange = { viewModel.updateSettings(appSettings.copy(autoApproveInWorkingDir = it)) }
             )
 
             SettingsDivider()
@@ -3486,7 +3489,9 @@ private fun VibrationSettingsCard(
 @Composable
 private fun WorkingDirField(
     currentDir: String,
-    onDirChange: (String) -> Unit
+    autoApprove: Boolean,
+    onDirChange: (String) -> Unit,
+    onAutoApproveChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     var showManualPathDialog by remember { mutableStateOf(false) }
@@ -3495,7 +3500,7 @@ private fun WorkingDirField(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            val resolved = uriToStoragePath(uri)
+            val resolved = StoragePathUtils.uriToStoragePath(uri)
             if (resolved != null) {
                 onDirChange(resolved)
             } else {
@@ -3596,6 +3601,41 @@ private fun WorkingDirField(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.5.sp
         )
+
+        if (currentDir.isNotBlank()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                    Text(
+                        text = "Автономный режим в папке",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Не запрашивать подтверждения на операции внутри этой папки",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = autoApprove,
+                    onCheckedChange = onAutoApproveChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+            }
+        }
     }
 
     if (showManualPathDialog) {

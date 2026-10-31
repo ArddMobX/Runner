@@ -121,6 +121,8 @@ data class AppSettings(
     val keepScreenOnWhileRunning: Boolean = true,
     /** Рабочая папка проекта по умолчанию (пусто = /storage/emulated/0). */
     val defaultWorkingDir: String = "",
+    /** Автономный режим в рабочей папке: не спрашивать подтверждения на операции внутри неё. */
+    val autoApproveInWorkingDir: Boolean = false,
     /** Нажатие Enter на клавиатуре отправляет сообщение (иначе переносит строку). */
     val sendOnEnter: Boolean = false,
     /** Отправлять системное уведомление при завершении задачи или запросе подтверждения в фоне. */
@@ -331,7 +333,8 @@ data class AppSettings(
             userInstructions: String,
             readOnly: Boolean = false,
             dryRun: Boolean = false,
-            workingDir: String = ""
+            workingDir: String = "",
+            autoApproveInWorkingDir: Boolean = false
         ): String {
             val user = userInstructions.trim()
             var base = if (user.isBlank()) {
@@ -341,6 +344,9 @@ data class AppSettings(
             }
             if (workingDir.isNotBlank()) {
                 base = base.trimEnd() + "\n- РАБОЧАЯ ПАПКА ПРОЕКТА: $workingDir. Все относительные пути (без начального слэша) считай относительно этой папки."
+                if (autoApproveInWorkingDir) {
+                    base += " Для этой папки включён доверенный автономный режим: свободно создавай, редактируй и упорядочивай файлы проекта внутри неё без лишних запросов подтверждения."
+                }
             }
             // Режимы дописываются в конец базового промпта, а не заменяют его:
             // правила про недоверенный текст и лимиты вывода действуют и здесь.
@@ -474,6 +480,7 @@ class SettingsStore(context: Context) {
             autoSpeakResponses = prefs.getBoolean(KEY_AUTO_SPEAK, false),
             keepScreenOnWhileRunning = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
             defaultWorkingDir = prefs.getString(KEY_DEFAULT_WORKING_DIR, "").orEmpty(),
+            autoApproveInWorkingDir = prefs.getBoolean(KEY_AUTO_APPROVE_IN_WORKING_DIR, false),
             sendOnEnter = prefs.getBoolean(KEY_SEND_ON_ENTER, false),
             notifyOnCompletion = prefs.getBoolean(KEY_NOTIFY_ON_COMPLETION, true),
             secureScreenMode = prefs.getBoolean(KEY_SECURE_SCREEN_MODE, false),
@@ -535,6 +542,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_AUTO_SPEAK, settings.autoSpeakResponses)
             .putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOnWhileRunning)
             .putString(KEY_DEFAULT_WORKING_DIR, settings.defaultWorkingDir)
+            .putBoolean(KEY_AUTO_APPROVE_IN_WORKING_DIR, settings.autoApproveInWorkingDir)
             .putBoolean(KEY_SEND_ON_ENTER, settings.sendOnEnter)
             .putBoolean(KEY_NOTIFY_ON_COMPLETION, settings.notifyOnCompletion)
             .putBoolean(KEY_SECURE_SCREEN_MODE, settings.secureScreenMode)
@@ -592,6 +600,7 @@ class SettingsStore(context: Context) {
         const val KEY_AUTO_SPEAK = "auto_speak_responses"
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on_while_running"
         const val KEY_DEFAULT_WORKING_DIR = "default_working_dir"
+        const val KEY_AUTO_APPROVE_IN_WORKING_DIR = "auto_approve_in_working_dir"
         const val KEY_SEND_ON_ENTER = "send_on_enter"
         const val KEY_NOTIFY_ON_COMPLETION = "notify_on_completion"
         const val KEY_SECURE_SCREEN_MODE = "secure_screen_mode"

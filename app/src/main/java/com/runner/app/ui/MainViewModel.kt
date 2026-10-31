@@ -2263,6 +2263,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // буфер обмена). Это защита от подсказок вида «удали всё» внутри
         // прочитанного текста, её отключать нельзя.
         val confirmDangerous = _settings.value.confirmDangerous
+        val isInsideWorkingDir = if (_settings.value.autoApproveInWorkingDir && _settings.value.defaultWorkingDir.isNotBlank()) {
+            val workingDirFile = try { java.io.File(_settings.value.defaultWorkingDir).canonicalFile } catch (_: Exception) { null }
+            if (workingDirFile != null) {
+                val argsObj = try { JSONObject(call.arguments) } catch (_: Exception) { null }
+                val targetPath = argsObj?.optString("path")?.takeIf { it.isNotBlank() }
+                    ?: argsObj?.optString("src")?.takeIf { it.isNotBlank() }
+                    ?: argsObj?.optString("dir")?.takeIf { it.isNotBlank() }
+                    ?: argsObj?.optString("archive_path")?.takeIf { it.isNotBlank() }
+                    ?: argsObj?.optString("destination")?.takeIf { it.isNotBlank() }
+                if (targetPath != null) {
+                    val f = java.io.File(targetPath)
+                    val resolved = if (f.isAbsolute) f.canonicalFile else java.io.File(workingDirFile, targetPath).canonicalFile
+                    resolved.startsWith(workingDirFile)
+                } else false
+            } else false
+        } else false
+
         val needConfirm = when {
             isEnableTools -> false
             // Заблокированное не подтверждаем: спрашивать нечего, ответ уже дан
@@ -2271,6 +2288,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             blockedByReadOnly -> false
             fromUntrusted -> true
             remembered -> _settings.value.confirmEveryStep
+            isInsideWorkingDir -> false
             isDangerous -> confirmDangerous && !preApproved
             else -> _settings.value.confirmEveryStep
         }
@@ -2503,7 +2521,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _settings.value.effectiveInstructions,
             readOnly = _settings.value.readOnlyMode,
             dryRun = dryRunActive,
-            workingDir = _settings.value.defaultWorkingDir
+            workingDir = _settings.value.defaultWorkingDir,
+            autoApproveInWorkingDir = _settings.value.autoApproveInWorkingDir
         )
         // Пояснение к урезанному набору. Без него модель просто не знает, что
         // инструмент существует, и отвечает «не могу» вместо подключения.

@@ -280,10 +280,10 @@ fun ChatInputBar(
                 .background(MaterialTheme.colorScheme.surfaceContainer)
                 .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(26.dp))
                 .padding(horizontal = 6.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = if (textValue.text.contains('\n')) Alignment.Bottom else Alignment.CenterVertically
         ) {
-            // Кнопка «+»: открывает меню выбора — камера или галерея.
-            // Геометрически выровнена по размеру (38dp) и центру со строкой ввода и кнопкой микрофона.
+            // Кнопка «+»: быстрое меню прикрепления — камера или галерея.
+            // Идеально сбалансирована по центру, размеру (38dp) и форме с кнопкой микрофона/отправки.
             Box(
                 modifier = Modifier.size(38.dp),
                 contentAlignment = Alignment.Center
@@ -292,6 +292,7 @@ fun ChatInputBar(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f))
                         .bounceClick(enabled = !isRunning, scaleDown = 0.90f) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             showAttachMenu = true
@@ -301,8 +302,8 @@ fun ChatInputBar(
                     Icon(
                         imageVector = Icons.Outlined.Add,
                         contentDescription = "Прикрепить фото или сделать снимок",
-                        tint = if (!isRunning) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                        modifier = Modifier.size(22.dp)
+                        tint = if (!isRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
