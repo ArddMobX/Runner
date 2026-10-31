@@ -1,6 +1,7 @@
 package com.runner.app.data
 
 import android.content.Context
+import java.util.HashSet
 
 /**
  * Настройки агента и внешнего вида.
@@ -112,7 +113,13 @@ data class AppSettings(
     /** Отправлять системное уведомление при завершении задачи или запросе подтверждения в фоне. */
     val notifyOnCompletion: Boolean = true,
     /** Блокировать скриншоты и скрывать превью приложения в списке недавних задач (FLAG_SECURE). */
-    val secureScreenMode: Boolean = false
+    val secureScreenMode: Boolean = false,
+    /** Список избранных моделей в формате "providerId:modelId" для быстрого доступа. */
+    val favoriteModels: Set<String> = emptySet(),
+    /** Лимит токенов на один ответ модели (0 = без ограничений / по умолчанию). */
+    val maxOutputTokens: Int = 0,
+    /** Лимит суммарного расхода токенов на выполнение задачи (0 = без ограничений). */
+    val maxTaskTokens: Int = 0
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -146,6 +153,12 @@ data class AppSettings(
 
         /** Бюджет контекста в символах: под 128k-модели и выше. */
         val CONTEXT_BUDGET_PRESETS = listOf(300_000, 600_000, 1_200_000, 2_000_000)
+
+        /** Варианты лимита токенов на ответ (0 = Авто / без лимита). */
+        val MAX_OUTPUT_TOKENS_PRESETS = listOf(0, 1024, 2048, 4096, 8192)
+
+        /** Варианты лимита токенов на выполнение задачи (0 = Без лимита). */
+        val MAX_TASK_TOKENS_PRESETS = listOf(0, 10_000, 25_000, 50_000, 100_000)
 
         @Deprecated("Используйте RESPONSE_TIMEOUT_PRESETS")
         val TIMEOUT_PRESETS = RESPONSE_TIMEOUT_PRESETS
@@ -352,7 +365,10 @@ class SettingsStore(context: Context) {
             defaultWorkingDir = prefs.getString(KEY_DEFAULT_WORKING_DIR, "").orEmpty(),
             sendOnEnter = prefs.getBoolean(KEY_SEND_ON_ENTER, false),
             notifyOnCompletion = prefs.getBoolean(KEY_NOTIFY_ON_COMPLETION, true),
-            secureScreenMode = prefs.getBoolean(KEY_SECURE_SCREEN_MODE, false)
+            secureScreenMode = prefs.getBoolean(KEY_SECURE_SCREEN_MODE, false),
+            favoriteModels = prefs.getStringSet(KEY_FAVORITE_MODELS, emptySet())?.toSet() ?: emptySet(),
+            maxOutputTokens = prefs.getInt(KEY_MAX_OUTPUT_TOKENS, 0),
+            maxTaskTokens = prefs.getInt(KEY_MAX_TASK_TOKENS, 0)
         )
     }
 
@@ -387,6 +403,9 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_SEND_ON_ENTER, settings.sendOnEnter)
             .putBoolean(KEY_NOTIFY_ON_COMPLETION, settings.notifyOnCompletion)
             .putBoolean(KEY_SECURE_SCREEN_MODE, settings.secureScreenMode)
+            .putStringSet(KEY_FAVORITE_MODELS, HashSet(settings.favoriteModels))
+            .putInt(KEY_MAX_OUTPUT_TOKENS, settings.maxOutputTokens)
+            .putInt(KEY_MAX_TASK_TOKENS, settings.maxTaskTokens)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -430,5 +449,8 @@ class SettingsStore(context: Context) {
         const val KEY_SEND_ON_ENTER = "send_on_enter"
         const val KEY_NOTIFY_ON_COMPLETION = "notify_on_completion"
         const val KEY_SECURE_SCREEN_MODE = "secure_screen_mode"
+        const val KEY_FAVORITE_MODELS = "favorite_models"
+        const val KEY_MAX_OUTPUT_TOKENS = "max_output_tokens"
+        const val KEY_MAX_TASK_TOKENS = "max_task_tokens"
     }
 }

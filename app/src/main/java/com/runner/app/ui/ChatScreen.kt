@@ -242,6 +242,10 @@ fun ChatScreen(
             providers = providers,
             activeProviderId = activeProviderId,
             loadingProviderId = modelsLoadingFor,
+            favoriteModels = appSettings.favoriteModels,
+            onToggleFavorite = { providerId, model ->
+                viewModel.toggleFavoriteModel(providerId, model)
+            },
             onSelectModel = { providerId, model ->
                 viewModel.selectModel(providerId, model)
                 showModelPicker = false
