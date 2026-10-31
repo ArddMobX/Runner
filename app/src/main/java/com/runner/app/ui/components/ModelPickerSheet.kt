@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
@@ -68,9 +69,18 @@ import com.runner.app.data.ModelInfo
 import com.runner.app.data.Provider
 import com.runner.app.ui.theme.StatusSuccess
 
+const val ALL_PROVIDERS_ID = "__ALL__"
+
+private data class DisplayModel(
+    val model: ModelInfo,
+    val providerId: String,
+    val providerName: String
+)
+
 /**
- * Выбор модели: провайдер сверху, поиск, список моделей с бейджем контекста
- * и копированием ID. Плюс режим ручного ввода для кастомных моделей.
+ * Выбор модели: вкладка "Все" и отдельные провайдеры сверху, поиск, список
+ * моделей с бейджем контекста, провайдера и копированием ID. Плюс режим
+ * ручного ввода для кастомных моделей.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,17 +101,48 @@ fun ModelPickerSheet(
     var manualMode by remember { mutableStateOf(false) }
     var manualId by remember { mutableStateOf("") }
 
-    val provider = providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull()
-    val isLoading = provider != null && loadingProviderId == provider.id
+    val isAllSelected = selectedProviderId == ALL_PROVIDERS_ID
+    val activeProvider = providers.firstOrNull { it.id == activeProviderId } ?: providers.firstOrNull()
+    val currentProvider = if (isAllSelected) null else (providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull())
+    val isLoading = if (isAllSelected) {
+        loadingProviderId != null
+    } else {
+        currentProvider != null && loadingProviderId == currentProvider.id
+    }
 
-    val models = provider?.models.orEmpty()
-        .filter { model -> ModelCatalog.isChatAndToolModel(model.id, model.name) }
-        .filter { model ->
-            query.isBlank() ||
-                    model.id.contains(query.trim(), ignoreCase = true) ||
-                    model.label.contains(query.trim(), ignoreCase = true) ||
-                    model.name.contains(query.trim(), ignoreCase = true)
+    val displayModels = remember(providers, selectedProviderId, query) {
+        if (isAllSelected) {
+            val sourceProviders = providers.filter { it.apiKey.isNotBlank() }.ifEmpty { providers }
+            sourceProviders.flatMap { prov ->
+                prov.models
+                    .filter { ModelCatalog.isChatAndToolModel(it.id, it.name) }
+                    .map { DisplayModel(model = it, providerId = prov.id, providerName = prov.name) }
+            }.filter { item ->
+                if (query.isBlank()) true else {
+                    val q = query.trim()
+                    item.model.id.contains(q, ignoreCase = true) ||
+                            item.model.label.contains(q, ignoreCase = true) ||
+                            item.model.name.contains(q, ignoreCase = true) ||
+                            item.providerName.contains(q, ignoreCase = true)
+                }
+            }
+        } else if (currentProvider != null) {
+            val provider = currentProvider
+            provider.models
+                .filter { ModelCatalog.isChatAndToolModel(it.id, it.name) }
+                .filter { model ->
+                    if (query.isBlank()) true else {
+                        val q = query.trim()
+                        model.id.contains(q, ignoreCase = true) ||
+                                model.label.contains(q, ignoreCase = true) ||
+                                model.name.contains(q, ignoreCase = true)
+                    }
+                }
+                .map { DisplayModel(model = it, providerId = provider.id, providerName = provider.name) }
+        } else {
+            emptyList()
         }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -143,9 +184,16 @@ fun ModelPickerSheet(
                     TextButton(onClick = { manualMode = false }) {
                         Text("К списку", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                     }
-                } else if (provider != null) {
+                } else if (isAllSelected || currentProvider != null) {
                     IconButton(
-                        onClick = { onRefresh(provider.id) },
+                        onClick = {
+                            if (isAllSelected) {
+                                val refreshTargets = providers.filter { it.apiKey.isNotBlank() }.ifEmpty { providers }
+                                refreshTargets.forEach { onRefresh(it.id) }
+                            } else if (currentProvider != null) {
+                                onRefresh(currentProvider.id)
+                            }
+                        },
                         enabled = !isLoading
                     ) {
                         if (isLoading) {
@@ -167,16 +215,17 @@ fun ModelPickerSheet(
             }
 
             if (manualMode) {
+                val targetProvider = currentProvider ?: activeProvider
                 ManualIdEntry(
                     value = manualId,
                     onValueChange = { manualId = it },
                     onApply = {
                         val id = manualId.trim()
-                        if (id.isNotBlank() && provider != null) {
-                            onSelectModel(provider.id, id)
+                        if (id.isNotBlank() && targetProvider != null) {
+                            onSelectModel(targetProvider.id, id)
                         }
                     },
-                    enabled = provider != null
+                    enabled = targetProvider != null
                 )
                 return@Column
             }
@@ -189,8 +238,48 @@ fun ModelPickerSheet(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Вкладка "Все"
+                val allSelected = isAllSelected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (allSelected) MaterialTheme.colorScheme.surfaceContainerHigh
+                            else MaterialTheme.colorScheme.surfaceContainer
+                        )
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                if (allSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            ),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            selectedProviderId = ALL_PROVIDERS_ID
+                            query = ""
+                        }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.Layers,
+                            contentDescription = null,
+                            tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Все",
+                            color = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
                 providers.forEach { item ->
-                    val isSelected = item.id == provider?.id
+                    val isSelected = !isAllSelected && item.id == currentProvider?.id
                     val providerLogo = remember(item.id, item.name) {
                         ProviderLogos.forProvider(item.id, item.name)
                     }
@@ -263,7 +352,13 @@ fun ModelPickerSheet(
                         BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                         RoundedCornerShape(10.dp)
                     ),
-                placeholder = { Text("Поиск модели", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp) },
+                placeholder = {
+                    Text(
+                        text = if (isAllSelected) "Поиск по всем моделям и провайдерам" else "Поиск модели",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 13.sp
+                    )
+                },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Search,
@@ -282,7 +377,7 @@ fun ModelPickerSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        manualId = provider?.selectedModel.orEmpty()
+                        manualId = (currentProvider ?: activeProvider)?.selectedModel.orEmpty()
                         manualMode = true
                     }
                     .padding(horizontal = 20.dp, vertical = 12.dp),
@@ -301,15 +396,17 @@ fun ModelPickerSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
 
             when {
-                provider == null -> SheetMessage("Нет ни одного провайдера")
+                providers.isEmpty() -> SheetMessage("Нет ни одного провайдера")
 
-                provider.apiKey.isBlank() -> Column(
+                !isAllSelected && currentProvider == null -> SheetMessage("Провайдер не найден")
+
+                !isAllSelected && currentProvider?.apiKey?.isBlank() == true -> Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp)
                 ) {
                     Text(
-                        text = "У провайдера ${provider.name} не задан ключ, список моделей недоступен.",
+                        text = "У провайдера ${currentProvider.name} не задан ключ, список моделей недоступен.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
@@ -319,20 +416,25 @@ fun ModelPickerSheet(
                     }
                 }
 
-                models.isEmpty() -> SheetMessage(
+                displayModels.isEmpty() -> SheetMessage(
                     if (query.isBlank()) "Список пуст. Нажмите обновление сверху." else "Ничего не найдено"
                 )
 
                 else -> LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    items(models, key = { it.id }) { model ->
+                    items(
+                        items = displayModels,
+                        key = { "${it.providerId}:${it.model.id}" }
+                    ) { item ->
+                        val isActive = item.providerId == activeProviderId && item.model.id == activeProvider?.selectedModel
                         ModelRow(
-                            model = model,
-                            providerId = provider.id,
-                            providerName = provider.name,
-                            isActive = provider.id == activeProviderId && model.id == provider.selectedModel,
-                            onSelect = { onSelectModel(provider.id, model.id) },
+                            model = item.model,
+                            providerId = item.providerId,
+                            providerName = item.providerName,
+                            isActive = isActive,
+                            showProviderBadge = isAllSelected,
+                            onSelect = { onSelectModel(item.providerId, item.model.id) },
                             onCopy = {
-                                copyToClipboard(context, model.id)
+                                copyToClipboard(context, item.model.id)
                                 Toast.makeText(context, "ID скопирован в буфер", Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -350,6 +452,7 @@ private fun ModelRow(
     providerId: String,
     providerName: String,
     isActive: Boolean,
+    showProviderBadge: Boolean = false,
     onSelect: () -> Unit,
     onCopy: () -> Unit
 ) {
@@ -406,16 +509,39 @@ private fun ModelRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (hasReadableName) {
+            if (showProviderBadge || hasReadableName) {
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = model.id,
-                    color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showProviderBadge) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = providerName,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    if (showProviderBadge && hasReadableName) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    if (hasReadableName) {
+                        Text(
+                            text = model.id,
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                }
             }
         }
 
