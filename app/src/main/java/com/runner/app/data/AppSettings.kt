@@ -1,7 +1,20 @@
 package com.runner.app.data
 
 import android.content.Context
+import java.util.ArrayList
 import java.util.HashSet
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * Профиль системных инструкций для быстрого переключения стилей поведения агента.
+ */
+data class InstructionProfile(
+    val id: String,
+    val title: String,
+    val instructions: String,
+    val isBuiltIn: Boolean = false
+)
 
 /**
  * Настройки агента и внешнего вида.
@@ -119,12 +132,74 @@ data class AppSettings(
     /** Лимит токенов на один ответ модели (0 = без ограничений / по умолчанию). */
     val maxOutputTokens: Int = 0,
     /** Лимит суммарного расхода токенов на выполнение задачи (0 = без ограничений). */
-    val maxTaskTokens: Int = 0
+    val maxTaskTokens: Int = 0,
+    /** Идентификатор активного профиля инструкций ("standard", "brief", "detailed", "cautious" или кастомный). */
+    val activeInstructionProfileId: String = DEFAULT_PROFILE_ID,
+    /** Список всех доступных профилей инструкций. */
+    val instructionProfiles: List<InstructionProfile> = DEFAULT_PROFILES,
+    /** Скорость воспроизведения TTS (0.5x .. 2.5x, по умолчанию 1.0f). */
+    val ttsSpeed: Float = 1.0f,
+    /** Высота тона речи TTS (0.5 .. 2.0, по умолчанию 1.0f). */
+    val ttsPitch: Float = 1.0f,
+    /** Название выбранного системного голоса TTS (пусто = системный по умолчанию). */
+    val ttsVoiceName: String = "",
+    /** Общий тумблер тактильного отклика (вибрации). */
+    val hapticEnabled: Boolean = true,
+    /** Сила вибрации: 1 (слабая), 2 (средняя), 3 (сильная). */
+    val hapticIntensity: Int = 2,
+    /** Вибрация при отправке сообщения. */
+    val hapticOnSend: Boolean = true,
+    /** Вибрация при завершении задачи агентом. */
+    val hapticOnComplete: Boolean = true,
+    /** Вибрация при запросе подтверждения (плана или опасного действия). */
+    val hapticOnConfirm: Boolean = true,
+    /** Вибрация при ошибке. */
+    val hapticOnError: Boolean = true
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
 
+    /** Эффективные пользовательские инструкции с учётом выбранного профиля. */
+    val effectiveInstructions: String
+        get() {
+            val active = instructionProfiles.firstOrNull { it.id == activeInstructionProfileId }
+            return active?.instructions ?: userInstructions
+        }
+
     companion object {
+        const val DEFAULT_PROFILE_ID = "standard"
+
+        val DEFAULT_PROFILES = listOf(
+            InstructionProfile(
+                id = DEFAULT_PROFILE_ID,
+                title = "Стандартный",
+                instructions = "",
+                isBuiltIn = true
+            ),
+            InstructionProfile(
+                id = "brief",
+                title = "Краткий",
+                instructions = "Отвечай максимально кратко, по существу, без лишних вводных слов и пояснений. Сразу выдавай готовый результат или точный код.",
+                isBuiltIn = true
+            ),
+            InstructionProfile(
+                id = "detailed",
+                title = "Подробный",
+                instructions = "Подробно объясняй каждый шаг, ход рассуждений и логику действий. Разбирай альтернативные варианты и технические нюансы.",
+                isBuiltIn = true
+            ),
+            InstructionProfile(
+                id = "cautious",
+                title = "Осторожный",
+                instructions = "Будь предельно осторожен. Всегда подробно предупреждай перед любыми изменениями файлов или запуском команд. Анализируй возможные риски и перепроверяй пути.",
+                isBuiltIn = true
+            )
+        )
+
+        val TTS_SPEED_PRESETS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+        val TTS_PITCH_PRESETS = listOf(0.8f, 1.0f, 1.2f)
+        val HAPTIC_INTENSITY_PRESETS = listOf(1, 2, 3)
+
         const val DEFAULT_MAX_STEPS = 10
         const val DEFAULT_CONNECT_TIMEOUT = 15
         const val DEFAULT_RESPONSE_TIMEOUT = 60
@@ -318,17 +393,57 @@ class SettingsStore(context: Context) {
             prefs.getString(KEY_CUSTOM_HEADERS, null).orEmpty()
         }
 
-        return AppSettings(
-            // Миграция со старого редактируемого промпта: нетронутый дефолт
-            // равен CORE_SYSTEM_PROMPT — сбрасываем в пустые инструкции,
-            // изменённый текст бережно сохраняем как пользовательские инструкции.
-            userInstructions = prefs.getString(KEY_PROMPT, null).let { stored ->
+        val activeProfileId = prefs.getString(KEY_ACTIVE_PROFILE_ID, AppSettings.DEFAULT_PROFILE_ID).orEmpty()
+            .ifBlank { AppSettings.DEFAULT_PROFILE_ID }
+
+        val profilesJson = prefs.getString(KEY_INSTRUCTION_PROFILES, null)
+        val loadedProfiles = if (!profilesJson.isNullOrBlank()) {
+            try {
+                val array = JSONArray(profilesJson)
+                val list = ArrayList<InstructionProfile>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    list.add(
+                        InstructionProfile(
+                            id = obj.getString("id"),
+                            title = obj.getString("title"),
+                            instructions = obj.optString("instructions", ""),
+                            isBuiltIn = obj.optBoolean("isBuiltIn", false)
+                        )
+                    )
+                }
+                if (list.isEmpty()) AppSettings.DEFAULT_PROFILES else list
+            } catch (_: Exception) {
+                AppSettings.DEFAULT_PROFILES
+            }
+        } else {
+            val legacyPrompt = prefs.getString(KEY_PROMPT, null).let { stored ->
                 when {
                     stored == null -> ""
                     stored == AppSettings.CORE_SYSTEM_PROMPT -> ""
                     else -> stored
                 }
-            },
+            }
+            if (legacyPrompt.isNotBlank()) {
+                AppSettings.DEFAULT_PROFILES.map {
+                    if (it.id == AppSettings.DEFAULT_PROFILE_ID) it.copy(instructions = legacyPrompt) else it
+                }
+            } else {
+                AppSettings.DEFAULT_PROFILES
+            }
+        }
+
+        val effectiveUserInstructions = loadedProfiles.firstOrNull { it.id == activeProfileId }?.instructions
+            ?: prefs.getString(KEY_PROMPT, null).let { stored ->
+                when {
+                    stored == null -> ""
+                    stored == AppSettings.CORE_SYSTEM_PROMPT -> ""
+                    else -> stored
+                }
+            }
+
+        return AppSettings(
+            userInstructions = effectiveUserInstructions,
             temperature = prefs.getFloat(KEY_TEMPERATURE, 0.2f),
             maxSteps = effectiveSteps,
             reverseProxyUrl = prefs.getString(KEY_PROXY, null) ?: migratedProxy,
@@ -345,10 +460,6 @@ class SettingsStore(context: Context) {
             readOnlyMode = prefs.getBoolean(KEY_READ_ONLY_MODE, false),
             dryRunFirst = prefs.getBoolean(KEY_DRY_RUN_FIRST, false),
             pruneTools = prefs.getBoolean(KEY_PRUNE_TOOLS, false),
-            // Подписи без аргументов (вид «инструмент|») копились, пока у
-            // clipboard_write и organize_downloads критичных аргументов не было:
-            // одна такая подпись разрешала ВСЕ вызовы инструмента. Выбрасываем
-            // их при загрузке, чтобы починка дошла и до уже установленных сборок.
             approvedOperationSignatures = prefs.getStringSet(KEY_APPROVED_SIGNATURES, emptySet())
                 ?.filterNot { it.substringAfter("|", "").isEmpty() }
                 ?.toSet()
@@ -368,14 +479,38 @@ class SettingsStore(context: Context) {
             secureScreenMode = prefs.getBoolean(KEY_SECURE_SCREEN_MODE, false),
             favoriteModels = prefs.getStringSet(KEY_FAVORITE_MODELS, emptySet())?.toSet() ?: emptySet(),
             maxOutputTokens = prefs.getInt(KEY_MAX_OUTPUT_TOKENS, 0),
-            maxTaskTokens = prefs.getInt(KEY_MAX_TASK_TOKENS, 0)
+            maxTaskTokens = prefs.getInt(KEY_MAX_TASK_TOKENS, 0),
+            activeInstructionProfileId = activeProfileId,
+            instructionProfiles = loadedProfiles,
+            ttsSpeed = prefs.getFloat(KEY_TTS_SPEED, 1.0f),
+            ttsPitch = prefs.getFloat(KEY_TTS_PITCH, 1.0f),
+            ttsVoiceName = prefs.getString(KEY_TTS_VOICE_NAME, "").orEmpty(),
+            hapticEnabled = prefs.getBoolean(KEY_HAPTIC_ENABLED, true),
+            hapticIntensity = prefs.getInt(KEY_HAPTIC_INTENSITY, 2),
+            hapticOnSend = prefs.getBoolean(KEY_HAPTIC_ON_SEND, true),
+            hapticOnComplete = prefs.getBoolean(KEY_HAPTIC_ON_COMPLETE, true),
+            hapticOnConfirm = prefs.getBoolean(KEY_HAPTIC_ON_CONFIRM, true),
+            hapticOnError = prefs.getBoolean(KEY_HAPTIC_ON_ERROR, true)
         )
     }
 
     fun save(settings: AppSettings) {
         val encryptedHeaders = SecureStore.encrypt(settings.customHeaders)
+        val profilesArray = JSONArray()
+        for (profile in settings.instructionProfiles) {
+            val obj = JSONObject().apply {
+                put("id", profile.id)
+                put("title", profile.title)
+                put("instructions", profile.instructions)
+                put("isBuiltIn", profile.isBuiltIn)
+            }
+            profilesArray.put(obj)
+        }
+
         val editor = prefs.edit()
-            .putString(KEY_PROMPT, settings.userInstructions)
+            .putString(KEY_ACTIVE_PROFILE_ID, settings.activeInstructionProfileId)
+            .putString(KEY_INSTRUCTION_PROFILES, profilesArray.toString())
+            .putString(KEY_PROMPT, settings.effectiveInstructions)
             .putFloat(KEY_TEMPERATURE, settings.temperature)
             .putInt(KEY_MAX_STEPS, settings.maxSteps)
             .putString(KEY_PROXY, settings.reverseProxyUrl)
@@ -406,6 +541,15 @@ class SettingsStore(context: Context) {
             .putStringSet(KEY_FAVORITE_MODELS, HashSet(settings.favoriteModels))
             .putInt(KEY_MAX_OUTPUT_TOKENS, settings.maxOutputTokens)
             .putInt(KEY_MAX_TASK_TOKENS, settings.maxTaskTokens)
+            .putFloat(KEY_TTS_SPEED, settings.ttsSpeed)
+            .putFloat(KEY_TTS_PITCH, settings.ttsPitch)
+            .putString(KEY_TTS_VOICE_NAME, settings.ttsVoiceName)
+            .putBoolean(KEY_HAPTIC_ENABLED, settings.hapticEnabled)
+            .putInt(KEY_HAPTIC_INTENSITY, settings.hapticIntensity)
+            .putBoolean(KEY_HAPTIC_ON_SEND, settings.hapticOnSend)
+            .putBoolean(KEY_HAPTIC_ON_COMPLETE, settings.hapticOnComplete)
+            .putBoolean(KEY_HAPTIC_ON_CONFIRM, settings.hapticOnConfirm)
+            .putBoolean(KEY_HAPTIC_ON_ERROR, settings.hapticOnError)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -420,6 +564,8 @@ class SettingsStore(context: Context) {
     private companion object {
         const val PREFS_NAME = "runner_settings"
         const val KEY_PROMPT = "system_prompt"
+        const val KEY_ACTIVE_PROFILE_ID = "active_instruction_profile_id"
+        const val KEY_INSTRUCTION_PROFILES = "instruction_profiles_json"
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_MAX_STEPS = "max_steps"
         const val KEY_PROXY = "reverse_proxy_url"
@@ -452,5 +598,14 @@ class SettingsStore(context: Context) {
         const val KEY_FAVORITE_MODELS = "favorite_models"
         const val KEY_MAX_OUTPUT_TOKENS = "max_output_tokens"
         const val KEY_MAX_TASK_TOKENS = "max_task_tokens"
+        const val KEY_TTS_SPEED = "tts_speed"
+        const val KEY_TTS_PITCH = "tts_pitch"
+        const val KEY_TTS_VOICE_NAME = "tts_voice_name"
+        const val KEY_HAPTIC_ENABLED = "haptic_enabled"
+        const val KEY_HAPTIC_INTENSITY = "haptic_intensity"
+        const val KEY_HAPTIC_ON_SEND = "haptic_on_send"
+        const val KEY_HAPTIC_ON_COMPLETE = "haptic_on_complete"
+        const val KEY_HAPTIC_ON_CONFIRM = "haptic_on_confirm"
+        const val KEY_HAPTIC_ON_ERROR = "haptic_on_error"
     }
 }
