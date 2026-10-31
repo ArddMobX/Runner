@@ -129,8 +129,8 @@ private const val KEY_STORAGE_PROMPT_SHOWN = "storage_prompt_shown"
 /** Маркер «инструменты не нужны» в ответе планировщика. */
 private const val NO_TOOLS_MARKER = "БЕЗ_ИНСТРУМЕНТОВ"
 
-/** Жёсткий потолок шагов в плане (лимит исполнения всё равно задаёт maxSteps). */
-private const val MAX_PLAN_STEPS = 12
+/** Потолок шагов в плане (лимит исполнения всё равно задаёт maxSteps). */
+private const val MAX_PLAN_STEPS = 30
 
 /**
  * Сколько одинаковых вызовов ПОДРЯД терпим, прежде чем решить, что модель

@@ -128,7 +128,8 @@ data class AppSettings(
         val TRASH_RETENTION_PRESETS = listOf(1, 3, 7, 30, 0)
 
         val TEMPERATURE_RANGE = 0f..1.5f
-        val STEPS_RANGE = 1..20
+        val STEPS_RANGE = 1..100
+        val STEPS_PRESETS = listOf(10, 25, 50, 100)
         val TEXT_SCALES = listOf(0.9f, 1f, 1.15f)
         val CONNECT_TIMEOUT_PRESETS = listOf(10, 15, 30)
         val RESPONSE_TIMEOUT_PRESETS = listOf(60, 120, 180)
