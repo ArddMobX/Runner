@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.MaterialTheme
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.SecondaryMint
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -125,6 +127,7 @@ fun AppDrawerContent(
     onTogglePinSession: (String, Boolean) -> Unit,
     appVersion: String,
     footerLabel: String,
+    onOpenSupport: () -> Unit = {},
     onOpenSettings: () -> Unit
 ) {
     var sessionToRename by remember { mutableStateOf<SessionEntity?>(null) }
@@ -289,8 +292,25 @@ fun AppDrawerContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable { onOpenSupport() }
+                .padding(horizontal = 20.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.FavoriteBorder,
+                contentDescription = null,
+                tint = SecondaryMint,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(text = "Поддержать проект", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
                 .clickable { onOpenSettings() }
-                .padding(horizontal = 20.dp, vertical = 13.dp),
+                .padding(horizontal = 20.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(

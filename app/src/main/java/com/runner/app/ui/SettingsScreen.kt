@@ -46,6 +46,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
@@ -109,8 +110,11 @@ import com.runner.app.data.ThemeConfig
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
+import com.runner.app.ui.components.DONATE_GITHUB_REPO
+import com.runner.app.ui.components.DONATE_TG_CHANNEL
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
+import com.runner.app.ui.components.openExternalUrl
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
@@ -140,7 +144,8 @@ fun SettingsScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
     onOpenStorageSettings: () -> Unit,
-    onOpenAppSettings: () -> Unit = {}
+    onOpenAppSettings: () -> Unit = {},
+    onOpenSupport: () -> Unit = {}
 ) {
     var route by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Root) }
     BackHandler(enabled = route != SettingsRoute.Root) { route = SettingsRoute.Root }
@@ -203,7 +208,7 @@ fun SettingsScreen(
                 .imePadding()
         ) {
             when (val current = route) {
-                SettingsRoute.Root -> SettingsRoot(viewModel) { route = it }
+                SettingsRoute.Root -> SettingsRoot(viewModel, onOpenSupport) { route = it }
 
                 SettingsRoute.Providers -> ProvidersList(viewModel) { route = SettingsRoute.ProviderEdit(it) }
 
@@ -228,6 +233,7 @@ fun SettingsScreen(
 @Composable
 private fun SettingsRoot(
     viewModel: MainViewModel,
+    onOpenSupport: () -> Unit,
     onNavigate: (SettingsRoute) -> Unit
 ) {
     val providers by viewModel.providers.collectAsState()
@@ -736,6 +742,29 @@ private fun SettingsRoot(
                     fontSize = 11.5.sp
                 )
             }
+        }
+
+        SettingsGroup("О проекте") {
+            SettingsRow(
+                label = "Поддержать проект",
+                value = "TON · Telegram",
+                onClick = onOpenSupport,
+                icon = Icons.Outlined.FavoriteBorder
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Telegram-канал",
+                value = "@runner_agent",
+                onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) },
+                icon = RunnerIcons.Telegram
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Исходный код на GitHub",
+                value = "ArddMobX/Runner",
+                onClick = { openExternalUrl(context, DONATE_GITHUB_REPO) },
+                icon = RunnerIcons.Code
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))

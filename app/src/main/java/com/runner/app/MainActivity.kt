@@ -45,6 +45,7 @@ import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
 import com.runner.app.ui.components.DisclaimerDialog
+import com.runner.app.ui.components.SupportSheet
 import com.runner.app.ui.formatModelName
 import com.runner.app.ui.theme.RunnerTheme
 import kotlinx.coroutines.launch
@@ -123,6 +124,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation(viewModel: MainViewModel) {
     var currentScreen by remember { mutableStateOf(Screen.CHAT) }
+    var showSupportSheet by remember { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -212,6 +214,10 @@ fun AppNavigation(viewModel: MainViewModel) {
                         },
                         appVersion = viewModel.appVersion,
                         footerLabel = drawerFooter,
+                        onOpenSupport = {
+                            scope.launch { drawerState.close() }
+                            showSupportSheet = true
+                        },
                         onOpenSettings = {
                             scope.launch { drawerState.close() }
                             currentScreen = Screen.SETTINGS
@@ -232,9 +238,14 @@ fun AppNavigation(viewModel: MainViewModel) {
                 viewModel = viewModel,
                 onBackClick = { currentScreen = Screen.CHAT },
                 onOpenStorageSettings = { openStorageSettings(context) },
-                onOpenAppSettings = { openAppSettings(context) }
+                onOpenAppSettings = { openAppSettings(context) },
+                onOpenSupport = { showSupportSheet = true }
             )
         }
+    }
+
+    if (showSupportSheet) {
+        SupportSheet(onDismiss = { showSupportSheet = false })
     }
 }
 
