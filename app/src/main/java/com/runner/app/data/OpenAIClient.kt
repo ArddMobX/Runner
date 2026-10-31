@@ -236,6 +236,7 @@ class OpenAIClient {
         responseTimeoutSeconds: Int = timeoutSeconds,
         customHeaders: String = "",
         temperature: Double = 0.2,
+        maxTokens: Int = 0,
         streaming: Boolean = true,
         listener: StreamListener? = null,
         metrics: GenerationMetrics? = null,
@@ -290,6 +291,7 @@ class OpenAIClient {
         // поле убираем его и повторяем сразу, не тратя попытку ретрая.
         var allowStreamUsage = streamUsageSupported(endpoint)
         var allowTemperature = true
+        var allowMaxTokens = maxTokens > 0
         var allowThinking = providerKind == ProviderKind.DEEPSEEK && officialDeepSeekHost
         var allowTools = withTools
         var optionalStripped = 0
@@ -324,6 +326,7 @@ class OpenAIClient {
                     }
                 }
                 if (allowTemperature) put("temperature", temperature)
+                if (allowMaxTokens && maxTokens > 0) put("max_tokens", maxTokens)
                 if (streaming) {
                     put("stream", true)
                     if (allowStreamUsage) {
@@ -385,6 +388,7 @@ class OpenAIClient {
                             noteStreamUsageRejected(endpoint)
                         }
                         "temperature" -> allowTemperature = false
+                        "max_tokens" -> allowMaxTokens = false
                         "thinking" -> allowThinking = false
                         "tools", "tool_choice" -> allowTools = false
                         else -> Unit
@@ -1317,7 +1321,7 @@ class OpenAIClient {
          * Поля, которые разрешено убирать по жалобе провайдера. Белый список:
          * удалять из запроса произвольное поле, названное сервером, нельзя.
          */
-        val OPTIONAL_PARAM_NAMES = listOf("stream_options", "temperature", "thinking", "tools", "tool_choice")
+        val OPTIONAL_PARAM_NAMES = listOf("stream_options", "temperature", "max_tokens", "thinking", "tools", "tool_choice")
 
         /** Хосты, про которые точно известно, что stream_options они принимают. */
         val KNOWN_STREAM_USAGE_HOSTS = listOf(

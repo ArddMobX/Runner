@@ -1167,6 +1167,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeProviderId.value = providerId
     }
 
+    /** Добавить или удалить модель из списка избранных. */
+    fun toggleFavoriteModel(providerId: String, modelId: String) {
+        val key = "$providerId:$modelId"
+        val current = _settings.value.favoriteModels.toMutableSet()
+        if (current.contains(key) || current.contains(modelId)) {
+            current.remove(key)
+            current.remove(modelId)
+        } else {
+            current.add(key)
+        }
+        updateSettings(_settings.value.copy(favoriteModels = current))
+    }
+
     /** Обновление списка по сохранённым ключу и Base URL провайдера. */
     fun refreshModels(providerId: String, onResult: (String) -> Unit = {}) {
         val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
@@ -1645,6 +1658,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             customHeaders = currentSettings.customHeaders,
             // Детерминированный план: строгий формат важнее креативности.
             temperature = 0.1,
+            maxTokens = currentSettings.maxOutputTokens,
             streaming = false,
             metrics = metrics,
             withTools = false,
@@ -1786,6 +1800,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 responseTimeoutSeconds = currentSettings.responseTimeoutSeconds,
                 customHeaders = currentSettings.customHeaders,
                 temperature = currentSettings.temperature.toDouble(),
+                maxTokens = currentSettings.maxOutputTokens,
                 streaming = true,
                 listener = object : OpenAIClient.StreamListener {
                     override fun onTextDelta(delta: String) {
@@ -1816,6 +1831,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             metrics.promptTokens?.let { totalPromptTokens += it }
             metrics.completionTokens?.let { totalCompletionTokens += it }
+
+            val currentTaskTokens = totalPromptTokens + totalCompletionTokens
+            if (currentSettings.maxTaskTokens > 0 && currentTaskTokens >= currentSettings.maxTaskTokens) {
+                if (result is AIResponseResult.TextResult) {
+                    val reply = result.text.ifBlank { "Готово." }
+                    turnAssistantId = saveAssistantMessage(
+                        sessionId = sessionId,
+                        text = reply,
+                        reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
+                        reasoningMs = metrics.reasoningMillis.takeIf { it > 0L },
+                        completionTokens = metrics.completionTokens,
+                        tokensPerSecond = metrics.tokensPerSecond
+                    )
+                    _streamingText.value = ""
+                }
+                appendSystemInfo(
+                    "Достигнут лимит токенов на задачу ($currentTaskTokens из ${currentSettings.maxTaskTokens}). Выполнение приостановлено для экономии баланса.",
+                    null
+                )
+                attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
+                return
+            }
 
             when (result) {
                 is AIResponseResult.Cancelled -> {

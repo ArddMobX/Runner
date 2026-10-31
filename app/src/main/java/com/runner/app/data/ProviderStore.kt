@@ -260,6 +260,128 @@ class ProviderStore(context: Context) {
         const val DEFAULT_PROVIDER_ID = "groq"
 
         /**
+         * Готовые пресеты провайдеров для быстрой настройки без ручного ввода Base URL и моделей.
+         */
+        val PRESETS: List<Provider> = listOf(
+            Provider(
+                id = "tokenharbor",
+                name = "Token Harbor",
+                baseUrl = "https://tokenharbor.ai/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("claude-3-5-sonnet"),
+                    ModelInfo("gemini-2.0-flash"),
+                    ModelInfo("deepseek-chat")
+                ),
+                selectedModel = "gpt-4o"
+            ),
+            Provider(
+                id = "cleanapi",
+                name = "Clean API",
+                baseUrl = "https://cleanapis.com/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("claude-3-5-sonnet"),
+                    ModelInfo("gemini-2.0-flash")
+                ),
+                selectedModel = "gpt-4o"
+            ),
+            Provider(
+                id = "abnibots",
+                name = "AbniBots",
+                baseUrl = "https://api.abnibots.ru/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("gpt-4o-mini"),
+                    ModelInfo("claude-3-5-sonnet")
+                ),
+                selectedModel = "gpt-4o"
+            ),
+            Provider(
+                id = "proxyapi",
+                name = "ProxyAPI",
+                baseUrl = "https://api.proxyapi.ru/openai/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("gpt-4o-mini"),
+                    ModelInfo("claude-3-5-sonnet-20241022")
+                ),
+                selectedModel = "gpt-4o"
+            ),
+            Provider(
+                id = "vsegpt",
+                name = "VseGPT",
+                baseUrl = "https://api.vsegpt.ru/v1",
+                models = listOf(
+                    ModelInfo("openai/gpt-4o"),
+                    ModelInfo("anthropic/claude-3-5-sonnet")
+                ),
+                selectedModel = "openai/gpt-4o"
+            ),
+            Provider(
+                id = "together",
+                name = "Together AI",
+                baseUrl = "https://api.together.xyz/v1",
+                models = listOf(
+                    ModelInfo("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+                    ModelInfo("Qwen/Qwen2.5-72B-Instruct-Turbo")
+                ),
+                selectedModel = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+            ),
+            Provider(
+                id = "groq",
+                name = "Groq",
+                baseUrl = "https://api.groq.com/openai/v1",
+                models = listOf(
+                    ModelInfo("openai/gpt-oss-120b"),
+                    ModelInfo("openai/gpt-oss-20b"),
+                    ModelInfo("qwen/qwen3.8-27b")
+                ),
+                selectedModel = "openai/gpt-oss-120b"
+            ),
+            Provider(
+                id = "gemini",
+                name = "Gemini",
+                baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
+                models = listOf(
+                    ModelInfo("gemini-2.5-flash"),
+                    ModelInfo("gemini-2.5-flash-lite"),
+                    ModelInfo("gemini-2.5-pro")
+                ),
+                selectedModel = "gemini-2.5-flash"
+            ),
+            Provider(
+                id = "openrouter",
+                name = "OpenRouter",
+                baseUrl = "https://openrouter.ai/api/v1",
+                models = listOf(
+                    ModelInfo("qwen/qwen3.8-27b:free"),
+                    ModelInfo("nvidia/nemotron-3.5-lightning:free"),
+                    ModelInfo("deepseek/deepseek-v4.1-flash")
+                ),
+                selectedModel = "qwen/qwen3.8-27b:free"
+            ),
+            Provider(
+                id = "deepseek",
+                name = "DeepSeek",
+                baseUrl = "https://api.deepseek.com",
+                models = listOf(ModelInfo("deepseek-flash"), ModelInfo("deepseek-v4-pro")),
+                selectedModel = "deepseek-flash"
+            ),
+            Provider(
+                id = "openai",
+                name = "OpenAI",
+                baseUrl = "https://api.openai.com/v1",
+                models = listOf(
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-6-luna"),
+                    ModelInfo("gpt-6-astra")
+                ),
+                selectedModel = "gpt-5.4-nano"
+            )
+        )
+
+        /**
          * Стартовый набор. Модели здесь — только подсказка до первого
          * «Обновить список»: настоящий список тянется из GET /models.
          */
@@ -314,6 +436,40 @@ class ProviderStore(context: Context) {
                     ModelInfo("gpt-6-astra")
                 ),
                 selectedModel = "gpt-5.4-nano"
+            ),
+            Provider(
+                id = "tokenharbor",
+                name = "Token Harbor",
+                baseUrl = "https://tokenharbor.ai/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("claude-3-5-sonnet"),
+                    ModelInfo("gemini-2.0-flash"),
+                    ModelInfo("deepseek-chat")
+                ),
+                selectedModel = "gpt-4o"
+            ),
+            Provider(
+                id = "cleanapi",
+                name = "Clean API",
+                baseUrl = "https://cleanapis.com/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("claude-3-5-sonnet"),
+                    ModelInfo("gemini-2.0-flash")
+                ),
+                selectedModel = "gpt-4o"
+            ),
+            Provider(
+                id = "abnibots",
+                name = "AbniBots",
+                baseUrl = "https://api.abnibots.ru/v1",
+                models = listOf(
+                    ModelInfo("gpt-4o"),
+                    ModelInfo("gpt-4o-mini"),
+                    ModelInfo("claude-3-5-sonnet")
+                ),
+                selectedModel = "gpt-4o"
             )
         )
     }

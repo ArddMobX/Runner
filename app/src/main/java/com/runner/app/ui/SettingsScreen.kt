@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -121,6 +122,7 @@ import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
+import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
@@ -1153,6 +1155,54 @@ private fun ProvidersList(
                 fontWeight = FontWeight.Medium
             )
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Готовые пресеты",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(start = 2.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ProviderStore.PRESETS.forEach { preset ->
+                val alreadyAdded = providers.any { it.baseUrl == preset.baseUrl || it.id == preset.id }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (alreadyAdded) MaterialTheme.colorScheme.surfaceContainer
+                            else MaterialTheme.colorScheme.surfaceContainerHigh
+                        )
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                if (alreadyAdded) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            ),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            val id = if (!alreadyAdded) preset.id else "preset_${preset.id}_${System.currentTimeMillis()}"
+                            viewModel.saveProvider(preset.copy(id = id, apiKey = ""))
+                            onEdit(id)
+                        }
+                        .padding(horizontal = 11.dp, vertical = 7.dp)
+                ) {
+                    Text(
+                        text = preset.name,
+                        color = if (alreadyAdded) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1242,6 +1292,64 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Сколько раз модель может вызвать инструменты в одной задаче.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+            }
+
+            SettingsDivider()
+
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Лимит токенов на ответ",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.MAX_OUTPUT_TOKENS_PRESETS.map { limit ->
+                        limit to if (limit == 0) "Авто" else "${limit / 1024}K"
+                    },
+                    selected = appSettings.maxOutputTokens,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(maxOutputTokens = it)) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (appSettings.maxOutputTokens == 0) {
+                        "Ограничение выключено: длина ответа определяется провайдером."
+                    } else {
+                        "Максимум ${appSettings.maxOutputTokens} токенов в одном ответе модели (max_tokens)."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp
+                )
+            }
+
+            SettingsDivider()
+
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Лимит токенов на задачу",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.MAX_TASK_TOKENS_PRESETS.map { limit ->
+                        limit to if (limit == 0) "Без лимита" else "${limit / 1000}K"
+                    },
+                    selected = appSettings.maxTaskTokens,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(maxTaskTokens = it)) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (appSettings.maxTaskTokens == 0) {
+                        "Суммарный расход токенов не ограничен."
+                    } else {
+                        "Если шаги задачи суммарно превысят ${appSettings.maxTaskTokens} токенов, агент остановится для защиты баланса."
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )

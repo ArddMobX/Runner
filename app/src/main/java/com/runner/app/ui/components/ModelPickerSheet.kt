@@ -22,11 +22,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,6 +74,7 @@ import com.runner.app.data.Provider
 import com.runner.app.ui.theme.StatusSuccess
 
 const val ALL_PROVIDERS_ID = "__ALL__"
+const val FAVORITES_PROVIDER_ID = "__FAVORITES__"
 
 private data class DisplayModel(
     val model: ModelInfo,
@@ -88,6 +93,8 @@ fun ModelPickerSheet(
     providers: List<Provider>,
     activeProviderId: String,
     loadingProviderId: String?,
+    favoriteModels: Set<String> = emptySet(),
+    onToggleFavorite: (providerId: String, model: String) -> Unit = { _, _ -> },
     onSelectModel: (providerId: String, model: String) -> Unit,
     onRefresh: (providerId: String) -> Unit,
     onOpenProviderSettings: () -> Unit,
@@ -101,17 +108,34 @@ fun ModelPickerSheet(
     var manualMode by remember { mutableStateOf(false) }
     var manualId by remember { mutableStateOf("") }
 
+    val isFavoritesSelected = selectedProviderId == FAVORITES_PROVIDER_ID
     val isAllSelected = selectedProviderId == ALL_PROVIDERS_ID
     val activeProvider = providers.firstOrNull { it.id == activeProviderId } ?: providers.firstOrNull()
-    val currentProvider = if (isAllSelected) null else (providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull())
-    val isLoading = if (isAllSelected) {
+    val currentProvider = if (isAllSelected || isFavoritesSelected) null else (providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull())
+    val isLoading = if (isAllSelected || isFavoritesSelected) {
         loadingProviderId != null
     } else {
         currentProvider != null && loadingProviderId == currentProvider.id
     }
 
-    val displayModels = remember(providers, selectedProviderId, query) {
-        if (isAllSelected) {
+    val displayModels = remember(providers, selectedProviderId, query, favoriteModels) {
+        if (isFavoritesSelected) {
+            providers.flatMap { prov ->
+                prov.models
+                    .filter { model ->
+                        favoriteModels.contains("${prov.id}:${model.id}") || favoriteModels.contains(model.id)
+                    }
+                    .map { DisplayModel(model = it, providerId = prov.id, providerName = prov.name) }
+            }.filter { item ->
+                if (query.isBlank()) true else {
+                    val q = query.trim()
+                    item.model.id.contains(q, ignoreCase = true) ||
+                            item.model.label.contains(q, ignoreCase = true) ||
+                            item.model.name.contains(q, ignoreCase = true) ||
+                            item.providerName.contains(q, ignoreCase = true)
+                }
+            }
+        } else if (isAllSelected) {
             val sourceProviders = providers.filter { it.apiKey.isNotBlank() }.ifEmpty { providers }
             sourceProviders.flatMap { prov ->
                 prov.models
@@ -238,6 +262,51 @@ fun ModelPickerSheet(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Вкладка "Избранное"
+                val favoritesSelected = isFavoritesSelected
+                val favoriteCount = remember(favoriteModels, providers) {
+                    providers.sumOf { prov ->
+                        prov.models.count { favoriteModels.contains("${prov.id}:${it.id}") || favoriteModels.contains(it.id) }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (favoritesSelected) MaterialTheme.colorScheme.surfaceContainerHigh
+                            else MaterialTheme.colorScheme.surfaceContainer
+                        )
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                if (favoritesSelected) Color(0xFFFFB800).copy(alpha = 0.65f)
+                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            ),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            selectedProviderId = FAVORITES_PROVIDER_ID
+                            query = ""
+                        }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = null,
+                            tint = if (favoritesSelected) Color(0xFFFFB800) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (favoriteCount > 0) "Избранное ($favoriteCount)" else "Избранное",
+                            color = if (favoritesSelected) Color(0xFFFFB800) else MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
                 // Вкладка "Все"
                 val allSelected = isAllSelected
                 Box(
@@ -398,9 +467,14 @@ fun ModelPickerSheet(
             when {
                 providers.isEmpty() -> SheetMessage("Нет ни одного провайдера")
 
-                !isAllSelected && currentProvider == null -> SheetMessage("Провайдер не найден")
+                isFavoritesSelected && displayModels.isEmpty() -> SheetMessage(
+                    if (query.isBlank()) "В избранном пока нет моделей.\nНажмите на звёздочку ★ рядом с любой моделью, чтобы добавить её сюда."
+                    else "Ничего не найдено в избранном"
+                )
 
-                !isAllSelected && currentProvider?.apiKey?.isBlank() == true -> Column(
+                !isAllSelected && !isFavoritesSelected && currentProvider == null -> SheetMessage("Провайдер не найден")
+
+                !isAllSelected && !isFavoritesSelected && currentProvider?.apiKey?.isBlank() == true -> Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp)
@@ -426,13 +500,17 @@ fun ModelPickerSheet(
                         key = { "${it.providerId}:${it.model.id}" }
                     ) { item ->
                         val isActive = item.providerId == activeProviderId && item.model.id == activeProvider?.selectedModel
+                        val isFavorite = favoriteModels.contains("${item.providerId}:${item.model.id}") ||
+                                favoriteModels.contains(item.model.id)
                         ModelRow(
                             model = item.model,
                             providerId = item.providerId,
                             providerName = item.providerName,
                             isActive = isActive,
-                            showProviderBadge = isAllSelected,
+                            isFavorite = isFavorite,
+                            showProviderBadge = isAllSelected || isFavoritesSelected,
                             onSelect = { onSelectModel(item.providerId, item.model.id) },
+                            onToggleFavorite = { onToggleFavorite(item.providerId, item.model.id) },
                             onCopy = {
                                 copyToClipboard(context, item.model.id)
                                 Toast.makeText(context, "ID скопирован в буфер", Toast.LENGTH_SHORT).show()
@@ -446,14 +524,17 @@ fun ModelPickerSheet(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ModelRow(
     model: ModelInfo,
     providerId: String,
     providerName: String,
     isActive: Boolean,
+    isFavorite: Boolean = false,
     showProviderBadge: Boolean = false,
     onSelect: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onCopy: () -> Unit
 ) {
     val hasReadableName = model.name.isNotBlank() || model.label != model.id
@@ -468,7 +549,10 @@ private fun ModelRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onSelect() }
+            .combinedClickable(
+                onClick = onSelect,
+                onLongClick = onToggleFavorite
+            )
             .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -570,6 +654,18 @@ private fun ModelRow(
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
+        }
+
+        IconButton(
+            onClick = onToggleFavorite,
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                contentDescription = if (isFavorite) "Удалить из избранного" else "В избранное",
+                tint = if (isFavorite) Color(0xFFFFB800) else MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(17.dp)
+            )
         }
 
         IconButton(
