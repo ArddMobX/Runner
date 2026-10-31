@@ -972,9 +972,15 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     valueLabel = { PluralUtils.steps(it.roundToInt()) },
                     endDecimals = 0
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.STEPS_PRESETS.map { it to "$it" },
+                    selected = appSettings.maxSteps,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(maxSteps = it)) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Сколько раз модель может вызвать инструменты в одной задаче (хватает на scan → unpack → sort).",
+                    text = "Сколько раз модель может вызвать инструменты в одной задаче.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
@@ -2176,11 +2182,17 @@ private fun SettingSlider(
                     .background(MaterialTheme.colorScheme.primary)
             )
 
-            // Засечки по каждому шагу: короткие обычные, длинные — каждые пять
+            // Засечки по шагам: для больших диапазонов прореживаем, чтобы не сливались
+            val tickStep = when {
+                intervals > 60 -> 10
+                intervals > 30 -> 5
+                else -> 1
+            }
             for (index in 0..intervals) {
+                if (index % tickStep != 0 && index != intervals) continue
                 val tickFraction = index.toFloat() / intervals
                 val isPassed = tickFraction <= fraction + 0.001f
-                val isMajor = index == 0 || index == intervals || index % 5 == 0
+                val isMajor = index == 0 || index == intervals || index % (tickStep * 2) == 0
                 Box(
                     modifier = Modifier
                         .offset(x = availableWidth * tickFraction + (thumbSize - 2.dp) / 2)
