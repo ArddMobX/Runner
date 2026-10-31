@@ -15,7 +15,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,8 +55,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
@@ -104,6 +112,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -116,6 +125,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1323,6 +1333,248 @@ private fun SettingsRoot(
 }
 
 @Composable
+private fun ApiQuickGuideCard() {
+    var isExpanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "guide_chevron"
+    )
+    val context = LocalContext.current
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Где взять API-ключ и как настроить?",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Простая инструкция и ссылки",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .rotate(rotation)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+                        thickness = 0.8.dp
+                    )
+
+                    Text(
+                        text = "🔑 Что такое API-ключ?",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Это ваш персональный код доступа к нейросетям (Gemini, Claude, GPT, DeepSeek). С ним Runner отправляет запросы напрямую к выбранному сервису без очередей и посредников.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = "🚀 Где получить (бесплатно или недорого):",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    // 1. Google Gemini
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "1. Google Gemini (Бесплатно)",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                TextButton(
+                                    onClick = { openExternalUrl(context, "https://aistudio.google.com/app/apikey") },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Получить ключ", fontSize = 11.5.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Перейдите в Google AI Studio, войдите через Google и нажмите «Create API key». Бесплатных лимитов хватает с запасом для большинства задач.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    // 2. Groq
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "2. Groq (Ультрабыстро и бесплатно)",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                TextButton(
+                                    onClick = { openExternalUrl(context, "https://console.groq.com/keys") },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Получить ключ", fontSize = 11.5.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Отличный вариант для быстрого старта: молниеносные открытые модели (Llama 3.3, Qwen) без оплаты.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    // 3. OpenRouter
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "3. OpenRouter (Сотни моделей)",
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                TextButton(
+                                    onClick = { openExternalUrl(context, "https://openrouter.ai/keys") },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Получить ключ", fontSize = 11.5.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Один ключ открывает доступ сразу ко всем моделям мира: Claude, GPT, DeepSeek, Llama. Есть бесплатные модели с суффиксом :free.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = "⚙️ Что делать дальше:",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "1. Скопируйте полученный ключ.\n" +
+                               "2. Выберите нужного провайдера в списке ниже (например, Gemini или Groq).\n" +
+                               "3. Вставьте ключ в поле «API-ключ» и нажмите «Сделать активным».\n" +
+                               "4. Готово! Агент начнёт отвечать в чате через настроенную модель.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProvidersList(
     viewModel: MainViewModel,
     onEdit: (String) -> Unit
@@ -1337,6 +1589,8 @@ private fun ProvidersList(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
+        ApiQuickGuideCard()
+
         SettingsGroup {
             providers.forEachIndexed { index, provider ->
                 if (index > 0) SettingsDivider()
@@ -1662,7 +1916,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Spacer(modifier = Modifier.height(10.dp))
                 SegmentedChips(
                     options = AppSettings.MAX_TASK_TOKENS_PRESETS.map { limit ->
-                        limit to if (limit == 0) "Без лимита" else "${limit / 1000}K"
+                        limit to if (limit == 0) "Авто" else "${limit / 1000}K"
                     },
                     selected = appSettings.maxTaskTokens,
                     onSelect = { viewModel.updateSettings(appSettings.copy(maxTaskTokens = it)) }
@@ -3481,7 +3735,9 @@ private fun <T> SegmentedChips(
                     color = labelColor,
                     fontSize = 12.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

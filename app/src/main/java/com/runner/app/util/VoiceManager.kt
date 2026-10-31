@@ -196,6 +196,14 @@ class VoiceManager(private val context: Context) {
                 if (matched != null) {
                     engine.voice = matched
                 }
+            } else {
+                try {
+                    engine.defaultVoice?.let { engine.voice = it }
+                    val locResult = engine.setLanguage(Locale.getDefault())
+                    if (locResult == TextToSpeech.LANG_MISSING_DATA || locResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        engine.language = Locale.US
+                    }
+                } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
     }

@@ -1917,6 +1917,27 @@ private fun ToolStatusIcon(message: ChatMessage) {
 }
 
 /** Баннер вместо текстовой ошибки: объясняет, что делать, и даёт кнопку. */
+private fun getErrorHint(text: String): String? {
+    val lower = text.lowercase()
+    return when {
+        lower.contains("(400)") || lower.contains("400") ->
+            "Возможно, выбранная модель не поддерживается провайдером или в настройках указаны несовместимые параметры. Попробуйте сменить модель или проверить настройки."
+        lower.contains("(401)") || lower.contains("401") || lower.contains("авторизац") ->
+            "Возможно, неверно введён API-ключ или он был отозван. Проверьте ключ в настройках провайдера."
+        lower.contains("(403)") || lower.contains("403") || lower.contains("доступ запрещ") ->
+            "Возможно, на балансе закончились средства, у ключа нет прав к этой модели или требуется включить VPN."
+        lower.contains("(404)") || lower.contains("404") || lower.contains("не найден") ->
+            "Возможно, опечатка в Base URL адреса или провайдер убрал эту модель. Проверьте адрес и список моделей."
+        lower.contains("(429)") || lower.contains("429") || lower.contains("лимит") ->
+            "Возможно, превышен лимит запросов в минуту (RPM) или исчерпан баланс. Подождите пару минут или смените модель."
+        lower.contains("500") || lower.contains("502") || lower.contains("503") || lower.contains("504") || lower.contains("сервер") ->
+            "Возможно, сервер провайдера временно перегружен или проводит техработы. Попробуйте повторить запрос позже."
+        lower.contains("таймаут") || lower.contains("timeout") || lower.contains("сеть") || lower.contains("connection") ->
+            "Возможно, нет подключения к интернету, сайт заблокирован провайдером или стоит настроить Reverse Proxy."
+        else -> null
+    }
+}
+
 @Composable
 private fun NoticeBanner(
     text: String,
@@ -1925,6 +1946,7 @@ private fun NoticeBanner(
     onAction: (MessageAction) -> Unit
 ) {
     val accent = if (isError) MaterialTheme.colorScheme.error else StatusWarning
+    val hint = if (isError) remember(text) { getErrorHint(text) } else null
 
     Column(
         modifier = Modifier
@@ -1944,12 +1966,23 @@ private fun NoticeBanner(
                     .size(15.dp)
             )
             Spacer(modifier = Modifier.width(9.dp))
-            Text(
-                text = text,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.sp,
-                lineHeight = 18.sp
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = text,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                if (hint != null) {
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Text(
+                        text = hint,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
         }
 
         if (action != null) {

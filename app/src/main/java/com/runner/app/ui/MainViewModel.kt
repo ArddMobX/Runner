@@ -1956,7 +1956,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is AIResponseResult.Error -> {
                     turnAssistantId = finalizeStreamedText(sessionId, stopped = false) ?: turnAssistantId
                     hapticManager.onError(_settings.value)
-                    appendSystemInfo(result.message, null)
+                    val action = when {
+                        result.message.contains("401") || result.message.contains("API-ключ") -> MessageAction.OPEN_SETTINGS
+                        result.message.contains("400") || result.message.contains("404") || result.message.contains("модел") -> MessageAction.OPEN_MODELS
+                        else -> null
+                    }
+                    appendSystemInfo(result.message, action)
                     attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
                     return
                 }

@@ -857,6 +857,21 @@ class OpenAIClient {
             val errorObj = json.optJSONObject("error")
             val mainMsg = errorObj?.optString("message")?.takeIf { it.isNotBlank() }
                 ?: json.optString("message").takeIf { it.isNotBlank() }
+                ?: json.optString("error").takeIf { it.isNotBlank() }
+                ?: errorObj?.optString("error")?.takeIf { it.isNotBlank() }
+                ?: json.optString("detail").takeIf { it.isNotBlank() }
+                ?: errorObj?.optString("detail")?.takeIf { it.isNotBlank() }
+                ?: json.optJSONArray("detail")?.let { arr ->
+                    val list = mutableListOf<String>()
+                    for (i in 0 until arr.length()) {
+                        val d = arr.optJSONObject(i)
+                        val msg = d?.optString("msg") ?: arr.optString(i)
+                        if (msg.isNotBlank()) list.add(msg)
+                    }
+                    if (list.isNotEmpty()) list.joinToString("; ") else null
+                }
+                ?: json.optString("error_description").takeIf { it.isNotBlank() }
+                ?: json.optString("msg").takeIf { it.isNotBlank() }
 
             val violations = errorObj?.optJSONArray("details")?.let { arr ->
                 val list = mutableListOf<String>()
@@ -879,10 +894,12 @@ class OpenAIClient {
                 violations != null -> violations
                 else -> null
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         } ?: body.take(300).trim().takeIf {
-            it.isNotBlank() && !it.startsWith("{") && !it.startsWith("[") && !it.startsWith("<")
+            it.isNotBlank() && !it.startsWith("<")
+        }?.let { raw ->
+            raw.removePrefix("{").removeSuffix("}").trim()
         }
 
         val isThoughtSignatureError = details?.contains("thought_signature", ignoreCase = true) == true
@@ -901,7 +918,7 @@ class OpenAIClient {
             code == 400 && details != null ->
                 AIResponseResult.Error("Ошибка запроса (400): $details")
             code == 400 ->
-                AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Повторите запрос.")
+                AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Проверьте модель и параметры в настройках.")
             code == 401 -> AIResponseResult.Error("Ошибка авторизации (401). Проверьте API-ключ провайдера.")
             code == 403 -> AIResponseResult.Error(
                 if (details != null) "Доступ запрещён (403): $details"
