@@ -124,6 +124,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -145,6 +146,10 @@ import com.runner.app.ui.components.WebPreviewSource
 import com.runner.app.ui.components.findWebPreviewInMarkdown
 import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
+import androidx.compose.ui.graphics.Brush
+import com.runner.app.ui.components.WorkspaceFolderBar
+import com.runner.app.ui.components.WorkspaceFolderSheet
+import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.StatusSuccess
@@ -185,6 +190,7 @@ fun ChatScreen(
 
     val inputState = rememberChatInputState()
     var showModelPicker by remember { mutableStateOf(false) }
+    var showFolderSheet by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     val micLauncher = rememberLauncherForActivityResult(
@@ -256,6 +262,16 @@ fun ChatScreen(
                 onOpenSettings()
             },
             onDismiss = { showModelPicker = false }
+        )
+    }
+
+    if (showFolderSheet && pendingConfirmation == null) {
+        WorkspaceFolderSheet(
+            workingDir = appSettings.defaultWorkingDir,
+            autoApprove = appSettings.autoApproveInWorkingDir,
+            onWorkingDirChange = { viewModel.updateSettings(appSettings.copy(defaultWorkingDir = it)) },
+            onAutoApproveChange = { viewModel.updateSettings(appSettings.copy(autoApproveInWorkingDir = it)) },
+            onDismiss = { showFolderSheet = false }
         )
     }
 
@@ -514,6 +530,12 @@ fun ChatScreen(
                 AgentStatusIndicator(status = currentStatus)
             }
 
+            WorkspaceFolderBar(
+                workingDir = appSettings.defaultWorkingDir,
+                autoApprove = appSettings.autoApproveInWorkingDir,
+                onOpenFolderSheet = { showFolderSheet = true }
+            )
+
             ChatInputBar(
                 inputState = inputState,
                 isRunning = isRunning,
@@ -708,6 +730,24 @@ private fun EmptyChatState(
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Text(
+                text = "RUNNER",
+                fontFamily = GoogleSans,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 6.sp,
+                style = TextStyle(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        )
+                    ),
+                    textAlign = TextAlign.Center
+                )
+            )
+            Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "Чем заняться?",
                 color = MaterialTheme.colorScheme.onSurface,
