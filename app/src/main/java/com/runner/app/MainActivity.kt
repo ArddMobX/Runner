@@ -1,6 +1,7 @@
 package com.runner.app
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -30,6 +32,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -161,6 +164,21 @@ fun AppNavigation(viewModel: MainViewModel) {
                 viewModel.updateSettings(appSettings.copy(disclaimerAccepted = true))
             }
         )
+    }
+
+    // Экран не гаснет во время выполнения задачи агентом
+    val isRunning by viewModel.isRunning.collectAsState()
+    val keepScreenOn = appSettings.keepScreenOnWhileRunning
+    DisposableEffect(isRunning, keepScreenOn) {
+        val window = (context as? Activity)?.window
+        if (isRunning && keepScreenOn) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     // Плавная смена экранов. Только прозрачность: слайд вместе с ящиком

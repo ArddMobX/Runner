@@ -515,6 +515,7 @@ fun ChatScreen(
                 isRunning = isRunning,
                 isListening = isListening,
                 rmsLevel = rmsLevel,
+                sendOnEnter = appSettings.sendOnEnter,
                 onSend = { text, images -> viewModel.sendMessage(text, images) },
                 onStop = { viewModel.stopGeneration() },
                 onStartListening = {

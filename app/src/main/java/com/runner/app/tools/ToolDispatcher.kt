@@ -24,6 +24,10 @@ import org.json.JSONObject
 
 object ToolDispatcher {
 
+    /** Рабочая папка проекта по умолчанию (пусто = корень общей памяти). */
+    @Volatile
+    var defaultWorkingDir: String = ""
+
     private val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif", "heic", "bmp")
     private val docExtensions = setOf("pdf", "doc", "docx", "txt", "rtf", "xls", "xlsx", "ppt", "pptx", "epub", "csv", "json", "md")
     private val archiveExtensions = setOf("zip", "rar", "7z", "tar", "gz", "bz2")
@@ -2070,12 +2074,25 @@ object ToolDispatcher {
         return try {
             val builder = ProcessBuilder("/system/bin/sh", "-c", command)
                 .redirectErrorStream(true)
-            if (!allowOutsideStorage) {
-                // Рабочий каталог — корень памяти. Относительные пути тогда ведут
-                // внутрь песочницы, а не к системному корню, где стоит процесс
-                // по умолчанию. Абсолютные пути не затрагиваются.
-                val sandbox = Environment.getExternalStorageDirectory()
-                if (sandbox.isDirectory) builder.directory(sandbox)
+            // Рабочий каталог — рабочая папка проекта или корень памяти. Относительные
+            // пути тогда ведут внутрь рабочей папки/песочницы, а не к системному корню.
+            val workingDirFile = if (defaultWorkingDir.isNotBlank()) {
+                try {
+                    val d = File(defaultWorkingDir).canonicalFile
+                    val root = Environment.getExternalStorageDirectory().canonicalFile
+                    if (d.isDirectory && (allowOutsideStorage || d.canonicalPath == root.canonicalPath || d.canonicalPath.startsWith("${root.canonicalPath}/"))) {
+                        d
+                    } else null
+                } catch (_: Exception) { null }
+            } else null
+
+            val effectiveDir = workingDirFile ?: if (!allowOutsideStorage) {
+                Environment.getExternalStorageDirectory()
+            } else {
+                null
+            }
+            if (effectiveDir != null && effectiveDir.isDirectory) {
+                builder.directory(effectiveDir)
             }
             process = builder.start()
 
@@ -2478,7 +2495,16 @@ object ToolDispatcher {
         if (p.startsWith("file://")) p = p.removePrefix("file://")
         p = p.replace(Regex("/+"), "/")
         if (p.length > 1) p = p.trimEnd('/')
-        if (p.isEmpty()) return root
+        val effectiveWorkingDir: File? = if (defaultWorkingDir.isNotBlank()) {
+            try {
+                val f = File(defaultWorkingDir).canonicalFile
+                if (f.exists() && f.isDirectory && (f.canonicalPath == rootPath || f.canonicalPath.startsWith("$rootPath/"))) {
+                    f
+                } else null
+            } catch (_: Exception) { null }
+        } else null
+
+        if (p.isEmpty()) return effectiveWorkingDir ?: root
 
         // Короткие алиасы системных папок резолвятся в те же точки внутри корня.
         val lower = p.lowercase()
@@ -2489,13 +2515,14 @@ object ToolDispatcher {
         val candidate: File = if (p.startsWith("/")) {
             File(p)
         } else {
-            val b = base?.takeIf { it.isAbsolute }?.canonicalFile ?: root
+            val defaultBase = effectiveWorkingDir ?: root
+            val b = base?.takeIf { it.isAbsolute }?.canonicalFile ?: defaultBase
             val firstSeg = p.substringBefore('/')
             val nested = File(b, p)
             if (b.canonicalPath != rootPath && firstSeg.equals(b.name, ignoreCase = true) && !nested.exists()) {
                 File(b.parentFile?.canonicalFile ?: root, p)
             } else {
-                File(root, p)
+                File(b, p)
             }
         }
 
@@ -2520,7 +2547,16 @@ object ToolDispatcher {
     private fun resolveFolder(path: String): File {
         val trimmed = path.trim()
         if (trimmed.isEmpty()) {
-            return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).canonicalFile
+            val effectiveWorkingDir: File? = if (defaultWorkingDir.isNotBlank()) {
+                try {
+                    val f = File(defaultWorkingDir).canonicalFile
+                    val root = Environment.getExternalStorageDirectory().canonicalFile
+                    if (f.exists() && f.isDirectory && (f.canonicalPath == root.canonicalPath || f.canonicalPath.startsWith("${root.canonicalPath}/"))) {
+                        f
+                    } else null
+                } catch (_: Exception) { null }
+            } else null
+            return effectiveWorkingDir ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).canonicalFile
         }
         return resolvePath(trimmed)
     }

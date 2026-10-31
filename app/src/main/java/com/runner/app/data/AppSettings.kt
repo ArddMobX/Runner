@@ -102,7 +102,13 @@ data class AppSettings(
      */
     val trashRetentionDays: Int = DEFAULT_TRASH_RETENTION_DAYS,
     /** Автоматически озвучивать ответы модели голосом (TTS). */
-    val autoSpeakResponses: Boolean = false
+    val autoSpeakResponses: Boolean = false,
+    /** Держать экран включённым, пока агент выполняет задачу. */
+    val keepScreenOnWhileRunning: Boolean = true,
+    /** Рабочая папка проекта по умолчанию (пусто = /storage/emulated/0). */
+    val defaultWorkingDir: String = "",
+    /** Нажатие Enter на клавиатуре отправляет сообщение (иначе переносит строку). */
+    val sendOnEnter: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -232,13 +238,17 @@ data class AppSettings(
         fun buildFinalSystemPrompt(
             userInstructions: String,
             readOnly: Boolean = false,
-            dryRun: Boolean = false
+            dryRun: Boolean = false,
+            workingDir: String = ""
         ): String {
             val user = userInstructions.trim()
             var base = if (user.isBlank()) {
                 CORE_SYSTEM_PROMPT
             } else {
                 CORE_SYSTEM_PROMPT + "\n\nДополнительные инструкции пользователя:\n" + user
+            }
+            if (workingDir.isNotBlank()) {
+                base = base.trimEnd() + "\n- РАБОЧАЯ ПАПКА ПРОЕКТА: $workingDir. Все относительные пути (без начального слэша) считай относительно этой папки."
             }
             // Режимы дописываются в конец базового промпта, а не заменяют его:
             // правила про недоверенный текст и лимиты вывода действуют и здесь.
@@ -333,7 +343,10 @@ class SettingsStore(context: Context) {
                 KEY_TRASH_RETENTION_DAYS,
                 AppSettings.DEFAULT_TRASH_RETENTION_DAYS
             ),
-            autoSpeakResponses = prefs.getBoolean(KEY_AUTO_SPEAK, false)
+            autoSpeakResponses = prefs.getBoolean(KEY_AUTO_SPEAK, false),
+            keepScreenOnWhileRunning = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
+            defaultWorkingDir = prefs.getString(KEY_DEFAULT_WORKING_DIR, "").orEmpty(),
+            sendOnEnter = prefs.getBoolean(KEY_SEND_ON_ENTER, false)
         )
     }
 
@@ -363,6 +376,9 @@ class SettingsStore(context: Context) {
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
             .putInt(KEY_TRASH_RETENTION_DAYS, settings.trashRetentionDays)
             .putBoolean(KEY_AUTO_SPEAK, settings.autoSpeakResponses)
+            .putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOnWhileRunning)
+            .putString(KEY_DEFAULT_WORKING_DIR, settings.defaultWorkingDir)
+            .putBoolean(KEY_SEND_ON_ENTER, settings.sendOnEnter)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -401,5 +417,8 @@ class SettingsStore(context: Context) {
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
         const val KEY_TRASH_RETENTION_DAYS = "trash_retention_days"
         const val KEY_AUTO_SPEAK = "auto_speak_responses"
+        const val KEY_KEEP_SCREEN_ON = "keep_screen_on_while_running"
+        const val KEY_DEFAULT_WORKING_DIR = "default_working_dir"
+        const val KEY_SEND_ON_ENTER = "send_on_enter"
     }
 }
