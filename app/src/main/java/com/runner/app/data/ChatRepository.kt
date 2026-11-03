@@ -54,6 +54,10 @@ class ChatRepository(private val dao: ChatDao) {
         dao.setSessionPinned(sessionId, pinned)
     }
 
+    suspend fun updateSessionModel(sessionId: String, model: String) {
+        dao.updateLastModel(sessionId, model)
+    }
+
     suspend fun deleteSession(sessionId: String) {
         dao.deleteSessionCascade(sessionId)
     }

@@ -156,7 +156,13 @@ data class AppSettings(
     /** Вибрация при запросе подтверждения (плана или опасного действия). */
     val hapticOnConfirm: Boolean = true,
     /** Вибрация при ошибке. */
-    val hapticOnError: Boolean = true
+    val hapticOnError: Boolean = true,
+    /** Мягкий терминальный ambient на заднем фоне главного экрана (парящие символы). */
+    val terminalAmbientEnabled: Boolean = true,
+    /** Отображать плавающие подсказки-сценарии над строкой ввода. */
+    val showPromptSuggestions: Boolean = true,
+    /** Пользовательские подсказки-сценарии. */
+    val customPromptSuggestions: List<String> = emptyList()
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -497,7 +503,10 @@ class SettingsStore(context: Context) {
             hapticOnSend = prefs.getBoolean(KEY_HAPTIC_ON_SEND, true),
             hapticOnComplete = prefs.getBoolean(KEY_HAPTIC_ON_COMPLETE, true),
             hapticOnConfirm = prefs.getBoolean(KEY_HAPTIC_ON_CONFIRM, true),
-            hapticOnError = prefs.getBoolean(KEY_HAPTIC_ON_ERROR, true)
+            hapticOnError = prefs.getBoolean(KEY_HAPTIC_ON_ERROR, true),
+            terminalAmbientEnabled = prefs.getBoolean(KEY_TERMINAL_AMBIENT, true),
+            showPromptSuggestions = prefs.getBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, true),
+            customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null))
         )
     }
 
@@ -558,6 +567,9 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_HAPTIC_ON_COMPLETE, settings.hapticOnComplete)
             .putBoolean(KEY_HAPTIC_ON_CONFIRM, settings.hapticOnConfirm)
             .putBoolean(KEY_HAPTIC_ON_ERROR, settings.hapticOnError)
+            .putBoolean(KEY_TERMINAL_AMBIENT, settings.terminalAmbientEnabled)
+            .putBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, settings.showPromptSuggestions)
+            .putString(KEY_CUSTOM_SUGGESTIONS, JSONArray(settings.customPromptSuggestions).toString())
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -616,5 +628,21 @@ class SettingsStore(context: Context) {
         const val KEY_HAPTIC_ON_COMPLETE = "haptic_on_complete"
         const val KEY_HAPTIC_ON_CONFIRM = "haptic_on_confirm"
         const val KEY_HAPTIC_ON_ERROR = "haptic_on_error"
+        const val KEY_TERMINAL_AMBIENT = "terminal_ambient_enabled"
+        const val KEY_SHOW_PROMPT_SUGGESTIONS = "show_prompt_suggestions"
+        const val KEY_CUSTOM_SUGGESTIONS = "custom_prompt_suggestions_json"
+
+        private fun parseCustomSuggestions(json: String?): List<String> {
+            if (json.isNullOrBlank()) return emptyList()
+            return runCatching {
+                val arr = JSONArray(json)
+                val list = mutableListOf<String>()
+                for (i in 0 until arr.length()) {
+                    val str = arr.optString(i)
+                    if (str.isNotBlank()) list.add(str)
+                }
+                list
+            }.getOrDefault(emptyList())
+        }
     }
 }
