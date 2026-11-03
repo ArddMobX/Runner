@@ -132,6 +132,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.data.AppSettings
 import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
@@ -147,6 +148,7 @@ import com.runner.app.ui.components.findWebPreviewInMarkdown
 import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
 import androidx.compose.ui.graphics.Brush
+import com.runner.app.ui.components.TerminalAmbientBackground
 import com.runner.app.ui.components.WorkspaceFolderBar
 import com.runner.app.ui.components.WorkspaceFolderSheet
 import com.runner.app.ui.theme.GoogleSans
@@ -177,6 +179,7 @@ fun ChatScreen(
     val pendingPlan by viewModel.pendingPlan.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
+    val currentSessionId by viewModel.currentSessionId.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val rmsLevel by viewModel.rmsLevel.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
@@ -420,19 +423,28 @@ fun ChatScreen(
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .navigationBarsPadding()
-                .imePadding()
-        ) {
-            if (isEmptyChat) {
-                EmptyChatState(
-                    onSuggestion = { inputState.setText(it) },
-                    modifier = Modifier.weight(1f)
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (appSettings.terminalAmbientEnabled) {
+                TerminalAmbientBackground(
+                    enabled = true,
+                    modifier = Modifier.fillMaxSize()
                 )
-            } else {
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .navigationBarsPadding()
+                    .imePadding()
+            ) {
+                if (isEmptyChat) {
+                    EmptyChatState(
+                        settings = appSettings,
+                        sessionId = currentSessionId,
+                        onSuggestion = { inputState.setText(it) },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
                 Column(modifier = Modifier.weight(1f)) {
                     CompositionLocalProvider(
                         LocalDensity provides Density(
@@ -557,6 +569,7 @@ fun ChatScreen(
                 },
                 onStopListening = { viewModel.stopVoiceInput() }
             )
+        }
         }
     }
 }
@@ -684,12 +697,36 @@ private fun ModelChip(
  * количеством свободного пространства и горизонтальный скроллируемый ряд
  * лёгких капсул-подсказок (Pill Chips) над полем ввода.
  */
+private val GREETING_TEMPLATES = listOf(
+    "Чем заняться?",
+    "Готов к работе",
+    "Что делаем сегодня?",
+    "Жду задачу",
+    "Готов выполнять",
+    "Какой план?",
+    "В вашем распоряжении",
+    "Система в строю",
+    "На связи",
+    "Слушаю вас",
+    "Что оптимизируем?",
+    "Разберёмся с файлами?",
+    "Готов к запуску",
+    "Терминал наготове",
+    "Что запустим?"
+)
+
 @Composable
 private fun EmptyChatState(
+    settings: AppSettings,
+    sessionId: String?,
     onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val suggestions = remember {
+    val greeting = remember(sessionId) {
+        GREETING_TEMPLATES.random()
+    }
+
+    val defaultSuggestions = remember {
         listOf(
             EmptyStateSuggestion(
                 icon = Icons.Outlined.DeleteOutline,
@@ -716,6 +753,18 @@ private fun EmptyChatState(
                 isMint = false
             )
         )
+    }
+
+    val allSuggestions: List<EmptyStateSuggestion> = remember(settings.customPromptSuggestions, defaultSuggestions) {
+        val custom: List<EmptyStateSuggestion> = settings.customPromptSuggestions.mapIndexed { idx, promptText ->
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.AutoAwesome,
+                title = promptText.take(24),
+                prompt = promptText,
+                isMint = (idx % 2 == 1)
+            )
+        }
+        defaultSuggestions + custom
     }
 
     Column(
@@ -749,7 +798,7 @@ private fun EmptyChatState(
             )
             Spacer(modifier = Modifier.height(14.dp))
             Text(
-                text = "Чем заняться?",
+                text = greeting,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -768,20 +817,22 @@ private fun EmptyChatState(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items(suggestions, key = { it.title }) { suggestion ->
-                EmptyStateChip(
-                    suggestion = suggestion,
-                    onClick = { onSuggestion(suggestion.prompt) }
-                )
+        if (settings.showPromptSuggestions && allSuggestions.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(allSuggestions, key = { it.title + "_" + it.prompt }) { suggestion ->
+                    EmptyStateChip(
+                        suggestion = suggestion,
+                        onClick = { onSuggestion(suggestion.prompt) }
+                    )
+                }
             }
+            Spacer(modifier = Modifier.height(10.dp))
         }
-        Spacer(modifier = Modifier.height(10.dp))
     }
 }
 

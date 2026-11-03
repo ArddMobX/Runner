@@ -139,7 +139,7 @@ fun SupportSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "Runner — полностью открытый и бесплатный локальный агент. Ваша поддержка помогает автору развивать приложение, тестировать новые модели и оплачивать API.",
+                text = "Runner - полностью открытый и бесплатный локальный агент. Ваша поддержка помогает автору развивать приложение, внедрять новые возможности и улучшать архитектуру.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.5.sp,
                 lineHeight = 18.sp

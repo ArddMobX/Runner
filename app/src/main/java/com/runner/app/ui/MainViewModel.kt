@@ -1539,6 +1539,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repository.renameSession(sessionId, title)
                     _currentSessionTitle.value = title
                 }
+                repository.updateSessionModel(sessionId, model)
 
                 // Системный промпт пересобираем перед каждым ходом: настройки
                 // могли измениться посреди сессии, а контекст хранится в базе.
@@ -1683,6 +1684,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository.deleteMessagesAfter(sessionId, target.timestamp)
                 trimContextToUser(target.content)
                 persistContext(sessionId)
+                repository.updateSessionModel(sessionId, model)
                 runAgentLoop(sessionId, provider, model)
             } finally {
                 finishDryRunIfNeeded()

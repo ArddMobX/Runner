@@ -110,6 +110,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -117,6 +118,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -136,6 +138,7 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ColorSource
+import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
@@ -914,6 +917,81 @@ private fun SettingsRoot(
                         }
                     },
                     colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Терминальный фон",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Символы кода и терминала мягко парят на фоне главного экрана",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.terminalAmbientEnabled,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(terminalAmbientEnabled = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Подсказки сценариев",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Отображать быстрые сценарии над полем ввода",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.showPromptSuggestions,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(showPromptSuggestions = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            if (appSettings.showPromptSuggestions) {
+                SettingsDivider()
+                CustomSuggestionsManager(
+                    customSuggestions = appSettings.customPromptSuggestions,
+                    onAddSuggestion = { newSuggestion ->
+                        val updated = appSettings.customPromptSuggestions + newSuggestion
+                        viewModel.updateSettings(appSettings.copy(customPromptSuggestions = updated))
+                    },
+                    onRemoveSuggestion = { indexToRemove ->
+                        val updated = appSettings.customPromptSuggestions.toMutableList().apply {
+                            if (indexToRemove in indices) removeAt(indexToRemove)
+                        }
+                        viewModel.updateSettings(appSettings.copy(customPromptSuggestions = updated))
+                    }
                 )
             }
         }
@@ -4726,22 +4804,107 @@ private fun isColorDark(colorInt: Int): Boolean {
     return (0.299 * r + 0.587 * g + 0.114 * b) < 128
 }
 
+/**
+ * Интерактивная полоса цветовой гаммы (0..360 градусов) с плавным бегунком.
+ */
+@Composable
+private fun ColorSpectrumBar(
+    hue: Float,
+    onHueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val thumbSize = 22.dp
+    val hueGradient = remember {
+        Brush.horizontalGradient(
+            colors = listOf(
+                Color(0xFFFF0000), // 0 Red
+                Color(0xFFFFFF00), // 60 Yellow
+                Color(0xFF00FF00), // 120 Green
+                Color(0xFF00FFFF), // 180 Cyan
+                Color(0xFF0000FF), // 240 Blue
+                Color(0xFFFF00FF), // 300 Magenta
+                Color(0xFFFF0000)  // 360 Red
+            )
+        )
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .pointerInput(Unit) {
+                val trackWidth = size.width.toFloat().coerceAtLeast(1f)
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    val fraction = (down.position.x / trackWidth).coerceIn(0f, 1f)
+                    onHueChange(fraction * 360f)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        val f = (change.position.x / trackWidth).coerceIn(0f, 1f)
+                        onHueChange(f * 360f)
+                        change.consume()
+                    }
+                }
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val fraction = (hue / 360f).coerceIn(0f, 1f)
+        val availableWidth = maxWidth - thumbSize
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(hueGradient)
+                .border(
+                    BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    RoundedCornerShape(8.dp)
+                )
+        )
+
+        val currentHueColor = remember(hue) {
+            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+        }
+
+        Box(
+            modifier = Modifier
+                .offset(x = availableWidth * fraction)
+                .size(thumbSize)
+                .clip(CircleShape)
+                .background(currentHueColor)
+                .border(BorderStroke(2.dp, Color.White), CircleShape)
+        )
+    }
+}
+
+/**
+ * Диалог выбора акцентного цвета через живую гамму спектра.
+ * Никакого нейрослопа: точная инструментальная палитра с бегунком и превью в реальном времени.
+ */
 @Composable
 private fun CustomColorPickerDialog(
     initialColor: Int,
     onDismiss: () -> Unit,
     onApply: (Int) -> Unit
 ) {
-    var hexInput by remember {
-        mutableStateOf(String.format("%06X", 0xFFFFFF and initialColor))
+    val hsv = remember(initialColor) {
+        val arr = FloatArray(3)
+        android.graphics.Color.colorToHSV(initialColor, arr)
+        arr
     }
-    val parsedColor = remember(hexInput) {
-        runCatching {
-            val clean = hexInput.trim().removePrefix("#")
-            if (clean.length == 6) {
-                (0xFF000000.toInt()) or clean.toLong(16).toInt()
-            } else null
-        }.getOrNull()
+    var hue by remember { mutableFloatStateOf(hsv[0]) }
+    var saturation by remember { mutableFloatStateOf(if (hsv[1] < 0.15f) 0.8f else hsv[1]) }
+    var brightness by remember { mutableFloatStateOf(if (hsv[2] < 0.3f) 0.9f else hsv[2]) }
+
+    val currentColorInt = remember(hue, saturation, brightness) {
+        android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
+    }
+    val currentColor = remember(currentColorInt) { Color(currentColorInt) }
+    val hexCode = remember(currentColorInt) {
+        String.format("#%06X", 0xFFFFFF and currentColorInt)
     }
 
     AlertDialog(
@@ -4751,82 +4914,147 @@ private fun CustomColorPickerDialog(
                 text = "Свой цвет темы",
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.SemiBold
             )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(
-                    text = "Введите 6-значный HEX-код цвета (например 4CAF50):",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                // Живое превью акцента
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(
-                                parsedColor?.let { Color(it) }
-                                    ?: MaterialTheme.colorScheme.surfaceContainerHighest
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(currentColor)
+                                .border(BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant), CircleShape)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Акцент Runner",
+                                color = currentColor,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                            .border(
-                                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                CircleShape
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = hexCode,
+                                color = MaterialTheme.colorScheme.outline,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace
                             )
-                    )
-                    BasicTextField(
-                        value = hexInput,
-                        onValueChange = { input ->
-                            val filtered = input.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == '#' }.take(7)
-                            hexInput = filtered
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainer)
-                            .border(
-                                BorderStroke(
-                                    1.dp,
-                                    if (parsedColor != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                                ),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        textStyle = TextStyle(
+                        }
+                    }
+                }
+
+                // Гамма оттенка (Hue Spectrum)
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Оттенок (гамма)",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 15.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium
-                        ),
-                        singleLine = true,
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                        )
+                        Text(
+                            text = "${hue.toInt()}°",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ColorSpectrumBar(
+                        hue = hue,
+                        onHueChange = { hue = it }
                     )
                 }
-                if (hexInput.isNotBlank() && parsedColor == null) {
-                    Text(
-                        text = "Некорректный HEX-код",
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 12.sp
+
+                // Насыщенность (Saturation)
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Насыщенность",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${(saturation * 100).toInt()}%",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    SettingSlider(
+                        value = saturation,
+                        onValueChange = { saturation = it },
+                        valueRange = 0.2f..1.0f,
+                        steps = 16,
+                        valueLabel = { "${(it * 100).toInt()}%" }
                     )
+                }
+
+                // Быстрые пресеты для удобства
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf(
+                        0xFF90CAF9.toInt(), // Ice Blue
+                        0xFF80CBC4.toInt(), // Mint
+                        0xFFFFB74D.toInt(), // Amber
+                        0xFFFF8A80.toInt(), // Coral
+                        0xFFB388FF.toInt(), // Violet
+                        0xFFA5D6A7.toInt()  // Emerald
+                    ).forEach { presetInt ->
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(presetInt))
+                                .border(
+                                    BorderStroke(
+                                        if (currentColorInt == presetInt) 2.dp else 0.5.dp,
+                                        if (currentColorInt == presetInt) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant
+                                    ),
+                                    CircleShape
+                                )
+                                .clickable {
+                                    val arr = FloatArray(3)
+                                    android.graphics.Color.colorToHSV(presetInt, arr)
+                                    hue = arr[0]
+                                    saturation = arr[1]
+                                    brightness = arr[2]
+                                }
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    parsedColor?.let { onApply(it) }
-                },
-                enabled = parsedColor != null
-            ) {
-                Text(
-                    "Применить",
-                    color = if (parsedColor != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                )
+            TextButton(onClick = { onApply(currentColorInt) }) {
+                Text("Применить", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
@@ -4835,6 +5063,147 @@ private fun CustomColorPickerDialog(
             }
         },
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(18.dp)
     )
 }
+
+/**
+ * Управление пользовательскими быстрыми сценариями.
+ */
+@Composable
+private fun CustomSuggestionsManager(
+    customSuggestions: List<String>,
+    onAddSuggestion: (String) -> Unit,
+    onRemoveSuggestion: (Int) -> Unit
+) {
+    var newPromptText by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = "Пользовательские сценарии",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        if (customSuggestions.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                customSuggestions.forEachIndexed { idx, item ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                tint = SecondaryMint,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = item,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            IconButton(
+                                onClick = { onRemoveSuggestion(idx) },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "Удалить сценарий",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Строка добавления нового сценария
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            BasicTextField(
+                value = newPromptText,
+                onValueChange = { newPromptText = it },
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f))
+                    .border(
+                        BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                decorationBox = { innerTextField ->
+                    if (newPromptText.isEmpty()) {
+                        Text(
+                            text = "Например: Проверить заряд батареи",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 12.5.sp
+                        )
+                    }
+                    innerTextField()
+                }
+            )
+
+            IconButton(
+                onClick = {
+                    val clean = newPromptText.trim()
+                    if (clean.isNotBlank()) {
+                        onAddSuggestion(clean)
+                        newPromptText = ""
+                    }
+                },
+                enabled = newPromptText.isNotBlank(),
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (newPromptText.isNotBlank()) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = "Добавить",
+                    tint = if (newPromptText.isNotBlank()) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+

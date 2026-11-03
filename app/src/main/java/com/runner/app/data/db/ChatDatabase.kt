@@ -31,7 +31,9 @@ data class SessionEntity(
      * Хранится как есть, иначе после перезапуска нельзя восстановить
      * структуру tool_calls и агент теряет связь между шагами.
      */
-    val contextJson: String = ""
+    val contextJson: String = "",
+    /** Название модели нейросети, которая последней использовалась в этой сессии. */
+    val lastModel: String? = null
 )
 
 /** Сообщение сессии. role — имя MessageRole, чтобы слой БД не зависел от UI. */
@@ -158,6 +160,9 @@ interface ChatDao {
     @Query("UPDATE sessions SET isPinned = :pinned WHERE id = :id")
     suspend fun setSessionPinned(id: String, pinned: Boolean)
 
+    @Query("UPDATE sessions SET lastModel = :model WHERE id = :id")
+    suspend fun updateLastModel(id: String, model: String)
+
     @Query("UPDATE sessions SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchSession(id: String, updatedAt: Long)
 
@@ -180,7 +185,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -192,8 +197,8 @@ abstract class ChatDatabase : RoomDatabase() {
         private var instance: ChatDatabase? = null
 
         /**
-         * v1 → v2: добавлены тайминги, размышления и счётчики токенов.
-         * Все колонки nullable, поэтому ALTER TABLE без DEFAULT — существующая
+         * v1 -> v2: добавлены тайминги, размышления и счётчики токенов.
+         * Все колонки nullable, поэтому ALTER TABLE без DEFAULT: существующая
          * история чатов остаётся на месте.
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -209,7 +214,7 @@ abstract class ChatDatabase : RoomDatabase() {
         }
 
         /**
-         * v2 → v3: закрепление чатов. Колонка NOT NULL с дефолтом —
+         * v2 -> v3: закрепление чатов. Колонка NOT NULL с дефолтом:
          * существующие сессии становятся незакреплёнными.
          */
         private val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -219,11 +224,20 @@ abstract class ChatDatabase : RoomDatabase() {
         }
 
         /**
-         * v3 → v4: прикрепление изображений к сообщениям.
+         * v3 -> v4: прикрепление изображений к сообщениям.
          */
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN imageUris TEXT")
+            }
+        }
+
+        /**
+         * v4 -> v5: последняя использованная модель в сессии.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN lastModel TEXT")
             }
         }
 
@@ -234,7 +248,8 @@ abstract class ChatDatabase : RoomDatabase() {
                     ChatDatabase::class.java,
                     "runner_chat.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                     .also { instance = it }
             }
