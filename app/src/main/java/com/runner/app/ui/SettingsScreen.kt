@@ -62,7 +62,10 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
@@ -134,11 +137,9 @@ import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
-import com.runner.app.data.InstructionProfile
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
-import com.runner.app.util.VoiceOption
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
@@ -1410,12 +1411,23 @@ private fun ApiQuickGuideCard() {
                         thickness = 0.8.dp
                     )
 
-                    Text(
-                        text = "🔑 Что такое API-ключ?",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Key,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Что такое API-ключ?",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Text(
                         text = "Это ваш персональный код доступа к нейросетям (Gemini, Claude, GPT, DeepSeek). С ним Runner отправляет запросы напрямую к выбранному сервису без очередей и посредников.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1425,12 +1437,23 @@ private fun ApiQuickGuideCard() {
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    Text(
-                        text = "🚀 Где получить (бесплатно или недорого):",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Public,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Где получить (бесплатно или недорого):",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
 
                     // 1. Google Gemini
                     Surface(
@@ -1554,12 +1577,23 @@ private fun ApiQuickGuideCard() {
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    Text(
-                        text = "⚙️ Что делать дальше:",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircleOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Что делать дальше:",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Text(
                         text = "1. Скопируйте полученный ключ.\n" +
                                "2. Выберите нужного провайдера в списке ниже (например, Gemini или Groq).\n" +

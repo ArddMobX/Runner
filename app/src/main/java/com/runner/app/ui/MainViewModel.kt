@@ -8,6 +8,7 @@ import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runner.app.service.AgentExecutionService
 import com.runner.app.util.HapticManager
 import com.runner.app.util.ImageUtils
 import com.runner.app.util.TaskNotificationManager
@@ -1020,6 +1021,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Уборка корзины при запуске: срок хранения, выставленный в настройках,
         // иначе оставался бы только обещанием в интерфейсе.
         purgeTrashOnStart()
+        AgentExecutionService.onStopRequested = { stopGeneration() }
+        viewModelScope.launch {
+            _currentStatus.collect { status ->
+                if (_isRunning.value && !status.isNullOrBlank()) {
+                    AgentExecutionService.updateStatus(getApplication(), status)
+                }
+            }
+        }
         viewModelScope.launch {
             val empty = repository.getRecentEmptySession()
             val session = empty ?: repository.observeSessions().first().firstOrNull() ?: repository.createSession()
@@ -1510,6 +1519,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             timestamp = now
         )
         _isRunning.value = true
+        AgentExecutionService.start(getApplication(), "Runner выполняет задачу...")
         _streamingText.value = ""
 
         viewModelScope.launch {
@@ -1606,6 +1616,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
+                AgentExecutionService.stop(getApplication())
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
                 }
@@ -1665,6 +1676,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dryRunBannerShown = false
         _streamingText.value = ""
         _isRunning.value = true
+        AgentExecutionService.start(getApplication(), "Повтор задачи...")
 
         viewModelScope.launch {
             try {
@@ -1678,6 +1690,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
+                AgentExecutionService.stop(getApplication())
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
                 }
@@ -1801,11 +1814,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             stepLines.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
         }
 
-        // Диалог нужен, если в плане есть хоть одна опасная операция.
-        // Список опасных — один на весь проект (ToolDispatcher.DANGEROUS_OPERATIONS),
-        // иначе планировщик и гейт подтверждения разъезжаются, как было раньше:
-        // run_shell_command и move_file в плане диалог не открывали вообще.
-        val needsApproval = planSteps.any { ToolDispatcher.isCriticalOperation(it.tool) }
+        // В автономном режиме (autoApproveInWorkingDir) сформированный план передаётся на исполнение сразу
+        val needsApproval = !_settings.value.autoApproveInWorkingDir && planSteps.any { ToolDispatcher.isCriticalOperation(it.tool) }
         if (!needsApproval) {
             approvedPlanSteps = planSteps
             return planNoteText()
@@ -2263,21 +2273,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // буфер обмена). Это защита от подсказок вида «удали всё» внутри
         // прочитанного текста, её отключать нельзя.
         val confirmDangerous = _settings.value.confirmDangerous
-        val isInsideWorkingDir = if (_settings.value.autoApproveInWorkingDir && _settings.value.defaultWorkingDir.isNotBlank()) {
-            val workingDirFile = try { java.io.File(_settings.value.defaultWorkingDir).canonicalFile } catch (_: Exception) { null }
-            if (workingDirFile != null) {
-                val argsObj = try { JSONObject(call.arguments) } catch (_: Exception) { null }
-                val targetPath = argsObj?.optString("path")?.takeIf { it.isNotBlank() }
-                    ?: argsObj?.optString("src")?.takeIf { it.isNotBlank() }
-                    ?: argsObj?.optString("dir")?.takeIf { it.isNotBlank() }
-                    ?: argsObj?.optString("archive_path")?.takeIf { it.isNotBlank() }
-                    ?: argsObj?.optString("destination")?.takeIf { it.isNotBlank() }
-                if (targetPath != null) {
-                    val f = java.io.File(targetPath)
-                    val resolved = if (f.isAbsolute) f.canonicalFile else java.io.File(workingDirFile, targetPath).canonicalFile
-                    resolved.startsWith(workingDirFile)
+        val isInsideWorkingDir = if (_settings.value.autoApproveInWorkingDir) {
+            if (_settings.value.defaultWorkingDir.isBlank()) {
+                // По умолчанию вся память: опасные операции не требуют подтверждения
+                true
+            } else {
+                val workingDirFile = try { java.io.File(_settings.value.defaultWorkingDir).canonicalFile } catch (_: Exception) { null }
+                if (workingDirFile != null) {
+                    if (isShellCall) {
+                        // Shell-команда: внутри рабочей папки, если не обращается явно к путям вне её
+                        val rootPath = try { Environment.getExternalStorageDirectory().canonicalPath } catch (_: Exception) { "/storage/emulated/0" }
+                        val pathTokens = Regex("""/[A-Za-z0-9_./*?-]+""").findAll(commandLine).map { it.value }.toList()
+                        val outside = pathTokens.any { token ->
+                            try {
+                                val f = java.io.File(token).canonicalFile
+                                f.canonicalPath.startsWith(rootPath) && !f.canonicalPath.startsWith(workingDirFile.canonicalPath)
+                            } catch (_: Exception) { false }
+                        }
+                        !outside
+                    } else {
+                        val argsObj = try { JSONObject(call.arguments) } catch (_: Exception) { null }
+                        val targetPaths = mutableListOf<String>()
+                        argsObj?.optString("path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("src")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("dir")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("archive_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("destination")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("source_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("destination_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("target_dir")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        argsObj?.optString("zip_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                        val sourcePathsArr = argsObj?.optJSONArray("source_paths")
+                        if (sourcePathsArr != null) {
+                            for (i in 0 until sourcePathsArr.length()) {
+                                sourcePathsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                            }
+                        }
+                        if (targetPaths.isNotEmpty()) {
+                            targetPaths.all { tp ->
+                                val f = java.io.File(tp)
+                                val resolved = if (f.isAbsolute) f.canonicalFile else java.io.File(workingDirFile, tp).canonicalFile
+                                resolved.canonicalPath == workingDirFile.canonicalPath || resolved.canonicalPath.startsWith("${workingDirFile.canonicalPath}/")
+                            }
+                        } else {
+                            false
+                        }
+                    }
                 } else false
-            } else false
+            }
         } else false
 
         val needConfirm = when {

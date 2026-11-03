@@ -2,15 +2,17 @@ package com.runner.app.util
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
-import android.os.Handler
-import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -208,32 +210,107 @@ class VoiceManager(private val context: Context) {
         } catch (_: Exception) {}
     }
 
+    private fun isGoogleTtsInstalled(): Boolean {
+        return try {
+            val pm = context.packageManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(GOOGLE_TTS_PACKAGE, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(GOOGLE_TTS_PACKAGE, 0)
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun loadAvailableVoices() {
         val engine = tts ?: return
         try {
-            val voices = engine.voices
-            if (voices != null) {
-                val currentLoc = Locale.getDefault()
-                val list = voices.filter { v ->
-                    v.locale.language == currentLoc.language || v.locale.language == "ru" || v.locale.language == "en"
-                }.map { v ->
-                    val lang = v.locale.displayLanguage.replaceFirstChar { it.uppercase() }
-                    val country = if (v.locale.country.isNotBlank()) " (${v.locale.country})" else ""
-                    val shortName = v.name.substringAfterLast("-").substringAfterLast("#")
-                    val displayName = "$lang$country #$shortName"
-                    VoiceOption(
-                        name = v.name,
-                        displayName = displayName,
-                        locale = v.locale.displayName
-                    )
-                }.sortedBy { it.displayName }
-                _availableVoices.value = list
+            val voices = engine.voices ?: return
+            val currentLoc = Locale.getDefault()
+            val currentLang = currentLoc.language
+
+            val filtered = voices.filter { v ->
+                val l = v.locale.language
+                l == currentLang || l == "ru" || l == "en"
             }
+
+            val byLang = filtered.groupBy { v ->
+                v.locale.getDisplayLanguage(Locale("ru")).replaceFirstChar { it.uppercase() }
+            }
+
+            val resultList = mutableListOf<VoiceOption>()
+
+            byLang.forEach { (langName, vList) ->
+                // Делим на категории: Студийный, Качественный, Стандартный
+                // Отдаём приоритет голосам с v.quality >= Voice.QUALITY_HIGH
+                val studioList = vList.filter { v ->
+                    val lower = v.name.lowercase()
+                    v.quality >= Voice.QUALITY_VERY_HIGH ||
+                            lower.contains("studio") ||
+                            lower.contains("wavenet") ||
+                            (v.quality >= Voice.QUALITY_HIGH && lower.contains("network"))
+                }.sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.name })
+
+                val studioNames = studioList.map { it.name }.toSet()
+
+                val highList = vList.filter { v ->
+                    v.name !in studioNames && (
+                        v.quality >= Voice.QUALITY_HIGH ||
+                        !v.name.lowercase().contains("low")
+                    )
+                }.sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.name })
+
+                val highNames = highList.map { it.name }.toSet()
+
+                val standardList = vList.filter { v ->
+                    v.name !in studioNames && v.name !in highNames
+                }.sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.name })
+
+                fun addTierVoices(tierList: List<Voice>, tierName: String) {
+                    val count = tierList.size
+                    tierList.forEachIndexed { index, voice ->
+                        val suffix = if (count > 1) " ${index + 1}" else ""
+                        val displayName = "$langName ($tierName$suffix)"
+                        resultList.add(
+                            VoiceOption(
+                                name = voice.name,
+                                displayName = displayName,
+                                locale = voice.locale.displayName
+                            )
+                        )
+                    }
+                }
+
+                addTierVoices(studioList, "Студийный")
+                addTierVoices(highList, "Качественный")
+                addTierVoices(standardList, "Стандартный")
+            }
+
+            _availableVoices.value = resultList.sortedWith(
+                compareBy<VoiceOption> { option ->
+                    val isCur = option.locale.startsWith(currentLoc.displayName) || option.displayName.startsWith(currentLoc.displayLanguage)
+                    val isRu = option.displayName.startsWith("Русский")
+                    when {
+                        isCur -> 0
+                        isRu -> 1
+                        else -> 2
+                    }
+                }.thenBy { option ->
+                    when {
+                        option.displayName.contains("Студийный") -> 0
+                        option.displayName.contains("Качественный") -> 1
+                        else -> 2
+                    }
+                }.thenBy { it.displayName }
+            )
         } catch (_: Exception) {}
     }
 
     private fun initTts() {
-        tts = TextToSpeech(context.applicationContext) { status ->
+        val onInit = TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
                 isTtsReady = true
                 val result = tts?.setLanguage(Locale.getDefault())
@@ -246,6 +323,12 @@ class VoiceManager(private val context: Context) {
             } else {
                 isTtsReady = false
             }
+        }
+
+        tts = if (isGoogleTtsInstalled()) {
+            TextToSpeech(context.applicationContext, onInit, GOOGLE_TTS_PACKAGE)
+        } else {
+            TextToSpeech(context.applicationContext, onInit)
         }
     }
 
@@ -333,6 +416,8 @@ class VoiceManager(private val context: Context) {
     }
 
     companion object {
+        const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
+
         /**
          * Очищает текст от Markdown-разметки, блоков кода и LaTeX формул,
          * чтобы синтезатор речи не читал служебные символы.
