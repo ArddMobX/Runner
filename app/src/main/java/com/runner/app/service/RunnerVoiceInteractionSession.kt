@@ -1,8 +1,10 @@
 package com.runner.app.service
 
+import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.service.voice.VoiceInteractionSession
 import com.runner.app.ui.OverlayActivity
@@ -13,12 +15,6 @@ import com.runner.app.util.ScreenCaptureManager
  * Запускается ОС при вызове цифрового помощника (удержание кнопки питания, свайп из угла).
  */
 class RunnerVoiceInteractionSession(context: Context) : VoiceInteractionSession(context) {
-
-    override fun onPrepareShow(args: Bundle?, showFlags: Int) {
-        super.onPrepareShow(args, showFlags)
-        // Отключаем встроенное окно сессии, так как используем плавающую активность ассистента
-        setUiEnabled(false)
-    }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
@@ -48,12 +44,29 @@ class RunnerVoiceInteractionSession(context: Context) : VoiceInteractionSession(
                 putExtra(OverlayActivity.EXTRA_SCREENSHOT_URI, screenshotUriString)
             }
         }
+
+        val optionsBundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ActivityOptions.makeBasic().apply {
+                setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            }.toBundle()
+        } else {
+            null
+        }
+
         try {
             startAssistantActivity(intent)
         } catch (_: Exception) {
             try {
-                context.startActivity(intent)
-            } catch (_: Exception) {}
+                if (optionsBundle != null) {
+                    context.startActivity(intent, optionsBundle)
+                } else {
+                    context.startActivity(intent)
+                }
+            } catch (_: Exception) {
+                try {
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+            }
         }
     }
 }

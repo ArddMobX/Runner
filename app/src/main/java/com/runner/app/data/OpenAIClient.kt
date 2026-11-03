@@ -121,6 +121,9 @@ class GenerationMetrics {
     @Volatile
     var reasoningMillis: Long = 0L
 
+    @Volatile
+    var finishReason: String? = null
+
     private var reasoningStartedAt = 0L
     private var reasoningEndedAt = 0L
     private val reasoningBuffer = StringBuilder()
@@ -326,7 +329,10 @@ class OpenAIClient {
                     }
                 }
                 if (allowTemperature) put("temperature", temperature)
-                if (allowMaxTokens && maxTokens > 0) put("max_tokens", maxTokens)
+                if (allowMaxTokens && maxTokens > 0) {
+                    put("max_tokens", maxTokens)
+                    put("max_completion_tokens", maxTokens)
+                }
                 if (streaming) {
                     put("stream", true)
                     if (allowStreamUsage) {
@@ -371,7 +377,7 @@ class OpenAIClient {
                     // подпись, а для Gemini ещё и на любом повторе: раньше она уходила
                     // всегда, и отказываться от проверенного поведения сразу нельзя.
                     val fallback = signatureFallback || (isGemini && attempt > 0)
-                    executeStreaming(call, listener, fallback, metrics)
+                    executeStreaming(call, listener, fallback, metrics, maxTokens)
                 } else {
                     val fallback = signatureFallback || (isGemini && attempt > 0)
                     executeBlocking(call, fallback, metrics)
@@ -388,7 +394,7 @@ class OpenAIClient {
                             noteStreamUsageRejected(endpoint)
                         }
                         "temperature" -> allowTemperature = false
-                        "max_tokens" -> allowMaxTokens = false
+                        "max_tokens", "max_completion_tokens" -> allowMaxTokens = false
                         "thinking" -> allowThinking = false
                         "tools", "tool_choice" -> allowTools = false
                         else -> Unit
@@ -455,11 +461,13 @@ class OpenAIClient {
         call: Call,
         listener: StreamListener?,
         signatureFallback: Boolean,
-        metrics: GenerationMetrics?
+        metrics: GenerationMetrics?,
+        maxTokens: Int = 0
     ): AIResponseResult {
         val content = StringBuilder()
         val toolCallSlots = sortedMapOf<Int, ToolCallAccumulator>()
         var emitted = false
+        var currentTokens = 0
 
         call.execute().use { response ->
             if (!response.isSuccessful) {
@@ -491,11 +499,19 @@ class OpenAIClient {
                     val prompt = usage.optInt("prompt_tokens", 0)
                     if (prompt > 0) metrics.promptTokens = prompt
                     val completion = usage.optInt("completion_tokens", 0)
-                    if (completion > 0) metrics.completionTokens = completion
+                    if (completion > 0) {
+                        metrics.completionTokens = completion
+                        currentTokens = completion
+                    }
                 }
 
                 val choices = chunk.optJSONArray("choices") ?: continue
                 val choice0 = choices.optJSONObject(0) ?: continue
+                val choiceFinishReason = choice0.optString("finish_reason")
+                if (choiceFinishReason.isNotBlank() && metrics?.finishReason == null) {
+                    metrics?.finishReason = choiceFinishReason
+                }
+
                 val delta = choice0.optJSONObject("delta") ?: continue
 
                 val now = System.currentTimeMillis()
@@ -514,6 +530,20 @@ class OpenAIClient {
                     content.append(piece)
                     emitted = true
                     listener?.onTextDelta(piece)
+                    if (currentTokens == 0) {
+                        currentTokens = (content.length / 3.5).toInt()
+                    }
+                }
+
+                if (maxTokens > 0 && currentTokens >= maxTokens) {
+                    metrics?.finishReason = "length"
+                    if (metrics != null && metrics.completionTokens == null) {
+                        metrics.completionTokens = currentTokens
+                    }
+                    try {
+                        responseBody.close()
+                    } catch (_: Exception) {}
+                    break
                 }
 
                 val deltaExtra = delta.optJSONObject("extra_content")
