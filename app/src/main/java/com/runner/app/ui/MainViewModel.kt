@@ -722,6 +722,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         hapticManager.testVibration(intensity)
     }
 
+    fun testHaptic3Seconds(intensity: Int) {
+        hapticManager.testVibration3Seconds(intensity)
+    }
+
+    fun stopHapticTest() {
+        hapticManager.stopVibration()
+    }
+
     fun stopSpeaking() {
         voiceManager.stopSpeaking()
     }
@@ -2313,8 +2321,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         if (targetPaths.isNotEmpty()) {
                             targetPaths.all { tp ->
-                                val f = java.io.File(tp)
-                                val resolved = if (f.isAbsolute) f.canonicalFile else java.io.File(workingDirFile, tp).canonicalFile
+                                val resolved = try {
+                                    ToolDispatcher.resolvePath(tp).canonicalFile
+                                } catch (_: Exception) {
+                                    val f = java.io.File(tp)
+                                    if (f.isAbsolute) f.canonicalFile else java.io.File(workingDirFile, tp).canonicalFile
+                                }
                                 resolved.canonicalPath == workingDirFile.canonicalPath || resolved.canonicalPath.startsWith("${workingDirFile.canonicalPath}/")
                             }
                         } else {
@@ -2331,9 +2343,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // заранее — самим включением режима.
             blockedByDryRun -> false
             blockedByReadOnly -> false
+            isInsideWorkingDir -> false
             fromUntrusted -> true
             remembered -> _settings.value.confirmEveryStep
-            isInsideWorkingDir -> false
             isDangerous -> confirmDangerous && !preApproved
             else -> _settings.value.confirmEveryStep
         }

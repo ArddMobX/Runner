@@ -3495,6 +3495,38 @@ private fun VibrationSettingsCard(
                         viewModel.testHaptic(it)
                     }
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                var isHapticTestRunning by remember { mutableStateOf(false) }
+                LaunchedEffect(isHapticTestRunning) {
+                    if (isHapticTestRunning) {
+                        kotlinx.coroutines.delay(3000L)
+                        isHapticTestRunning = false
+                    }
+                }
+                Button(
+                    onClick = {
+                        if (isHapticTestRunning) {
+                            viewModel.stopHapticTest()
+                            isHapticTestRunning = false
+                        } else {
+                            viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
+                            isHapticTestRunning = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isHapticTestRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = if (isHapticTestRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary
+                    ),
+                    border = BorderStroke(0.6.dp, if (isHapticTestRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = if (isHapticTestRunning) "Остановить тест вибрации" else "Тест вибрации (3 сек)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
 
             SettingsDivider()
@@ -4291,6 +4323,15 @@ private fun AccessSettings(
         // 4. Системный цифровой ассистент Android
         var isAssistantActive by remember { mutableStateOf(false) }
 
+        val assistantRoleLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = context.getSystemService(RoleManager::class.java)
+                isAssistantActive = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+            }
+        }
+
         LaunchedEffect(Unit) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val roleManager = context.getSystemService(RoleManager::class.java)
@@ -4328,9 +4369,9 @@ private fun AccessSettings(
                         try {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                 val roleManager = context.getSystemService(RoleManager::class.java)
-                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
                                     val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                                    context.startActivity(intent)
+                                    assistantRoleLauncher.launch(intent)
                                 } else {
                                     context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
                                 }
@@ -4339,8 +4380,12 @@ private fun AccessSettings(
                             }
                         } catch (_: Exception) {
                             try {
-                                context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                            } catch (_: Exception) {}
+                                context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                                } catch (_: Exception) {}
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -4881,6 +4926,80 @@ private fun ColorSpectrumBar(
 }
 
 /**
+ * Интерактивная полоса насыщенности (0.05f..1.0f) с живым градиентом оттенка.
+ */
+@Composable
+private fun ColorSaturationBar(
+    hue: Float,
+    saturation: Float,
+    brightness: Float,
+    onSaturationChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val thumbSize = 22.dp
+    val startColor = remember(hue, brightness) {
+        Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.08f, brightness)))
+    }
+    val endColor = remember(hue, brightness) {
+        Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1.0f, brightness)))
+    }
+    val satGradient = remember(startColor, endColor) {
+        Brush.horizontalGradient(listOf(startColor, endColor))
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .pointerInput(Unit) {
+                val trackWidth = size.width.toFloat().coerceAtLeast(1f)
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    val fraction = (down.position.x / trackWidth).coerceIn(0.08f, 1f)
+                    onSaturationChange(fraction)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        val f = (change.position.x / trackWidth).coerceIn(0.08f, 1f)
+                        onSaturationChange(f)
+                        change.consume()
+                    }
+                }
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val fraction = ((saturation - 0.08f) / (1f - 0.08f)).coerceIn(0f, 1f)
+        val availableWidth = maxWidth - thumbSize
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(satGradient)
+                .border(
+                    BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    RoundedCornerShape(8.dp)
+                )
+        )
+
+        val currentSatColor = remember(hue, saturation, brightness) {
+            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness)))
+        }
+
+        Box(
+            modifier = Modifier
+                .offset(x = availableWidth * fraction)
+                .size(thumbSize)
+                .clip(CircleShape)
+                .background(currentSatColor)
+                .border(BorderStroke(2.dp, Color.White), CircleShape)
+        )
+    }
+}
+
+/**
  * Диалог выбора акцентного цвета через живую гамму спектра.
  * Никакого нейрослопа: точная инструментальная палитра с бегунком и превью в реальном времени.
  */
@@ -5005,12 +5124,12 @@ private fun CustomColorPickerDialog(
                             fontFamily = FontFamily.Monospace
                         )
                     }
-                    SettingSlider(
-                        value = saturation,
-                        onValueChange = { saturation = it },
-                        valueRange = 0.2f..1.0f,
-                        steps = 16,
-                        valueLabel = { "${(it * 100).toInt()}%" }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ColorSaturationBar(
+                        hue = hue,
+                        saturation = saturation,
+                        brightness = brightness,
+                        onSaturationChange = { saturation = it }
                     )
                 }
 
