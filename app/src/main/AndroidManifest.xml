@@ -124,6 +124,18 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true" />
 
+        <!-- Системная служба распознавания речи для цифрового ассистента -->
+        <service
+            android:name=".service.RunnerRecognitionService"
+            android:label="@string/assistant_service_name"
+            android:permission="android.permission.BIND_RECOGNITION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
         <!-- FileProvider для съёмки с камеры -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -48,7 +48,7 @@ fun RunnerTheme(
             seedColor = Color(themeConfig.customSeedColor),
             isDark = isDark,
             isAmoled = isDark && themeConfig.isAmoled,
-            style = PaletteStyle.Neutral
+            style = PaletteStyle.Fidelity
         )
     }
 

@@ -25,14 +25,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -124,14 +122,6 @@ fun SupportSheet(
                         text = "Развитие и поддержка проекта",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
-                    )
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Закрыть",
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

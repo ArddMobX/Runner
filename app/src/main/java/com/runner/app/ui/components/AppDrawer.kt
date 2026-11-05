@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -49,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -65,7 +65,6 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
-import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
@@ -238,15 +237,16 @@ fun AppDrawerContent(
 
                     item(key = "header_${group.name}") {
                         Text(
-                            text = group.title,
-                            color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp)
+                            text = group.title.uppercase(),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp)
                         )
                     }
 
-                    itemsIndexed(groupSessions, key = { _, it -> it.id }) { index, session ->
+                    itemsIndexed(groupSessions, key = { _, it -> it.id }) { _, session ->
                         SessionRow(
                             session = session,
                             isCurrent = session.id == currentSessionId,
@@ -259,13 +259,6 @@ fun AppDrawerContent(
                             onDelete = { sessionToDelete = session },
                             onTogglePin = { onTogglePinSession(session.id, !session.isPinned) }
                         )
-                        if (index < groupSessions.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 1.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                                thickness = 0.5.dp
-                            )
-                        }
                     }
                 }
             }
@@ -484,22 +477,25 @@ private fun SessionRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .padding(horizontal = 10.dp, vertical = 2.5.dp)
     ) {
+        val itemBg = if (isCurrent) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f)
+        }
+        val itemBorder = if (isCurrent) {
+            BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        } else {
+            BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f))
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(
-                    if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    else Color.Transparent
-                )
-                .then(
-                    if (isCurrent) Modifier.border(
-                        BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
-                        RoundedCornerShape(12.dp)
-                    ) else Modifier
-                )
+                .background(itemBg)
+                .border(itemBorder, RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = onOpen,
                     onLongClick = { menuExpanded = true }
@@ -507,21 +503,41 @@ private fun SessionRow(
                 .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (session.isPinned) {
-                Icon(
-                    imageVector = Icons.Outlined.PushPin,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                    modifier = Modifier.size(12.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(
+                        if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (session.isPinned) {
+                    Icon(
+                        imageVector = Icons.Outlined.PushPin,
+                        contentDescription = "Закреплено",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = session.title.ifBlank { "Без названия" },
-                    color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                     fontSize = 13.5.sp,
-                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -534,7 +550,7 @@ private fun SessionRow(
                         text = cleanModel,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.outline,
                         fontSize = 10.5.sp,
-                        fontFamily = GoogleSans,
+                        fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -544,20 +560,24 @@ private fun SessionRow(
                         text = snippet,
                         color = MaterialTheme.colorScheme.outline,
                         fontSize = 10.5.sp,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
+
             Spacer(modifier = Modifier.width(8.dp))
+
             Text(
                 text = timeLabel,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
                 fontSize = 10.5.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1
             )
+
             Spacer(modifier = Modifier.width(4.dp))
+
             IconButton(
                 onClick = { menuExpanded = true },
                 modifier = Modifier.size(20.dp)
@@ -565,7 +585,7 @@ private fun SessionRow(
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
                     contentDescription = "Действия с чатом",
-                    tint = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    tint = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
                     modifier = Modifier.size(14.dp)
                 )
             }

@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.nativeCanvas
@@ -35,7 +37,7 @@ fun TerminalAmbientBackground(
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
 
     val particles = remember {
-        val list = mutableStateListOf<AmbientParticle>()
+        val list = ArrayList<AmbientParticle>(PARTICLE_COUNT)
         val rnd = Random(42)
         repeat(PARTICLE_COUNT) {
             val glyph = GLYPHS[it % GLYPHS.size]
@@ -45,7 +47,7 @@ fun TerminalAmbientBackground(
                     glyph = glyph,
                     xNorm = rnd.nextFloat(),
                     yNorm = rnd.nextFloat(),
-                    speed = 0.00008f + rnd.nextFloat() * 0.00015f,
+                    speed = 0.00007f + rnd.nextFloat() * 0.00010f,
                     swayFreq = 1.0f + rnd.nextFloat() * 2.0f,
                     swayAmp = 0.015f + rnd.nextFloat() * 0.025f,
                     sizePx = (11 + rnd.nextInt(4)) * density.density,
@@ -58,12 +60,15 @@ fun TerminalAmbientBackground(
         list
     }
 
+    var animTick by remember { mutableLongStateOf(0L) }
+
     LaunchedEffect(enabled) {
         var prevTime = 0L
         while (true) {
             withFrameNanos { frameTime ->
                 if (prevTime == 0L) {
                     prevTime = frameTime
+                    animTick = frameTime
                     return@withFrameNanos
                 }
                 val deltaMs = (frameTime - prevTime) / 1_000_000f
@@ -72,12 +77,13 @@ fun TerminalAmbientBackground(
                 for (i in particles.indices) {
                     val p = particles[i]
                     var newY = p.yNorm - p.speed * deltaMs
-                    if (newY < -0.05f) {
-                        newY = 1.05f
+                    if (newY < -0.06f) {
+                        newY = 1.06f
                     }
                     p.yNorm = newY
                     p.phase += 0.0015f * deltaMs
                 }
+                animTick = frameTime
             }
         }
     }
@@ -96,6 +102,10 @@ fun TerminalAmbientBackground(
         val width = size.width
         val height = size.height
         if (width <= 0f || height <= 0f) return@Canvas
+
+        // Подписка draw фазы Canvas на каждый кадр VSYNC
+        val tick = animTick
+        if (tick == 0L) return@Canvas
 
         val canvas = drawContext.canvas.nativeCanvas
 

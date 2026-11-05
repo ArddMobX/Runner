@@ -12,7 +12,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.Image
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -726,6 +730,32 @@ private fun EmptyChatState(
         GREETING_TEMPLATES.random()
     }
 
+    val titleAlpha = remember { Animatable(0f) }
+    val titleOffsetY = remember { Animatable(12f) }
+
+    LaunchedEffect(sessionId) {
+        titleAlpha.snapTo(0f)
+        titleOffsetY.snapTo(12f)
+        launch {
+            titleAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 650,
+                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                )
+            )
+        }
+        launch {
+            titleOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 750,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                )
+            )
+        }
+    }
+
     val defaultSuggestions = remember {
         listOf(
             EmptyStateSuggestion(
@@ -785,6 +815,10 @@ private fun EmptyChatState(
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 6.sp,
+                modifier = Modifier.graphicsLayer {
+                    alpha = titleAlpha.value
+                    translationY = titleOffsetY.value * density
+                },
                 style = TextStyle(
                     brush = Brush.horizontalGradient(
                         colors = listOf(
