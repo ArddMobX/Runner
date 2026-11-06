@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.ui.theme.GoogleSansCode
 import com.runner.app.ui.theme.SecondaryMint
 
 const val DONATE_TON_ADDRESS = "UQBEzktkHEnVK8XTGztXfNcOWtdONyskFeb3u48lWfzZ-t6V"
@@ -218,7 +219,7 @@ fun SupportSheet(
                         text = DONATE_TON_ADDRESS,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 11.5.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = GoogleSansCode,
                         lineHeight = 16.sp
                     )
                 }

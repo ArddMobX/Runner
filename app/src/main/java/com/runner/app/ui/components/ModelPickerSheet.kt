@@ -302,7 +302,7 @@ fun ModelPickerSheet(
                             text = if (favoriteCount > 0) "Избранное ($favoriteCount)" else "Избранное",
                             color = if (favoritesSelected) Color(0xFFFFB800) else MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = if (favoritesSelected) FontWeight.SemiBold else FontWeight.Medium
                         )
                     }
                 }
@@ -342,7 +342,7 @@ fun ModelPickerSheet(
                             text = "Все",
                             color = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = if (allSelected) FontWeight.SemiBold else FontWeight.Medium
                         )
                     }
                 }
@@ -404,7 +404,7 @@ fun ModelPickerSheet(
                                 text = item.name,
                                 color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
                             )
                         }
                     }

@@ -460,6 +460,10 @@ fun ChatScreen(
                         // чтобы «Выполняю команду...» не захламляли экран.
                         val chatItems = remember(messages) { groupChatItems(messages) }
                         val lastUserMessageId = remember(messages) { findLastUserMessageId(messages) }
+                        val lastAssistantMessageId = remember(messages) {
+                            messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.content.isNotBlank() }?.id
+                        }
+                        val canShowFollowUps = !isRunning && streamingText.isNullOrBlank() && pendingPlan == null && pendingConfirmation == null
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
@@ -487,6 +491,8 @@ fun ChatScreen(
                                         is ChatListItem.Single -> MessageItem(
                                             message = item.message,
                                             isLastUserMessage = item.message.id == lastUserMessageId,
+                                            isLastAssistantMessage = (item.message.id == lastAssistantMessageId) && canShowFollowUps,
+                                            onFollowUpClick = { prompt -> viewModel.sendMessage(prompt) },
                                             showToolDetails = appSettings.showToolDetails,
                                             showStats = appSettings.showStats,
                                             planAwaitingId = pendingPlan?.id,
@@ -995,7 +1001,7 @@ private fun EmptyStateChip(
             text = suggestion.title,
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
     }
@@ -1041,6 +1047,8 @@ private fun MessageActionIcon(
 private fun MessageItem(
     message: ChatMessage,
     @Suppress("UNUSED_PARAMETER") isLastUserMessage: Boolean = false,
+    isLastAssistantMessage: Boolean = false,
+    onFollowUpClick: (String) -> Unit = {},
     showToolDetails: Boolean,
     showStats: Boolean,
     planAwaitingId: String?,
@@ -1256,6 +1264,18 @@ private fun MessageItem(
                                 )
                             )
                         }
+                    }
+                }
+
+                if (isLastAssistantMessage && hasContent) {
+                    val followUps = remember(message.content) {
+                        SmartFollowUpGenerator.generate(message.content)
+                    }
+                    if (followUps.isNotEmpty()) {
+                        SmartFollowUpRow(
+                            suggestions = followUps,
+                            onSelect = onFollowUpClick
+                        )
                     }
                 }
             }
@@ -2597,6 +2617,151 @@ private fun ConfirmationBottomSheet(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Умный генератор контекстных подсказок следующих шагов (Smart Follow-up Pills) под финальным ответом ассистента.
+ * Анализирует структуру ответа (код, таблицы, пути, ошибки, сравнения) и выдает 2-3 релевантных действия.
+ */
+object SmartFollowUpGenerator {
+    fun generate(content: String): List<String> {
+        val trimmed = content.trim()
+        if (trimmed.length < 15) return emptyList()
+
+        val suggestions = mutableListOf<String>()
+
+        val hasCode = trimmed.contains("```")
+        val hasTable = trimmed.contains("|") && trimmed.contains("---")
+        val hasPaths = trimmed.contains("/storage/") || trimmed.contains("/sdcard/") ||
+            Regex("""\.(kt|py|sh|json|txt|md|zip|tar|apk|png|jpg)\b""").containsMatchIn(trimmed)
+        val lastLines = trimmed.lines().takeLast(3).map { it.trim() }
+        val endsWithQuestion = lastLines.any { it.endsWith("?") }
+        val hasError = trimmed.contains("ошибк", ignoreCase = true) ||
+            trimmed.contains("error", ignoreCase = true) ||
+            trimmed.contains("exception", ignoreCase = true) ||
+            trimmed.contains("failed", ignoreCase = true) ||
+            trimmed.contains("исправ", ignoreCase = true)
+        val isComparison = trimmed.contains("сравнен", ignoreCase = true) ||
+            trimmed.contains("преимуществ", ignoreCase = true) ||
+            trimmed.contains("отличи", ignoreCase = true) ||
+            trimmed.contains("vs", ignoreCase = true)
+        val isGuide = trimmed.contains("шаг 1", ignoreCase = true) ||
+            trimmed.contains("инструкци", ignoreCase = true) ||
+            Regex("""^\d+\.\s+""", RegexOption.MULTILINE).containsMatchIn(trimmed)
+
+        when {
+            hasCode -> {
+                suggestions.add("Объяснить код пошагово")
+                suggestions.add("Оптимизировать код")
+                suggestions.add("Добавить обработку ошибок")
+            }
+            hasTable -> {
+                suggestions.add("Сравнить подробнее")
+                suggestions.add("Какой вариант лучше?")
+                suggestions.add("Сохранить в файл")
+            }
+            hasError -> {
+                suggestions.add("Как это исправить?")
+                suggestions.add("Показать рабочий пример")
+                suggestions.add("В чем причина ошибки?")
+            }
+            hasPaths -> {
+                suggestions.add("Показать подробности о файлах")
+                suggestions.add("Что ещё здесь можно сделать?")
+                suggestions.add("Сохранить результат")
+            }
+            isComparison -> {
+                suggestions.add("Какой вариант ты рекомендуешь?")
+                suggestions.add("Сравнить по скорости и ресурсам")
+                suggestions.add("Показать пример использования")
+            }
+            isGuide -> {
+                suggestions.add("Что делать дальше?")
+                suggestions.add("Показать пример реализации")
+                suggestions.add("Какие могут быть сложности?")
+            }
+            endsWithQuestion -> {
+                suggestions.add("Да, давай")
+                suggestions.add("Расскажи подробнее")
+                suggestions.add("Предложи другой вариант")
+            }
+            else -> {
+                suggestions.add("Расскажи подробнее")
+                suggestions.add("Приведи пример из практики")
+                suggestions.add("Какие есть альтернативы?")
+            }
+        }
+
+        return suggestions.distinct().take(3)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SmartFollowUpRow(
+    suggestions: List<String>,
+    onSelect: (String) -> Unit
+) {
+    if (suggestions.isEmpty()) return
+
+    val haptic = LocalHapticFeedback.current
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AutoAwesome,
+                contentDescription = null,
+                tint = primaryColor,
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = "Возможные следующие шаги",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            suggestions.forEach { suggestion ->
+                Surface(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onSelect(suggestion)
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = suggestion,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.runner.app.ui.theme.GoogleSansCode
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
 
@@ -52,11 +53,20 @@ sealed class MarkdownElement {
     data class Header(val level: Int, val content: String) : MarkdownElement()
     data class CodeBlock(val language: String, val code: String) : MarkdownElement()
     data class MathBlock(val latex: String) : MarkdownElement()
+    data class Table(
+        val headers: List<String>,
+        val rows: List<List<String>>,
+        val alignments: List<TableAlignment> = emptyList()
+    ) : MarkdownElement()
     data class ListBlock(val items: List<MarkdownElement>) : MarkdownElement()
     data class BulletItem(val text: String) : MarkdownElement()
     data class NumberedItem(val number: String, val text: String) : MarkdownElement()
     data class Blockquote(val text: String) : MarkdownElement()
     data class Paragraph(val text: String) : MarkdownElement()
+}
+
+enum class TableAlignment {
+    START, CENTER, END
 }
 
 const val CURSOR_INLINE_ID = "streaming_cursor"
@@ -166,6 +176,7 @@ fun MarkdownView(
                         is MarkdownElement.ListBlock -> ListBlockElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.BulletItem -> BulletElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.NumberedItem -> NumberedElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.Table -> TableElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.Blockquote -> BlockquoteElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.Paragraph -> ParagraphElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                     }
@@ -326,7 +337,7 @@ private fun CodeBlockElement(
                     Text(
                         text = element.language.ifBlank { "код" }.lowercase(),
                         fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = GoogleSansCode,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -405,7 +416,7 @@ private fun CodeBlockElement(
                     }
                     Text(
                         text = codeAnnotated,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = GoogleSansCode,
                         fontSize = 12.5.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -758,7 +769,7 @@ private fun InlineChip(text: String) {
             text = text,
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.5.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = GoogleSansCode,
             maxLines = 1
         )
     }
@@ -776,6 +787,355 @@ private fun ParagraphElement(
         isStreaming = isStreaming,
         exitAlpha = exitAlpha
     )
+}
+
+
+@Composable
+private fun TableElement(
+    element: MarkdownElement.Table,
+    isStreaming: Boolean = false,
+    exitAlpha: () -> Float = { 1f }
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    var sortColumnIndex by remember { mutableStateOf<Int?>(null) }
+    var sortAscending by remember { mutableStateOf(true) }
+
+    val sortedRows = remember(element.rows, sortColumnIndex, sortAscending) {
+        val col = sortColumnIndex
+        if (col == null || col >= element.headers.size) {
+            element.rows
+        } else {
+            element.rows.sortedWith { r1, r2 ->
+                val v1 = r1.getOrElse(col) { "" }
+                val v2 = r2.getOrElse(col) { "" }
+                val comp = compareTableCells(v1, v2)
+                if (sortAscending) comp else -comp
+            }
+        }
+    }
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Header bar: Table icon, title, row count and Copy CSV button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = RunnerIcons.Table,
+                        contentDescription = null,
+                        tint = primaryColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "Таблица",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "· ${element.rows.size} ${formatTableRowCount(element.rows.size)}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (sortColumnIndex != null) {
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                sortColumnIndex = null
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        ) {
+                            Text(
+                                text = "Сброс",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val csv = exportTableToCsv(element.headers, sortedRows)
+                            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            manager.setPrimaryClip(ClipData.newPlainText("Таблица CSV", csv))
+                            Toast.makeText(context, "Таблица скопирована как CSV", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = "Скопировать как CSV",
+                                tint = primaryColor,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "CSV",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = primaryColor
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+
+            // Scrollable table area
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                Column {
+                    // Header Row
+                    Row(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f))
+                            .padding(vertical = 2.dp)
+                    ) {
+                        element.headers.forEachIndexed { colIndex, header ->
+                            val isSorted = sortColumnIndex == colIndex
+                            val align = element.alignments.getOrElse(colIndex) { TableAlignment.START }
+
+                            Box(
+                                modifier = Modifier
+                                    .widthIn(min = 90.dp)
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        if (sortColumnIndex != colIndex) {
+                                            sortColumnIndex = colIndex
+                                            sortAscending = true
+                                        } else if (sortAscending) {
+                                            sortAscending = false
+                                        } else {
+                                            sortColumnIndex = null
+                                        }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                contentAlignment = when (align) {
+                                    TableAlignment.CENTER -> Alignment.Center
+                                    TableAlignment.END -> Alignment.CenterEnd
+                                    TableAlignment.START -> Alignment.CenterStart
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = header,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSorted) primaryColor else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (isSorted) {
+                                        Icon(
+                                            imageVector = if (sortAscending) RunnerIcons.ArrowUp else RunnerIcons.ArrowDown,
+                                            contentDescription = if (sortAscending) "По возрастанию" else "По убыванию",
+                                            tint = primaryColor,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+
+                    // Data Rows
+                    sortedRows.forEachIndexed { rowIndex, row ->
+                        val isLastRow = rowIndex == sortedRows.lastIndex
+                        val isStreamingRow = isStreaming && isLastRow
+                        val rowBg = if (rowIndex % 2 == 1) {
+                            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.22f)
+                        } else {
+                            Color.Transparent
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .background(rowBg)
+                                .padding(vertical = 1.dp)
+                        ) {
+                            element.headers.indices.forEach { colIndex ->
+                                val cellText = row.getOrElse(colIndex) { "" }
+                                val align = element.alignments.getOrElse(colIndex) { TableAlignment.START }
+                                val isLastCell = colIndex == element.headers.lastIndex
+                                val showStreamingCursor = isStreamingRow && isLastCell
+
+                                val annotated = remember(cellText, primaryColor, secondaryColor, showStreamingCursor) {
+                                    renderInlineMarkdown(
+                                        text = cellText,
+                                        primaryColor = primaryColor,
+                                        secondaryColor = secondaryColor,
+                                        showCursor = showStreamingCursor
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .widthIn(min = 90.dp)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    contentAlignment = when (align) {
+                                        TableAlignment.CENTER -> Alignment.Center
+                                        TableAlignment.END -> Alignment.CenterEnd
+                                        TableAlignment.START -> Alignment.CenterStart
+                                    }
+                                ) {
+                                    Text(
+                                        text = annotated,
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 17.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        inlineContent = if (showStreamingCursor) {
+                                            cursorInlineContent(primaryColor, cursorHeight = 14.dp, exitAlpha = exitAlpha)
+                                        } else {
+                                            emptyMap()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (rowIndex < sortedRows.lastIndex) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f),
+                                thickness = 0.5.dp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatTableRowCount(count: Int): String {
+    val mod10 = count % 10
+    val mod100 = count % 100
+    return when {
+        mod100 in 11..14 -> "строк"
+        mod10 == 1 -> "строка"
+        mod10 in 2..4 -> "строки"
+        else -> "строк"
+    }
+}
+
+private fun compareTableCells(v1: String, v2: String): Int {
+    val (num1, str1) = parseCellSortKey(v1)
+    val (num2, str2) = parseCellSortKey(v2)
+    return when {
+        num1 != null && num2 != null -> num1.compareTo(num2)
+        num1 != null -> -1
+        num2 != null -> 1
+        else -> str1.compareTo(str2, ignoreCase = true)
+    }
+}
+
+private fun parseCellSortKey(raw: String): Pair<Double?, String> {
+    val stripped = raw.replace(Regex("""[*_`$]"""), "").trim()
+    val sizeMatch = Regex("""^([+-]?\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|КБ|МБ|ГБ|ТБ|байт)$""", RegexOption.IGNORE_CASE).find(stripped)
+    if (sizeMatch != null) {
+        val num = sizeMatch.groupValues[1].toDoubleOrNull() ?: 0.0
+        val unit = sizeMatch.groupValues[2].uppercase()
+        val multiplier = when {
+            unit.startsWith("K") || unit.startsWith("К") -> 1024.0
+            unit.startsWith("M") || unit.startsWith("М") -> 1024.0 * 1024.0
+            unit.startsWith("G") || unit.startsWith("Г") -> 1024.0 * 1024.0 * 1024.0
+            unit.startsWith("T") || unit.startsWith("Т") -> 1024.0 * 1024.0 * 1024.0 * 1024.0
+            else -> 1.0
+        }
+        return (num * multiplier) to stripped.lowercase()
+    }
+    val cleanNum = stripped.replace(Regex("""[%\$€₽,\s]"""), "").replace(',', '.')
+    val numVal = cleanNum.toDoubleOrNull()
+    if (numVal != null) {
+        return numVal to stripped.lowercase()
+    }
+    return null to stripped.lowercase()
+}
+
+private fun exportTableToCsv(headers: List<String>, rows: List<List<String>>): String {
+    fun escapeCsv(cell: String): String {
+        val clean = cell.replace(Regex("""[*_`$]"""), "").trim()
+        return if (clean.contains(",") || clean.contains("\"") || clean.contains("\n") || clean.contains(";")) {
+            "\"" + clean.replace("\"", "\"\"") + "\""
+        } else {
+            clean
+        }
+    }
+    val sb = StringBuilder()
+    if (headers.isNotEmpty()) {
+        sb.append(headers.joinToString(",") { escapeCsv(it) }).append("\n")
+    }
+    rows.forEach { row ->
+        sb.append(row.joinToString(",") { escapeCsv(it) }).append("\n")
+    }
+    return sb.toString().trimEnd()
+}
+
+private fun parseTableRow(line: String): List<String> {
+    val escaped = line.replace("""\|""", "\u0000PIPE\u0000").trim()
+    val clean = if (escaped.startsWith("|") && escaped.endsWith("|") && escaped.length >= 2) {
+        escaped.substring(1, escaped.length - 1)
+    } else {
+        escaped.removePrefix("|").removeSuffix("|")
+    }
+    return clean.split("|").map { cell ->
+        cell.replace("\u0000PIPE\u0000", "|").trim()
+    }
+}
+
+private fun parseAlignments(delimiterLine: String): List<TableAlignment> {
+    val cells = parseTableRow(delimiterLine)
+    return cells.map { cell ->
+        val trimmed = cell.trim()
+        when {
+            trimmed.startsWith(":") && trimmed.endsWith(":") -> TableAlignment.CENTER
+            trimmed.endsWith(":") -> TableAlignment.END
+            else -> TableAlignment.START
+        }
+    }
 }
 
 /**
@@ -895,7 +1255,36 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             continue
         }
 
-        // 5. Lists (Bullet Lists: * item, - item; Numbered Lists: 1. item)
+        // 5. Table (Markdown pipe table)
+        if (trimmed.contains("|") && i + 1 < lines.size) {
+            val nextTrimmed = lines[i + 1].trim()
+            val tableDelimiterRegex = Regex("""^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$""")
+            if (tableDelimiterRegex.matches(nextTrimmed)) {
+                val headers = parseTableRow(line)
+                val alignments = parseAlignments(nextTrimmed)
+                val rows = mutableListOf<List<String>>()
+                i += 2
+                while (i < lines.size) {
+                    val rowLine = lines[i]
+                    val rowTrimmed = rowLine.trim()
+                    if (rowTrimmed.isEmpty() || !rowTrimmed.contains("|") || rowTrimmed.startsWith("```")) {
+                        break
+                    }
+                    val rowCells = parseTableRow(rowLine)
+                    val paddedCells = if (rowCells.size < headers.size) {
+                        rowCells + List(headers.size - rowCells.size) { "" }
+                    } else {
+                        rowCells.take(headers.size)
+                    }
+                    rows.add(paddedCells)
+                    i++
+                }
+                elements.add(MarkdownElement.Table(headers, rows, alignments))
+                continue
+            }
+        }
+
+        // 6. Lists (Bullet Lists: * item, - item; Numbered Lists: 1. item)
         val isBullet = trimmed.startsWith("* ") || trimmed.startsWith("- ")
         val isNumbered = Regex("^([0-9]+)\\.\\s+(.*)").matches(trimmed)
         if (isBullet || isNumbered) {
@@ -978,7 +1367,7 @@ fun renderInlineMarkdown(
                 token.startsWith("`") && token.endsWith("`") && token.length >= 2 -> {
                     pushStyle(
                         SpanStyle(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = GoogleSansCode,
                             background = primaryColor.copy(alpha = 0.13f),
                             color = primaryColor,
                             fontSize = 13.sp
@@ -1000,7 +1389,7 @@ fun renderInlineMarkdown(
                     val rawFormula = token.substring(1, token.length - 1)
                     pushStyle(
                         SpanStyle(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = GoogleSansCode,
                             color = secondaryColor,
                             fontWeight = FontWeight.Medium
                         )
