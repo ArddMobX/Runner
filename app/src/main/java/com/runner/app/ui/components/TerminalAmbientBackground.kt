@@ -47,11 +47,11 @@ fun TerminalAmbientBackground(
                     glyph = glyph,
                     xNorm = rnd.nextFloat(),
                     yNorm = rnd.nextFloat(),
-                    speed = 0.00007f + rnd.nextFloat() * 0.00010f,
-                    swayFreq = 1.0f + rnd.nextFloat() * 2.0f,
-                    swayAmp = 0.015f + rnd.nextFloat() * 0.025f,
-                    sizePx = (11 + rnd.nextInt(4)) * density.density,
-                    baseAlpha = 0.035f + rnd.nextFloat() * 0.045f,
+                    speed = 0.000012f + rnd.nextFloat() * 0.000018f,
+                    swayFreq = 0.5f + rnd.nextFloat() * 0.8f,
+                    swayAmp = 0.006f + rnd.nextFloat() * 0.008f,
+                    sizePx = (11 + rnd.nextInt(3)) * density.density,
+                    baseAlpha = 0.025f + rnd.nextFloat() * 0.035f,
                     isPrimary = usePrimary,
                     phase = rnd.nextFloat() * 6.28f
                 )
@@ -81,7 +81,7 @@ fun TerminalAmbientBackground(
                         newY = 1.06f
                     }
                     p.yNorm = newY
-                    p.phase += 0.0015f * deltaMs
+                    p.phase += 0.0005f * deltaMs
                 }
                 animTick = frameTime
             }

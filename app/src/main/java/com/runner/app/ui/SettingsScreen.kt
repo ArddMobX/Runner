@@ -2,7 +2,11 @@ package com.runner.app.ui
 
 import android.Manifest
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.ClipboardManager
+import android.service.voice.VoiceInteractionService
+import com.runner.app.service.RunnerVoiceInteractionService
+import androidx.compose.runtime.DisposableEffect
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -4321,22 +4325,96 @@ private fun AccessSettings(
         }
 
         // 4. Системный цифровой ассистент Android
-        var isAssistantActive by remember { mutableStateOf(false) }
+        val checkAssistantActive = remember(context) {
+            {
+                val comp = ComponentName(context, RunnerVoiceInteractionService::class.java)
+                val isViaActive = try {
+                    VoiceInteractionService.isActiveService(context, comp)
+                } catch (_: Exception) {
+                    false
+                }
+                val isRoleHeld = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val roleManager = context.getSystemService(RoleManager::class.java)
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+                } else false
+                val currentAssistant = try {
+                    android.provider.Settings.Secure.getString(context.contentResolver, "assistant")
+                } catch (_: Exception) {
+                    null
+                }
+                isViaActive || isRoleHeld || currentAssistant?.contains(context.packageName) == true
+            }
+        }
+
+        var isAssistantActive by remember { mutableStateOf(checkAssistantActive()) }
+
+        val openSystemAssistantSettings = remember(context) {
+            {
+                val specificIntent = Intent("android.settings.VOICE_INPUT_SETTINGS").apply {
+                    component = ComponentName(
+                        "com.android.settings",
+                        "com.android.settings.Settings\$ManageAssistActivity"
+                    )
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                val targetIntent = when {
+                    specificIntent.resolveActivity(context.packageManager) != null -> specificIntent
+                    Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS).resolveActivity(context.packageManager) != null -> {
+                        Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                    }
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).resolveActivity(context.packageManager) != null -> {
+                        Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                    }
+                    else -> Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                }
+                try {
+                    Toast.makeText(context, "Выберите Runner в списке цифровых помощников", Toast.LENGTH_LONG).show()
+                    context.startActivity(targetIntent)
+                } catch (_: Exception) {
+                    try {
+                        context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        })
+                    } catch (_: Exception) {}
+                }
+            }
+        }
 
         val assistantRoleLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.StartActivityForResult()
         ) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val roleManager = context.getSystemService(RoleManager::class.java)
-                isAssistantActive = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+            val active = checkAssistantActive()
+            isAssistantActive = active
+            if (!active) {
+                // Если OEM-оболочка (Xiaomi/Vivo/OnePlus) вернула RESULT_CANCELED без открытия диалога,
+                // сразу перенаправляем в системные настройки ассистента с подсказкой
+                openSystemAssistantSettings()
+            }
+        }
+
+        val activity = context as? androidx.activity.ComponentActivity
+        DisposableEffect(activity) {
+            if (activity == null) return@DisposableEffect onDispose {}
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                    isAssistantActive = checkAssistantActive()
+                }
+            }
+            activity.lifecycle.addObserver(observer)
+            onDispose {
+                activity.lifecycle.removeObserver(observer)
             }
         }
 
         LaunchedEffect(Unit) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val roleManager = context.getSystemService(RoleManager::class.java)
-                isAssistantActive = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
-            }
+            isAssistantActive = checkAssistantActive()
         }
 
         SettingsGroup("Системный ассистент Android") {
@@ -4350,7 +4428,7 @@ private fun AccessSettings(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (isAssistantActive) "Помощник по умолчанию активен" else "Вызов ассистента жестом или кнопкой",
+                        text = if (isAssistantActive) "Runner назначен цифровым помощником" else "Вызов ассистента жестом или кнопкой",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -4358,33 +4436,64 @@ private fun AccessSettings(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Позволяет вызывать Runner долгим удержанием кнопки питания, свайпом из нижнего угла экрана или кнопкой Домой поверх любого открытого приложения.",
+                    text = if (isAssistantActive) {
+                        "Жест свайпа из угла экрана или долгое нажатие кнопки питания вызывают оверлей Runner поверх любого приложения."
+                    } else {
+                        "Позволяет вызывать Runner долгим удержанием кнопки питания, свайпом из нижнего угла экрана или кнопкой Домой поверх любого приложения."
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp
                 )
+
+                if (!isAssistantActive) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "Инструкция для назначения:",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "1. Нажмите кнопку ниже\n2. В системном списке выберите «Runner»\n3. Подтвердите выбор для доступа к экрану",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
+
                 Button(
                     onClick = {
-                        try {
+                        if (isAssistantActive) {
+                            openSystemAssistantSettings()
+                        } else {
+                            var launchedPrompt = false
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                 val roleManager = context.getSystemService(RoleManager::class.java)
                                 if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
-                                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                                    assistantRoleLauncher.launch(intent)
-                                } else {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
+                                    try {
+                                        val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                                        assistantRoleLauncher.launch(intent)
+                                        launchedPrompt = true
+                                    } catch (_: Exception) {
+                                        launchedPrompt = false
+                                    }
                                 }
-                            } else {
-                                context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
                             }
-                        } catch (_: Exception) {
-                            try {
-                                context.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
-                            } catch (_: Exception) {
-                                try {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                                } catch (_: Exception) {}
+                            if (!launchedPrompt) {
+                                openSystemAssistantSettings()
                             }
                         }
                     },
@@ -4404,10 +4513,24 @@ private fun AccessSettings(
                     )
                 ) {
                     Text(
-                        text = if (isAssistantActive) "Настройки ассистента в Android" else "Назначить помощником по умолчанию",
+                        text = if (isAssistantActive) "Настройки ассистента в системе" else "Назначить помощником по умолчанию",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Medium
                     )
+                }
+
+                if (!isAssistantActive) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    TextButton(
+                        onClick = openSystemAssistantSettings,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Открыть системный раздел «Помощник»",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.5.sp
+                        )
+                    }
                 }
             }
         }
