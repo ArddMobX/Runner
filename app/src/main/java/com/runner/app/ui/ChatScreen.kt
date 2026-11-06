@@ -730,17 +730,39 @@ private fun EmptyChatState(
         GREETING_TEMPLATES.random()
     }
 
-    val titleAlpha = remember { Animatable(0f) }
-    val titleOffsetY = remember { Animatable(12f) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var resumeTrigger by remember { mutableStateOf(0) }
+    val activity = context as? androidx.activity.ComponentActivity
+    DisposableEffect(activity) {
+        if (activity == null) return@DisposableEffect onDispose {}
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                resumeTrigger++
+            }
+        }
+        activity.lifecycle.addObserver(observer)
+        onDispose {
+            activity.lifecycle.removeObserver(observer)
+        }
+    }
 
-    LaunchedEffect(sessionId) {
+    val titleAlpha = remember { Animatable(0f) }
+    val titleOffsetY = remember { Animatable(14f) }
+    val titleScale = remember { Animatable(0.96f) }
+    val greetingAlpha = remember { Animatable(0f) }
+    val greetingOffsetY = remember { Animatable(10f) }
+
+    LaunchedEffect(sessionId, resumeTrigger) {
         titleAlpha.snapTo(0f)
-        titleOffsetY.snapTo(12f)
+        titleOffsetY.snapTo(14f)
+        titleScale.snapTo(0.96f)
+        greetingAlpha.snapTo(0f)
+        greetingOffsetY.snapTo(10f)
         launch {
             titleAlpha.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = 650,
+                    durationMillis = 550,
                     easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
                 )
             )
@@ -749,7 +771,36 @@ private fun EmptyChatState(
             titleOffsetY.animateTo(
                 targetValue = 0f,
                 animationSpec = tween(
-                    durationMillis = 750,
+                    durationMillis = 650,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                )
+            )
+        }
+        launch {
+            titleScale.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 650,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                )
+            )
+        }
+        launch {
+            kotlinx.coroutines.delay(80L)
+            greetingAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 500,
+                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                )
+            )
+        }
+        launch {
+            kotlinx.coroutines.delay(80L)
+            greetingOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 600,
                     easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
                 )
             )
@@ -818,6 +869,8 @@ private fun EmptyChatState(
                 modifier = Modifier.graphicsLayer {
                     alpha = titleAlpha.value
                     translationY = titleOffsetY.value * density
+                    scaleX = titleScale.value
+                    scaleY = titleScale.value
                 },
                 style = TextStyle(
                     brush = Brush.horizontalGradient(
@@ -831,22 +884,32 @@ private fun EmptyChatState(
                 )
             )
             Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = greeting,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.4).sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Спросите о файлах, памяти или выберите сценарий",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                textAlign = TextAlign.Center
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = greetingAlpha.value
+                        translationY = greetingOffsetY.value * density
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = greeting,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.4).sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Спросите о файлах, памяти или выберите сценарий",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         Spacer(modifier = Modifier.weight(1f))

@@ -172,9 +172,10 @@ class HapticManager(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // 3 секунды: 5 активных импульсов по 450мс с короткими паузами 80мс
                 val timings = longArrayOf(0, 450, 80, 450, 80, 450, 80, 450, 80, 450)
-                val amplitudes = intArrayOf(0, amp, 0, amp, 0, amp, 0, amp, 0, amp)
+                val effectiveAmp = if (vib.hasAmplitudeControl()) amp else VibrationEffect.DEFAULT_AMPLITUDE
+                val amplitudes = intArrayOf(0, effectiveAmp, 0, effectiveAmp, 0, effectiveAmp, 0, effectiveAmp, 0, effectiveAmp)
                 val effect = VibrationEffect.createWaveform(timings, amplitudes, -1)
-                performVibration(effect, isNotification = true)
+                performVibration(effect, isNotification = false)
             } else {
                 @Suppress("DEPRECATION")
                 vib.vibrate(3000L)
