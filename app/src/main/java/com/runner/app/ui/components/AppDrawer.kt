@@ -66,6 +66,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import com.runner.app.data.db.SessionEntity
+import com.runner.app.ui.theme.GoogleSansCode
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import java.time.Instant
@@ -550,7 +551,7 @@ private fun SessionRow(
                         text = cleanModel,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.outline,
                         fontSize = 10.5.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = GoogleSansCode,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -572,7 +573,7 @@ private fun SessionRow(
                 text = timeLabel,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
                 fontSize = 10.5.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = GoogleSansCode,
                 maxLines = 1
             )
 

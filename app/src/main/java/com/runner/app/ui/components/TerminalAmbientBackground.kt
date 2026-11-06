@@ -88,10 +88,16 @@ fun TerminalAmbientBackground(
         }
     }
 
-    val paint = remember {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val paint = remember(context) {
+        val tf = try {
+            androidx.core.content.res.ResourcesCompat.getFont(context, com.runner.app.R.font.google_sans_code_regular)
+        } catch (_: Exception) {
+            Typeface.MONOSPACE
+        }
         Paint().apply {
             isAntiAlias = true
-            typeface = Typeface.MONOSPACE
+            typeface = tf ?: Typeface.MONOSPACE
         }
     }
 

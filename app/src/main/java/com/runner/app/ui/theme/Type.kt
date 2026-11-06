@@ -8,11 +8,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.runner.app.R
 
+/**
+ * Основное семейство Google Sans с полной поддержкой кириллицы (U+0400-045F) и латиницы.
+ */
 val GoogleSans = FontFamily(
     Font(R.font.google_sans_regular, FontWeight.Normal),
     Font(R.font.google_sans_medium, FontWeight.Medium),
-    Font(R.font.google_sans_bold, FontWeight.Bold),
-    Font(R.font.google_sans_bold, FontWeight.SemiBold)
+    Font(R.font.google_sans_bold, FontWeight.SemiBold),
+    Font(R.font.google_sans_bold, FontWeight.Bold)
+)
+
+/**
+ * Вариативное начертание Google Sans Flex для основного текста, цифр и латиницы.
+ * Обеспечивает аккуратный облегчённый вес (~350) в Normal и плотный в Medium/Bold.
+ */
+val GoogleSansFlex = FontFamily(
+    Font(R.font.google_sans_flex_regular, FontWeight.Normal),
+    Font(R.font.google_sans_flex_medium, FontWeight.Medium),
+    Font(R.font.google_sans_bold, FontWeight.SemiBold),
+    Font(R.font.google_sans_bold, FontWeight.Bold)
+)
+
+/**
+ * Моноширинное семейство Google Sans Code для блоков кода, терминала и технических меток.
+ * Охватывает диапазон весов от 300 до 800.
+ */
+val GoogleSansCode = FontFamily(
+    Font(R.font.google_sans_code_regular, FontWeight.Light),
+    Font(R.font.google_sans_code_regular, FontWeight.Normal),
+    Font(R.font.google_sans_code_medium, FontWeight.Medium),
+    Font(R.font.google_sans_code_bold, FontWeight.SemiBold),
+    Font(R.font.google_sans_code_bold, FontWeight.Bold)
 )
 
 val Typography = Typography(
@@ -60,43 +86,43 @@ val Typography = Typography(
     ),
     titleMedium = TextStyle(
         fontFamily = GoogleSans,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp
     ),
     titleSmall = TextStyle(
         fontFamily = GoogleSans,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansFlex,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         lineHeight = 22.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansFlex,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
     bodySmall = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansFlex,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp
     ),
     labelLarge = TextStyle(
         fontFamily = GoogleSans,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
     labelMedium = TextStyle(
         fontFamily = GoogleSans,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,
         lineHeight = 16.sp
     ),
