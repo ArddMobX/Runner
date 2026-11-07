@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -306,7 +307,10 @@ fun openAppSettings(context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
-    } catch (_: Exception) {}
+    } catch (e: Exception) {
+        // Кнопка «открыть настройки» ничего не делает — это стоит видеть в логе.
+        Log.w("RunnerSettings", "не удалось открыть системные настройки", e)
+    }
 }
 
 /**

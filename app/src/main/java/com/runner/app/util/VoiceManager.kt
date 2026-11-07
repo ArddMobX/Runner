@@ -13,6 +13,7 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -222,9 +223,15 @@ class VoiceManager(private val context: Context) {
                     if (locResult == TextToSpeech.LANG_MISSING_DATA || locResult == TextToSpeech.LANG_NOT_SUPPORTED) {
                         engine.language = Locale.US
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    // Настройки голоса не применились: озвучка будет звучать
+                    // не так, как выбрал пользователь, и это стоит видеть в логе.
+                    Log.w(TAG, "не удалось применить параметры TTS", e)
+                }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "движок TTS не принял параметры", e)
+        }
     }
 
     private fun isGoogleTtsInstalled(): Boolean {
@@ -471,6 +478,9 @@ class VoiceManager(private val context: Context) {
 
     companion object {
         const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
+
+        /** Метка для logcat: без неё молчаливые отказы движка не найти. */
+        const val TAG = "RunnerVoice"
 
         /**
          * Очищает текст от Markdown-разметки, блоков кода и LaTeX формул,

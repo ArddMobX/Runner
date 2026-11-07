@@ -79,12 +79,16 @@ class RunnerAccessibilityService : AccessibilityService() {
         val pkg = root.packageName?.toString().orEmpty()
         lastExtractedPackage = pkg
 
-        // Проверка черного списка безопасности
-        if (isSensitivePackage(pkg)) {
+        // Проверка черного списка безопасности. Смотрим ВСЕ окна, а не только
+        // активное: банк может быть открыт вторым окном в split-screen, а сверху
+        // висеть браузер — и тогда проверка одного активного окна пропускала
+        // управление банковским приложением.
+        val sensitivePackage = sensitiveWindowPackage()
+        if (sensitivePackage != null) {
             root.recycle()
             return ScreenInspectionResult.SecurityBlocked(
-                "Блокировка безопасности: обнаружено чувствительное приложение ($pkg). " +
-                        "В целях защиты данных Live-режим остановлен."
+                "Блокировка безопасности: обнаружено чувствительное приложение " +
+                        "($sensitivePackage). В целях защиты данных Live-режим остановлен."
             )
         }
 
@@ -236,10 +240,54 @@ class RunnerAccessibilityService : AccessibilityService() {
         return false
     }
 
+    /**
+     * Пакет любого видимого окна, который считается чувствительным, либо null.
+     *
+     * Дешёвая проверка: читаем только имя пакета корня окна, без обхода дерева
+     * (обход всех окон на каждом `ui_inspect` был бы слишком дорогим).
+     */
+    private fun sensitiveWindowPackage(): String? {
+        val windowList = try {
+            windows
+        } catch (e: Exception) {
+            null
+        } ?: return null
+
+        for (window in windowList) {
+            val windowRoot = try {
+                window.root
+            } catch (e: Exception) {
+                null
+            } ?: continue
+            try {
+                val name = windowRoot.packageName?.toString().orEmpty()
+                if (isSensitivePackage(name)) return name
+            } finally {
+                windowRoot.recycle()
+            }
+        }
+        return null
+    }
+
+    /**
+     * Пакет относится к чувствительному приложению?
+     *
+     * Сверяем по сегментам имени пакета: `ru.vtb24.mobilebanking` состоит из
+     * сегментов `ru`, `vtb24`, `mobilebanking`, и запись `vtb` должна совпасть
+     * с `vtb24`, но не с `com.example.vtbx.photo`. Раньше сравнение было
+     * подстрокой по всему имени: «vtb» находилось в любом пакете, где эти три
+     * буквы стоят рядом, а «sberbank» — в имени чужой игры.
+     *
+     * Совпадение по префиксу сегмента оставляет ложные срабатывания (пакет
+     * `vtbx` заблокируется), но это безопасное направление: лишний отказ
+     * лучше, чем управление банковским приложением.
+     */
     private fun isSensitivePackage(packageName: String): Boolean {
         if (packageName.isBlank()) return false
-        val lower = packageName.lowercase()
-        return SENSITIVE_PACKAGES.any { lower.contains(it) }
+        val segments = packageName.lowercase().split('.')
+        return SENSITIVE_PACKAGES.any { entry ->
+            segments.any { segment -> segment == entry || segment.startsWith(entry) }
+        }
     }
 
     /**
@@ -494,6 +542,13 @@ class RunnerAccessibilityService : AccessibilityService() {
             }
         }
 
+        /**
+         * Банки, госуслуги и хранилища паролей, которыми агент управлять не должен.
+         *
+         * Список — эвристика, а не гарантия: полноту даёт только белый список
+         * приложений. Сверяется по сегментам имени пакета (см.
+         * [isSensitivePackage]) и по ВСЕМ окнам (см. [sensitiveWindowPackage]).
+         */
         private val SENSITIVE_PACKAGES = setOf(
             "sberbank",
             "tinkoff",

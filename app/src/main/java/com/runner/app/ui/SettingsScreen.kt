@@ -8,6 +8,7 @@ import android.service.voice.VoiceInteractionService
 import com.runner.app.service.RunnerVoiceInteractionService
 import androidx.compose.runtime.DisposableEffect
 import android.content.Context
+import android.util.Log
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -118,6 +119,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -128,6 +131,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -3837,6 +3841,45 @@ private fun WorkingDirField(
     }
 }
 
+/** Доступы, без которых Live-режим не работает. */
+private data class LiveAccess(
+    val accessibility: Boolean,
+    val overlay: Boolean
+)
+
+private fun readLiveAccess(context: Context): LiveAccess = LiveAccess(
+    accessibility = RunnerAccessibilityService.isEnabled(context),
+    overlay = android.provider.Settings.canDrawOverlays(context)
+)
+
+/**
+ * Статус доступов Live-режима, который пересчитывается при возврате из
+ * системных настроек.
+ *
+ * Раньше здесь стоял `remember(context) { ... }`: значение считалось один раз
+ * и не обновлялось. Пользователь включал спецвозможности, возвращался в
+ * приложение — и видел «служба отключена» до перезапуска экрана, хотя всё уже
+ * работало. `LivePermissionSheet` при этом вёл себя правильно (следил за
+ * жизненным циклом), то есть два места говорили разное об одном и том же.
+ */
+@Composable
+private fun rememberLiveAccess(): LiveAccess {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var access by remember { mutableStateOf(readLiveAccess(context)) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                access = readLiveAccess(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return access
+}
+
 private fun uriToStoragePath(uri: Uri): String? {
     return try {
         val treeDocId = DocumentsContract.getTreeDocumentId(uri)
@@ -4350,7 +4393,9 @@ private fun AccessSettings(
 
         var isAssistantActive by remember { mutableStateOf(checkAssistantActive()) }
 
-        val openSystemAssistantSettings = remember(context) {
+        // Явный тип нужен, потому что catch-ветка возвращает Int (Log.w),
+        // а лямбда используется как () -> Unit.
+        val openSystemAssistantSettings: () -> Unit = remember(context) {
             {
                 val specificIntent = Intent("android.settings.VOICE_INPUT_SETTINGS").apply {
                     component = ComponentName(
@@ -4379,12 +4424,14 @@ private fun AccessSettings(
                 try {
                     Toast.makeText(context, "Выберите Runner в списке цифровых помощников", Toast.LENGTH_LONG).show()
                     context.startActivity(targetIntent)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
                     try {
                         context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         })
-                    } catch (_: Exception) {}
+                    } catch (e2: Exception) {
+                        Log.w("RunnerSettings", "не удалось открыть выбор приложения-помощника", e2)
+                    }
                 }
             }
         }
@@ -4540,7 +4587,9 @@ private fun AccessSettings(
                 // 5. Live-режим: Автопилот по экрану
         SettingsGroup("Live-режим (Автопилот по экрану)") {
             Column(modifier = Modifier.padding(14.dp)) {
-                val hasAccessibility = remember(context) { RunnerAccessibilityService.isEnabled(context) }
+                val liveAccess = rememberLiveAccess()
+                val hasAccessibility = liveAccess.accessibility
+                val hasOverlay = liveAccess.overlay
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
@@ -4566,7 +4615,6 @@ private fun AccessSettings(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                val hasOverlay = remember(context) { android.provider.Settings.canDrawOverlays(context) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
@@ -4597,11 +4645,15 @@ private fun AccessSettings(
                             if (!hasAccessibility) {
                                 try {
                                     context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    Log.w("RunnerSettings", "не удалось открыть настройки спецвозможностей", e)
+                                }
                             } else if (!hasOverlay) {
                                 try {
                                     context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    Log.w("RunnerSettings", "не удалось открыть настройки наложения окон", e)
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),

@@ -52,12 +52,15 @@ object LiveAgentManager {
      */
     private var sessionStopHandler: (() -> Unit)? = null
 
-    fun start(context: Context, totalSteps: Int = 5, onStop: (() -> Unit)? = null) {
+    fun start(context: Context, totalSteps: Int = 0, onStop: (() -> Unit)? = null) {
         sessionStopHandler = onStop
         _stateFlow.value = State(
             isExecuting = true,
             stepDescription = "Подготовка к выполнению...",
             stepIndex = 1,
+            // 0 — «сколько всего, неизвестно». Раньше здесь стояло 5, и оверлей
+            // уверенно показывал «Шаг 3 из 5» для задачи из двух шагов или из
+            // двадцати. Врать в индикаторе прогресса хуже, чем не показывать его.
             totalSteps = totalSteps
         )
         LiveFloatingOverlay.show(context)

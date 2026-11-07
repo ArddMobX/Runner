@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -24,6 +25,8 @@ import android.view.animation.DecelerateInterpolator
  * Окно полностью прозрачно для тачей (FLAG_NOT_TOUCHABLE).
  */
 object TouchVisualizerOverlay {
+
+    private const val TAG = "RunnerTouchVisual"
 
     private var windowManager: WindowManager? = null
     private var visualizerView: VisualizerView? = null
@@ -60,7 +63,10 @@ object TouchVisualizerOverlay {
 
             try {
                 wm.addView(view, layoutParams)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // Визуализация тачей — украшение, но её отсутствие не должно
+                // быть загадкой при разборе «агент тапает вслепую».
+                Log.w(TAG, "не удалось показать слой визуализации", e)
                 visualizerView = null
             }
         }

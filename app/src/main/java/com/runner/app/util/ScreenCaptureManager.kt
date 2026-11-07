@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.WindowManager
 import com.runner.app.service.ScreenCaptureService
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -25,6 +26,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 object ScreenCaptureManager {
+
+    private const val TAG = "RunnerScreenCapture"
 
     /** Сколько всего ждём кадр, прежде чем сдаться и вернуть null. */
     private const val CAPTURE_TIMEOUT_MS = 3_000L
@@ -145,6 +148,7 @@ object ScreenCaptureManager {
 
                             finish(uri)
                         } catch (e: Exception) {
+                            Log.w(TAG, "кадр не удалось разобрать", e)
                             finish(null)
                         } finally {
                             image?.close()
@@ -165,6 +169,10 @@ object ScreenCaptureManager {
                     // Страховка на случай, если кадр так и не придёт.
                     mainHandler.postDelayed({ finish(null) }, CAPTURE_TIMEOUT_MS)
                 } catch (e: Exception) {
+                    // Проекция не создалась (на Android 14+ это бывает, если
+                    // foreground-служба ещё не поднялась): без лога причина
+                    // выглядит как «скриншот просто не работает».
+                    Log.w(TAG, "не удалось создать проекцию экрана", e)
                     finish(null)
                 }
             }

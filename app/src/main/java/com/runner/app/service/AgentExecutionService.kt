@@ -12,6 +12,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.runner.app.MainActivity
 import com.runner.app.R
@@ -26,6 +27,14 @@ class AgentExecutionService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var currentStatusText: String = "Выполняется..."
+
+    private val renewHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val renewRunnable = object : Runnable {
+        override fun run() {
+            acquireLocks()
+            renewHandler.postDelayed(this, LOCK_RENEW_INTERVAL_MS)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,6 +81,8 @@ class AgentExecutionService : Service() {
                     currentStatusText = status
                 }
                 acquireLocks()
+                // Продление на случай задачи длиннее таймаута блокировки.
+                scheduleLockRenewal()
                 val notification = createNotification(currentStatusText)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -87,6 +98,7 @@ class AgentExecutionService : Service() {
             else -> {
                 if (wakeLock == null) {
                     acquireLocks()
+                    scheduleLockRenewal()
                     val notification = createNotification(currentStatusText)
                     startForeground(NOTIFICATION_ID, notification)
                 }
@@ -104,11 +116,17 @@ class AgentExecutionService : Service() {
                     "Runner:AgentExecutionWakeLock"
                 )?.apply {
                     setReferenceCounted(false)
-                    // Максимальное время удержания — 15 минут в целях безопасности
-                    acquire(15 * 60 * 1000L)
                 }
             }
-        } catch (_: Exception) {}
+            // Продлеваем, а не берём один раз на 15 минут: задача может идти
+            // дольше, и раньше блокировка тихо отпускалась посреди работы —
+            // телефон засыпал и сеть рвалась ровно у длинной задачи. Срок
+            // остаётся коротким намеренно: если процесс убьют, блокировка
+            // не переживёт его надолго.
+            wakeLock?.acquire(LOCK_TIMEOUT_MS)
+        } catch (e: Exception) {
+            Log.w(TAG, "wake-lock не взят", e)
+        }
 
         try {
             if (wifiLock == null) {
@@ -126,10 +144,29 @@ class AgentExecutionService : Service() {
                     )
                 }?.apply {
                     setReferenceCounted(false)
-                    acquire()
                 }
             }
-        } catch (_: Exception) {}
+            if (wifiLock?.isHeld != true) {
+                wifiLock?.acquire()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "wifi-lock не взят", e)
+        }
+    }
+
+    /**
+     * Держит блокировки, пока идёт задача.
+     *
+     * Wake-lock выдаётся с таймаутом, поэтому его надо продлевать: без этого
+     * длинная задача оставалась без защиты от сна через [LOCK_TIMEOUT_MS].
+     */
+    private fun scheduleLockRenewal() {
+        renewHandler.removeCallbacks(renewRunnable)
+        renewHandler.postDelayed(renewRunnable, LOCK_RENEW_INTERVAL_MS)
+    }
+
+    private fun cancelLockRenewal() {
+        renewHandler.removeCallbacks(renewRunnable)
     }
 
     private fun releaseLocks() {
@@ -137,18 +174,23 @@ class AgentExecutionService : Service() {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // Уборка: если система уже сняла блокировку, отпускать нечего.
+        }
         wakeLock = null
 
         try {
             if (wifiLock?.isHeld == true) {
                 wifiLock?.release()
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            // Уборка.
+        }
         wifiLock = null
     }
 
     private fun stopForegroundAndSelf() {
+        cancelLockRenewal()
         releaseLocks()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -160,6 +202,7 @@ class AgentExecutionService : Service() {
     }
 
     override fun onDestroy() {
+        cancelLockRenewal()
         releaseLocks()
         super.onDestroy()
     }
@@ -220,6 +263,18 @@ class AgentExecutionService : Service() {
         const val CHANNEL_ID = "runner_execution_channel"
         const val NOTIFICATION_ID = 2001
 
+        /**
+         * Срок одной блокировки и шаг её продления.
+         *
+         * Срок короткий намеренно: если процесс убьют, блокировка не будет
+         * держать телефон часами. Продление идёт чаще срока, чтобы между
+         * двумя acquire не было окна, в котором блокировки нет.
+         */
+        private const val LOCK_TIMEOUT_MS = 10 * 60 * 1000L
+        private const val LOCK_RENEW_INTERVAL_MS = 8 * 60 * 1000L
+
+        private const val TAG = "RunnerExecService"
+
         const val ACTION_START = "com.runner.app.action.START_EXECUTION"
         const val ACTION_STOP = "com.runner.app.action.STOP_EXECUTION"
         const val ACTION_RELEASE = "com.runner.app.action.RELEASE_EXECUTION"
@@ -261,7 +316,9 @@ class AgentExecutionService : Service() {
             stopHandlers.values.toList().forEach { handler ->
                 try {
                     handler()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "обработчик «Стоп» упал", e)
+                }
             }
         }
 
@@ -277,8 +334,11 @@ class AgentExecutionService : Service() {
                 } else {
                     context.startService(intent)
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 activeTasks.decrementAndGet()
+                // Молчать нельзя: без foreground-службы задача останется без
+                // wake-lock, и это выглядит как «телефон сам уснул».
+                Log.w(TAG, "не удалось запустить службу выполнения задач", e)
             }
         }
 
@@ -292,7 +352,11 @@ class AgentExecutionService : Service() {
                     putExtra(EXTRA_STATUS, status)
                 }
                 context.startService(intent)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                // Здесь отказ ожидаем и безобиден: статус обновляется часто,
+                // а служба может быть уже остановлена. Логировать каждый шаг
+                // значило бы утопить logcat в шуме.
+            }
         }
 
         /**
@@ -310,7 +374,9 @@ class AgentExecutionService : Service() {
                     action = ACTION_RELEASE
                 }
                 context.startService(intent)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "не удалось погасить службу после завершения задачи", e)
+            }
         }
 
         /** Принудительная остановка: все задачи считаются прерванными. */
@@ -321,7 +387,9 @@ class AgentExecutionService : Service() {
                     action = ACTION_STOP
                 }
                 context.startService(intent)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "не удалось остановить службу выполнения задач", e)
+            }
         }
     }
 }

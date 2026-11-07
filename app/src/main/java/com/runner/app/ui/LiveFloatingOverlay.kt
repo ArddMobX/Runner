@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
@@ -76,6 +77,8 @@ import com.runner.app.ui.theme.RunnerTheme
  * в карточку статуса с кнопкой аварийной остановки "Стоп" и подтверждением рискованных шагов.
  */
 object LiveFloatingOverlay {
+
+    private const val TAG = "RunnerLiveOverlay"
 
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
@@ -153,7 +156,10 @@ object LiveFloatingOverlay {
 
             try {
                 wm.addView(view, params)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // Наложение запретили или окно уже существует. Молчаливое
+                // «кружка нет» выглядит как поломка Live-режима.
+                Log.w(TAG, "не удалось показать плавающий оверлей", e)
                 composeView = null
                 lifecycleOwner?.destroy()
                 lifecycleOwner = null
@@ -343,7 +349,14 @@ object LiveFloatingOverlay {
                         if (state.stepIndex > 0) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Шаг ${state.stepIndex} из ${state.totalSteps.coerceAtLeast(state.stepIndex)}",
+                                // «из N» показываем только когда N действительно
+                                // известно: иначе индикатор врал (было «из 5»
+                                // при любом числе шагов).
+                                text = if (state.totalSteps > 0) {
+                                    "Шаг ${state.stepIndex} из ${state.totalSteps}"
+                                } else {
+                                    "Шаг ${state.stepIndex}"
+                                },
                                 fontFamily = GoogleSans,
                                 fontSize = 11.sp,
                                 color = Color.White.copy(alpha = 0.5f)
