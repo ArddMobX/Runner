@@ -48,12 +48,14 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -70,7 +72,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.runner.app.MainActivity
+import com.runner.app.data.DevStatus
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.AgentStatusIndicator
@@ -80,6 +84,10 @@ import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.ScreenCaptureManager
 import kotlinx.coroutines.launch
+
+/** Настройки показа окна «ассистент в разработке»: файл и ключ согласия. */
+private const val BETA_PREFS = "runner_assistant_beta"
+private const val KEY_BETA_ACCEPTED = "beta_accepted"
 
 /**
  * Плавающее окно-ассистент поверх всех приложений (Quick Assist Overlay).
@@ -175,6 +183,40 @@ private fun OverlayScreen(
 
     var isCapturingScreen by remember { mutableStateOf(false) }
     var capturedScreenshotUri by remember { mutableStateOf<Uri?>(initialScreenshotUri) }
+
+    // Ассистент помечен бетой: при первом открытии объясняем, что возможны
+    // сбои. Согласие запоминаем, чтобы окно не мешало каждый раз.
+    val betaPrefs = remember { context.getSharedPreferences(BETA_PREFS, Context.MODE_PRIVATE) }
+    var showBetaNotice by remember {
+        mutableStateOf(DevStatus.ASSISTANT_BETA && !betaPrefs.getBoolean(KEY_BETA_ACCEPTED, false))
+    }
+
+    if (showBetaNotice) {
+        AlertDialog(
+            onDismissRequest = {
+                betaPrefs.edit().putBoolean(KEY_BETA_ACCEPTED, true).apply()
+                showBetaNotice = false
+            },
+            title = { Text("Ассистент в разработке (бета)", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Плавающий ассистент пока нестабилен: может потерять контекст, " +
+                        "не открыть нужный экран или закрыться сам. Остальное приложение " +
+                        "работает как обычно.",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    betaPrefs.edit().putBoolean(KEY_BETA_ACCEPTED, true).apply()
+                    showBetaNotice = false
+                }) {
+                    Text("Понятно")
+                }
+            }
+        )
+    }
 
     LaunchedEffect(initialScreenshotUri) {
         if (initialScreenshotUri != null) {

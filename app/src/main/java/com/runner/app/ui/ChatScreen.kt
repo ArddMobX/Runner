@@ -137,6 +137,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
+import com.runner.app.data.DevStatus
 import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
@@ -221,6 +222,7 @@ fun ChatScreen(
     // Живое превью HTML/SVG: источник появляется из ответа модели или из write_file
     var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
     var showLivePermissionSheet by remember { mutableStateOf(false) }
+    var showLiveLockDialog by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
 
@@ -252,6 +254,27 @@ fun ChatScreen(
         } else {
             lastStreamingScrollPos = 0
         }
+    }
+
+    if (showLiveLockDialog) {
+        AlertDialog(
+            onDismissRequest = { showLiveLockDialog = false },
+            title = { Text("Live-режим в разработке", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Управление чужим экраном пока не готово: режим может нажимать " +
+                        "не туда и вести себя непредсказуемо. Поэтому включить его нельзя. " +
+                        "Работает все остальное: файлы, поиск, аналитика, буфер обмена, звонки.",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showLiveLockDialog = false }) {
+                    Text("Понятно")
+                }
+            }
+        )
     }
 
     if (showLivePermissionSheet) {
@@ -412,20 +435,25 @@ fun ChatScreen(
                 actions = {
                     // Индикатор режима: без него отклонённые операции выглядят
                     // как поломка агента, а не как включённая пользователем защита.
-                    // Кнопка переключения Live-режима (автопилот по экрану)
+                    // Live-режим в разработке: кнопка остаётся на месте, чтобы
+                    // функция не исчезала молча, но включает только объяснение.
                     LiveModeTopButton(
-                        isActive = appSettings.liveModeEnabled,
+                        isActive = false,
                         onClick = {
-                            if (appSettings.liveModeEnabled) {
-                                viewModel.updateAppSettings { copy(liveModeEnabled = false) }
-                            } else {
-                                val hasAccessibility = RunnerAccessibilityService.isEnabled(context)
-                                val hasOverlay = android.provider.Settings.canDrawOverlays(context)
-                                if (hasAccessibility && hasOverlay) {
-                                    viewModel.updateAppSettings { copy(liveModeEnabled = true) }
+                            if (DevStatus.LIVE_MODE_AVAILABLE) {
+                                if (appSettings.liveModeEnabled) {
+                                    viewModel.updateAppSettings { copy(liveModeEnabled = false) }
                                 } else {
-                                    showLivePermissionSheet = true
+                                    val hasAccessibility = RunnerAccessibilityService.isEnabled(context)
+                                    val hasOverlay = android.provider.Settings.canDrawOverlays(context)
+                                    if (hasAccessibility && hasOverlay) {
+                                        viewModel.updateAppSettings { copy(liveModeEnabled = true) }
+                                    } else {
+                                        showLivePermissionSheet = true
+                                    }
                                 }
+                            } else {
+                                showLiveLockDialog = true
                             }
                         }
                     )

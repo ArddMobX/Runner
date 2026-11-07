@@ -525,8 +525,10 @@ class SettingsStore(context: Context) {
             terminalAmbientEnabled = prefs.getBoolean(KEY_TERMINAL_AMBIENT, true),
             showPromptSuggestions = prefs.getBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, true),
             customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null)),
-            liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false),
-            liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false)
+            // Live-режим в разработке: сохранённое значение от прежней версии
+            // не должно включать его в обход интерфейса.
+            liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false) && DevStatus.LIVE_MODE_AVAILABLE,
+            liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false) && DevStatus.LIVE_MODE_AVAILABLE
         )
     }
 

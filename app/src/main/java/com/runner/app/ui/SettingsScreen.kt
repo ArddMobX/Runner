@@ -149,6 +149,7 @@ import com.runner.app.data.ColorSource
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.data.ConnectionTestResult
+import com.runner.app.data.DevStatus
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
@@ -4466,7 +4467,7 @@ private fun AccessSettings(
             isAssistantActive = checkAssistantActive()
         }
 
-        SettingsGroup("Системный ассистент Android") {
+        SettingsGroup("Системный ассистент Android (бета, в разработке)") {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -4585,8 +4586,16 @@ private fun AccessSettings(
         }
 
                 // 5. Live-режим: Автопилот по экрану
-        SettingsGroup("Live-режим (Автопилот по экрану)") {
+        SettingsGroup("Live-режим (в разработке)") {
             Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Режим закрыт до готовности: управление чужим экраном пока " +
+                        "нажимает не туда. Включить его нельзя, остальные инструменты работают.",
+                    color = StatusWarning,
+                    fontSize = 12.5.sp,
+                    lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
                 val liveAccess = rememberLiveAccess()
                 val hasAccessibility = liveAccess.accessibility
                 val hasOverlay = liveAccess.overlay
@@ -4695,6 +4704,9 @@ private fun AccessSettings(
                     Spacer(modifier = Modifier.width(12.dp))
                     Switch(
                         checked = appSettings.liveFullAccess,
+                        // Live-режим в разработке, значит и «полный доступ»
+                        // включать нечего: диалог обещал бы то, что не работает.
+                        enabled = DevStatus.LIVE_MODE_AVAILABLE,
                         onCheckedChange = { checked ->
                             if (checked) {
                                 showFullAccessWarning = true

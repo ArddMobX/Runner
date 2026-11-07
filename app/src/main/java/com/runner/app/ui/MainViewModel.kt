@@ -21,6 +21,7 @@ import com.runner.app.data.InstructionProfile
 import com.runner.app.data.ChatRepository
 import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
+import com.runner.app.data.DevStatus
 import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
@@ -1329,10 +1330,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(newSettings: AppSettings) {
-        _settings.value = newSettings
-        settingsStore.save(newSettings)
-        ToolDispatcher.defaultWorkingDir = newSettings.defaultWorkingDir
-        voiceManager.setTtsParameters(newSettings.ttsSpeed, newSettings.ttsPitch, newSettings.ttsVoiceName)
+        // Live-режим в разработке: даже если настройка пришла из UI или из
+        // сохранённого состояния, включить его нельзя.
+        val sanitized = if (DevStatus.LIVE_MODE_AVAILABLE) {
+            newSettings
+        } else {
+            newSettings.copy(liveModeEnabled = false, liveFullAccess = false)
+        }
+        _settings.value = sanitized
+        settingsStore.save(sanitized)
+        ToolDispatcher.defaultWorkingDir = sanitized.defaultWorkingDir
+        voiceManager.setTtsParameters(sanitized.ttsSpeed, sanitized.ttsPitch, sanitized.ttsVoiceName)
     }
 
     /** Выбрать активный профиль инструкций */
