@@ -98,6 +98,7 @@ class OverlayActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        viewModel.startAssistantSession()
         extractScreenshotUri(intent)
         val isAssist = intent?.action == Intent.ACTION_ASSIST
         val autoScreenshot = isAssist || (intent?.getBooleanExtra(EXTRA_AUTO_SCREENSHOT, false) ?: false)
@@ -129,6 +130,14 @@ class OverlayActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         extractScreenshotUri(intent)
+        if (intent.action == Intent.ACTION_ASSIST) {
+            viewModel.startAssistantSession()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        com.runner.app.service.RunnerVoiceInteractionSession.activeSession?.finish()
     }
 
     private fun extractScreenshotUri(intent: Intent?) {

@@ -37,7 +37,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -919,129 +918,180 @@ private fun TableElement(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
 
-            // Scrollable table area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                Column {
-                    // Header Row
-                    Row(
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f))
-                            .padding(vertical = 2.dp)
-                    ) {
-                        element.headers.forEachIndexed { colIndex, header ->
-                            val isSorted = sortColumnIndex == colIndex
-                            val align = element.alignments.getOrElse(colIndex) { TableAlignment.START }
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val availableWidth = maxWidth
+                val colCount = element.headers.size
 
-                            Box(
-                                modifier = Modifier
-                                    .widthIn(min = 90.dp)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        if (sortColumnIndex != colIndex) {
-                                            sortColumnIndex = colIndex
-                                            sortAscending = true
-                                        } else if (sortAscending) {
-                                            sortAscending = false
-                                        } else {
-                                            sortColumnIndex = null
-                                        }
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                                contentAlignment = when (align) {
-                                    TableAlignment.CENTER -> Alignment.Center
-                                    TableAlignment.END -> Alignment.CenterEnd
-                                    TableAlignment.START -> Alignment.CenterStart
-                                }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = header,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isSorted) primaryColor else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (isSorted) {
-                                        Icon(
-                                            imageVector = if (sortAscending) RunnerIcons.ArrowUp else RunnerIcons.ArrowDown,
-                                            contentDescription = if (sortAscending) "По возрастанию" else "По убыванию",
-                                            tint = primaryColor,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-                            }
+                val colWidths = remember(element.headers, sortedRows, availableWidth) {
+                    if (colCount == 0) emptyList()
+                    else {
+                        val estimated = element.headers.indices.map { col ->
+                            val headerChars = element.headers[col].length
+                            val maxRowChars = sortedRows.maxOfOrNull { it.getOrElse(col) { "" }.length } ?: 0
+                            val maxChars = maxOf(headerChars, maxRowChars)
+                            (maxChars * 8.5f + 36f).dp.coerceIn(90.dp, 260.dp)
+                        }
+                        val totalEstimated = estimated.fold(0.dp) { acc, w -> acc + w }
+                        if (totalEstimated < availableWidth && totalEstimated > 0.dp) {
+                            val ratio = availableWidth.value / totalEstimated.value
+                            estimated.map { (it.value * ratio).dp }
+                        } else {
+                            estimated
                         }
                     }
+                }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+                val totalContentWidth = remember(colWidths) {
+                    colWidths.fold(0.dp) { acc, w -> acc + w }
+                }
+                val tableWidth = if (totalContentWidth > availableWidth) totalContentWidth else availableWidth
 
-                    // Data Rows
-                    sortedRows.forEachIndexed { rowIndex, row ->
-                        val isLastRow = rowIndex == sortedRows.lastIndex
-                        val isStreamingRow = isStreaming && isLastRow
-                        val rowBg = if (rowIndex % 2 == 1) {
-                            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.22f)
-                        } else {
-                            Color.Transparent
-                        }
-
+                // Scrollable table area
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    Column(modifier = Modifier.width(tableWidth)) {
+                        // Header Row
                         Row(
                             modifier = Modifier
-                                .background(rowBg)
-                                .padding(vertical = 1.dp)
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f)),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            element.headers.indices.forEach { colIndex ->
-                                val cellText = row.getOrElse(colIndex) { "" }
+                            element.headers.forEachIndexed { colIndex, header ->
+                                val width = colWidths.getOrElse(colIndex) { 90.dp }
+                                val isSorted = sortColumnIndex == colIndex
                                 val align = element.alignments.getOrElse(colIndex) { TableAlignment.START }
-                                val isLastCell = colIndex == element.headers.lastIndex
-                                val showStreamingCursor = isStreamingRow && isLastCell
-
-                                val annotated = remember(cellText, primaryColor, secondaryColor, showStreamingCursor) {
-                                    renderInlineMarkdown(
-                                        text = cellText,
-                                        primaryColor = primaryColor,
-                                        secondaryColor = secondaryColor,
-                                        showCursor = showStreamingCursor
-                                    )
-                                }
 
                                 Box(
                                     modifier = Modifier
-                                        .widthIn(min = 90.dp)
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        .width(width)
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            if (sortColumnIndex != colIndex) {
+                                                sortColumnIndex = colIndex
+                                                sortAscending = true
+                                            } else if (sortAscending) {
+                                                sortAscending = false
+                                            } else {
+                                                sortColumnIndex = null
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 9.dp),
                                     contentAlignment = when (align) {
                                         TableAlignment.CENTER -> Alignment.Center
                                         TableAlignment.END -> Alignment.CenterEnd
                                         TableAlignment.START -> Alignment.CenterStart
                                     }
                                 ) {
-                                    Text(
-                                        text = annotated,
-                                        fontSize = 12.5.sp,
-                                        lineHeight = 17.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        inlineContent = if (showStreamingCursor) {
-                                            cursorInlineContent(primaryColor, cursorHeight = 14.dp, exitAlpha = exitAlpha)
-                                        } else {
-                                            emptyMap()
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = header,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (isSorted) primaryColor else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (isSorted) {
+                                            Icon(
+                                                imageVector = if (sortAscending) RunnerIcons.ArrowUp else RunnerIcons.ArrowDown,
+                                                contentDescription = if (sortAscending) "По возрастанию" else "По убыванию",
+                                                tint = primaryColor,
+                                                modifier = Modifier.size(12.dp)
+                                            )
                                         }
+                                    }
+                                }
+
+                                if (colIndex < element.headers.lastIndex) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(0.5.dp)
+                                            .height(20.dp)
+                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                                     )
                                 }
                             }
                         }
 
-                        if (rowIndex < sortedRows.lastIndex) {
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f),
-                                thickness = 0.5.dp
-                            )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+
+                        // Data Rows
+                        sortedRows.forEachIndexed { rowIndex, row ->
+                            val isLastRow = rowIndex == sortedRows.lastIndex
+                            val isStreamingRow = isStreaming && isLastRow
+                            val rowBg = if (rowIndex % 2 == 1) {
+                                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.22f)
+                            } else {
+                                Color.Transparent
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(rowBg),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                element.headers.indices.forEach { colIndex ->
+                                    val width = colWidths.getOrElse(colIndex) { 90.dp }
+                                    val cellText = row.getOrElse(colIndex) { "" }
+                                    val align = element.alignments.getOrElse(colIndex) { TableAlignment.START }
+                                    val isLastCell = colIndex == element.headers.lastIndex
+                                    val showStreamingCursor = isStreamingRow && isLastCell
+
+                                    val annotated = remember(cellText, primaryColor, secondaryColor, showStreamingCursor) {
+                                        renderInlineMarkdown(
+                                            text = cellText,
+                                            primaryColor = primaryColor,
+                                            secondaryColor = secondaryColor,
+                                            showCursor = showStreamingCursor
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .width(width)
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        contentAlignment = when (align) {
+                                            TableAlignment.CENTER -> Alignment.Center
+                                            TableAlignment.END -> Alignment.CenterEnd
+                                            TableAlignment.START -> Alignment.CenterStart
+                                        }
+                                    ) {
+                                        Text(
+                                            text = annotated,
+                                            fontSize = 12.5.sp,
+                                            lineHeight = 17.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            inlineContent = if (showStreamingCursor) {
+                                                cursorInlineContent(primaryColor, cursorHeight = 14.dp, exitAlpha = exitAlpha)
+                                            } else {
+                                                emptyMap()
+                                            }
+                                        )
+                                    }
+
+                                    if (colIndex < element.headers.lastIndex) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(0.5.dp)
+                                                .height(20.dp)
+                                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f))
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (rowIndex < sortedRows.lastIndex) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f),
+                                    thickness = 0.5.dp
+                                )
+                            }
                         }
                     }
                 }
