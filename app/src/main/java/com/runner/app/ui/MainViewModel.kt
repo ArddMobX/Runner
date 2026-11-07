@@ -1123,6 +1123,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Запускает изолированную сессию для плавающего ассистента OverlayActivity.
+     * Не трогает и не загрязняет текущий диалог пользователя в основном окне.
+     */
+    fun startAssistantSession() {
+        if (_isRunning.value) return
+        viewModelScope.launch {
+            val emptySession = repository.getRecentEmptySession()
+            val session = emptySession ?: repository.createSession("Быстрый ассистент")
+            loadSession(session.id)
+        }
+    }
+
     fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             repository.deleteSession(sessionId)

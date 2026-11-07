@@ -16,6 +16,39 @@ import com.runner.app.util.ScreenCaptureManager
  */
 class RunnerVoiceInteractionSession(context: Context) : VoiceInteractionSession(context) {
 
+    companion object {
+        @Volatile
+        var activeSession: RunnerVoiceInteractionSession? = null
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        activeSession = this
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (activeSession == this) {
+            activeSession = null
+        }
+    }
+
+    override fun onPrepareShow(args: Bundle?, showFlags: Int) {
+        super.onPrepareShow(args, showFlags)
+        // Отключаем встроенное окно VoiceInteractionSession: весь UI делегирован в OverlayActivity.
+        // Без этого система показывает невидимое окно с TOUCHABLE_INSETS_FRAME на весь экран,
+        // которое перехватывает все клики и делает панель неинтерактивной картинкой.
+        setUiEnabled(false)
+    }
+
+    override fun onComputeInsets(outInsets: Insets) {
+        super.onComputeInsets(outInsets)
+        // Защита: гарантируем, что пустое окно сессии не перехватывает тачи
+        outInsets.contentInsets.setEmpty()
+        outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_CONTENT
+        outInsets.touchableRegion.setEmpty()
+    }
+
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
         // Сразу открываем оверлей для мгновенного отклика на жест пользователя
