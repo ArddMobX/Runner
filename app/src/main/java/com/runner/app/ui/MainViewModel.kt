@@ -1030,6 +1030,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // иначе оставался бы только обещанием в интерфейсе.
         purgeTrashOnStart()
         AgentExecutionService.onStopRequested = { stopGeneration() }
+        LiveAgentManager.onStopRequested = { stopGeneration() }
         viewModelScope.launch {
             _currentStatus.collect { status ->
                 if (_isRunning.value && !status.isNullOrBlank()) {
@@ -1288,6 +1289,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Настройки ---
 
+    fun updateAppSettings(transform: AppSettings.() -> AppSettings) {
+        updateSettings(_settings.value.transform())
+    }
+
     fun updateSettings(newSettings: AppSettings) {
         _settings.value = newSettings
         settingsStore.save(newSettings)
@@ -1458,6 +1463,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopGeneration() {
         stopRequested = true
         voiceManager.stopSpeaking()
+        LiveAgentManager.stop("Остановлено пользователем")
         // Обрыв текущего HTTP-запроса.
         apiClient.cancelActive()
         // Корутину хода намеренно НЕ отменяем. Отмена может прервать запись
@@ -1541,6 +1547,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _isRunning.value = true
         AgentExecutionService.start(getApplication(), "Runner выполняет задачу...")
+        if (_settings.value.liveModeEnabled) {
+            LiveAgentManager.start(getApplication())
+        }
         _streamingText.value = ""
 
         viewModelScope.launch {
@@ -1639,6 +1648,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _streamingText.value = ""
                 apiClient.cancelActive()
                 AgentExecutionService.stop(getApplication())
+                LiveAgentManager.finish("Завершено")
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
                 }
@@ -1714,6 +1724,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _streamingText.value = ""
                 apiClient.cancelActive()
                 AgentExecutionService.stop(getApplication())
+                LiveAgentManager.finish("Завершено")
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
                 }
@@ -2220,7 +2231,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             call.arguments,
             getApplication(),
             _settings.value.shellOutsideStorage,
-            _settings.value.allowRootShell
+            _settings.value.allowRootShell,
+            _settings.value.liveFullAccess
         )
     }
 
@@ -2592,7 +2604,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             readOnly = _settings.value.readOnlyMode,
             dryRun = dryRunActive,
             workingDir = _settings.value.defaultWorkingDir,
-            autoApproveInWorkingDir = _settings.value.autoApproveInWorkingDir
+            autoApproveInWorkingDir = _settings.value.autoApproveInWorkingDir,
+            liveMode = _settings.value.liveModeEnabled
         )
         // Пояснение к урезанному набору. Без него модель просто не знает, что
         // инструмент существует, и отвечает «не могу» вместо подключения.
@@ -2613,6 +2626,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * что нужного инструмента нет.
      */
     private fun updateToolScope() {
+        if (_settings.value.liveModeEnabled) {
+            val scope = mutableSetOf<String>()
+            scope.addAll(ToolDispatcher.LIVE_TOOL_NAMES)
+            scope.addAll(ToolDispatcher.CORE_TOOL_NAMES)
+            activeToolScope = scope
+            return
+        }
         val planTools = approvedPlanSteps?.map { it.tool }.orEmpty().toSet()
         if (!_settings.value.pruneTools || planTools.isEmpty()) {
             activeToolScope = null

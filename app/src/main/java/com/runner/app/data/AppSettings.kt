@@ -162,7 +162,11 @@ data class AppSettings(
     /** Отображать плавающие подсказки-сценарии над строкой ввода. */
     val showPromptSuggestions: Boolean = true,
     /** Пользовательские подсказки-сценарии. */
-    val customPromptSuggestions: List<String> = emptyList()
+    val customPromptSuggestions: List<String> = emptyList(),
+    /** Live-режим: выполнение действий через специальные возможности на экране. */
+    val liveModeEnabled: Boolean = false,
+    /** Полный доступ в Live-режиме: выполнять действия без подтверждения на карточке. */
+    val liveFullAccess: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -268,6 +272,16 @@ data class AppSettings(
          * Базовый промпт агента: инструменты, пути Android, логика Runner.
          * Зашит в код, в UI не редактируется — иначе легко сломать логику тулов.
          */
+        /** Дописывается в промпт, когда активен Live-режим (автопилот). */
+        const val LIVE_MODE_NOTE =
+            "LIVE-РЕЖИМ (АВТОПИЛОТ ПО ЭКРАНУ): Приложение свернуто, перед тобой экран Android. " +
+                    "Используй инструменты UI: ui_inspect (всегда вызывай первым, чтобы увидеть кнопки и поля на экране с их #ID), " +
+                    "ui_click (нажатие по element_id или координатам x, y), ui_type (ввод текста в поле), " +
+                    "ui_scroll (прокрутка вверх 'up' или вниз 'down'), ui_global_action ('back', 'home', 'recents'), " +
+                    "open_app (открытие приложения по имени), ui_wait (ожидание обновления экрана), " +
+                    "ui_finish (завершение задачи). Действуй строго по шагам: inspect -> действие -> inspect. " +
+                    "При обнаружении банковских приложений или паролей немедленно остановись."
+
         val CORE_SYSTEM_PROMPT = """
             Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам:
             1. Аналитика: get_storage_summary, find_largest_files, find_junk_files, search_files.
@@ -340,7 +354,8 @@ data class AppSettings(
             readOnly: Boolean = false,
             dryRun: Boolean = false,
             workingDir: String = "",
-            autoApproveInWorkingDir: Boolean = false
+            autoApproveInWorkingDir: Boolean = false,
+            liveMode: Boolean = false
         ): String {
             val user = userInstructions.trim()
             var base = if (user.isBlank()) {
@@ -358,6 +373,9 @@ data class AppSettings(
             // правила про недоверенный текст и лимиты вывода действуют и здесь.
             if (readOnly && !base.contains(READ_ONLY_NOTE)) {
                 base = base.trimEnd() + "\n- " + READ_ONLY_NOTE
+            }
+            if (liveMode && !base.contains(LIVE_MODE_NOTE)) {
+                base = base.trimEnd() + "\n- " + LIVE_MODE_NOTE
             }
             if (dryRun && !base.contains(DRY_RUN_NOTE)) {
                 base = base.trimEnd() + "\n- " + DRY_RUN_NOTE
@@ -506,7 +524,9 @@ class SettingsStore(context: Context) {
             hapticOnError = prefs.getBoolean(KEY_HAPTIC_ON_ERROR, true),
             terminalAmbientEnabled = prefs.getBoolean(KEY_TERMINAL_AMBIENT, true),
             showPromptSuggestions = prefs.getBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, true),
-            customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null))
+            customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null)),
+            liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false),
+            liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false)
         )
     }
 
@@ -570,6 +590,8 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_TERMINAL_AMBIENT, settings.terminalAmbientEnabled)
             .putBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, settings.showPromptSuggestions)
             .putString(KEY_CUSTOM_SUGGESTIONS, JSONArray(settings.customPromptSuggestions).toString())
+            .putBoolean(KEY_LIVE_MODE_ENABLED, settings.liveModeEnabled)
+            .putBoolean(KEY_LIVE_FULL_ACCESS, settings.liveFullAccess)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -631,6 +653,8 @@ class SettingsStore(context: Context) {
         const val KEY_TERMINAL_AMBIENT = "terminal_ambient_enabled"
         const val KEY_SHOW_PROMPT_SUGGESTIONS = "show_prompt_suggestions"
         const val KEY_CUSTOM_SUGGESTIONS = "custom_prompt_suggestions_json"
+        const val KEY_LIVE_MODE_ENABLED = "live_mode_enabled"
+        const val KEY_LIVE_FULL_ACCESS = "live_full_access"
 
         private fun parseCustomSuggestions(json: String?): List<String> {
             if (json.isNullOrBlank()) return emptyList()

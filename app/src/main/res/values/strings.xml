@@ -4,4 +4,6 @@
     <string name="tile_name">Спросить Runner</string>
     <string name="tile_subtitle">Ассистент</string>
     <string name="assistant_service_name">Ассистент Runner</string>
+    <string name="accessibility_service_name">Runner Live: Автопилот</string>
+    <string name="accessibility_service_description">Позволяет агенту Runner анализировать интерфейс и выполнять действия на экране по вашей команде.</string>
 </resources>

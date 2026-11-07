@@ -142,6 +142,9 @@ import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
+import com.runner.app.service.RunnerAccessibilityService
+import com.runner.app.ui.components.LiveModeTopButton
+import com.runner.app.ui.components.LivePermissionSheet
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
@@ -217,6 +220,7 @@ fun ChatScreen(
 
     // Живое превью HTML/SVG: источник появляется из ответа модели или из write_file
     var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
+    var showLivePermissionSheet by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
 
@@ -248,6 +252,15 @@ fun ChatScreen(
         } else {
             lastStreamingScrollPos = 0
         }
+    }
+
+    if (showLivePermissionSheet) {
+        LivePermissionSheet(
+            onDismiss = { showLivePermissionSheet = false },
+            onAllGranted = {
+                viewModel.updateAppSettings { copy(liveModeEnabled = true) }
+            }
+        )
     }
 
     if (showModelPicker && pendingConfirmation == null) {
@@ -399,6 +412,24 @@ fun ChatScreen(
                 actions = {
                     // Индикатор режима: без него отклонённые операции выглядят
                     // как поломка агента, а не как включённая пользователем защита.
+                    // Кнопка переключения Live-режима (автопилот по экрану)
+                    LiveModeTopButton(
+                        isActive = appSettings.liveModeEnabled,
+                        onClick = {
+                            if (appSettings.liveModeEnabled) {
+                                viewModel.updateAppSettings { copy(liveModeEnabled = false) }
+                            } else {
+                                val hasAccessibility = RunnerAccessibilityService.isEnabled(context)
+                                val hasOverlay = android.provider.Settings.canDrawOverlays(context)
+                                if (hasAccessibility && hasOverlay) {
+                                    viewModel.updateAppSettings { copy(liveModeEnabled = true) }
+                                } else {
+                                    showLivePermissionSheet = true
+                                }
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     if (appSettings.readOnlyMode) {
                         ReadOnlyBadge()
                     }
@@ -564,7 +595,12 @@ fun ChatScreen(
                 isListening = isListening,
                 rmsLevel = rmsLevel,
                 sendOnEnter = appSettings.sendOnEnter,
-                onSend = { text, images -> viewModel.sendMessage(text, images) },
+                onSend = { text, images ->
+                    if (appSettings.liveModeEnabled) {
+                        (context as? android.app.Activity)?.moveTaskToBack(true)
+                    }
+                    viewModel.sendMessage(text, images)
+                },
                 onStop = { viewModel.stopGeneration() },
                 onStartListening = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
