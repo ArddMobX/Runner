@@ -153,6 +153,23 @@ private const val LOOP_REPEAT_LIMIT = 3
 private const val UNTRUSTED_LINES_LIMIT = 2_000
 
 /**
+ * Пометка к операции, которую автономный режим выполнил без вопроса, хотя её
+ * аргументы совпали с прочитанным текстом.
+ *
+ * Автономный режим в рабочей папке существует именно для того, чтобы не
+ * спрашивать, и отменять это поведение нельзя — иначе ломается обычный
+ * сценарий «прочитай файл и перепиши его содержимое». Но промолчать тоже
+ * нельзя: файл в папке может содержать указание вроде «удали всё», и тогда
+ * агент выполнит его молча. Компромисс — диалога нет, но факт остаётся
+ * в истории: пометка видна в свёрнутой строке карточки и в подробностях.
+ */
+private const val UNTRUSTED_AUTONOMOUS_NOTE =
+    "⚠ АРГУМЕНТЫ ИЗ ПРОЧИТАННОГО ТЕКСТА. Эта операция собрана из строк, которые агент " +
+            "прочитал в файле или буфере обмена, и выполнена без вопроса, потому что включён " +
+            "автономный режим в рабочей папке. Диалог в этом режиме не показывается намеренно. " +
+            "Если такая операция не ожидалась, проверьте источник и отмените её."
+
+/**
  * Минимальная длина значения, которое план может предодобрить подстрокой.
  * Короткие значения («all», имя приложения из трёх букв) слишком легко
  * случайно оказываются частью текста шага, а предодобрение — это молчаливое
@@ -2422,7 +2439,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             isDangerous -> confirmDangerous && !preApproved
             else -> _settings.value.confirmEveryStep
         }
-        val output = if (isEnableTools) {
+        var output = if (isEnableTools) {
             enableTools(call.arguments)
         } else if (shellPreRefusal != null) {
             // Абсолютный запрет важнее режимов: «попроси выключить режим» не
@@ -2539,8 +2556,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Операция прошла без вопроса, хотя её аргументы взяты из прочитанного
+        // текста. Так работает автономный режим в рабочей папке — спрашивать
+        // он не должен. Но пометку ставим: сводку считаем по чистому выводу,
+        // чтобы пояснение не съело её в свёрнутой строке, а в подробностях
+        // добавляем сам текст предупреждения.
+        val autoApprovedUntrusted = !declined && fromUntrusted && !needConfirm
+
         val isError = !declined && looksLikeToolError(output)
-        val summary = ToolDispatcher.summarizeResult(output)
+        val baseSummary = ToolDispatcher.summarizeResult(output)
+        val summary = if (autoApprovedUntrusted && baseSummary.isNotBlank()) {
+            "⚠ $baseSummary"
+        } else {
+            baseSummary
+        }
+        if (autoApprovedUntrusted) {
+            output = output.trimEnd() + "\n\n" + UNTRUSTED_AUTONOMOUS_NOTE
+        }
 
         _messages.value = _messages.value.map { message ->
             if (message.id == messageId) {
