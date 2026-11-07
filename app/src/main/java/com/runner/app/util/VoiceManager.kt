@@ -172,6 +172,23 @@ class VoiceManager(private val context: Context) {
 
     private var onSpeechDoneCallback: (() -> Unit)? = null
 
+    /**
+     * Фраза, которую попросили произнести до готовности движка.
+     *
+     * Раньше `speak()` в этом состоянии вызывал `initTts()` и выходил, а текст
+     * выбрасывался: первый ответ после запуска приложения молча не озвучивался.
+     * Инициализация TTS асинхронная и занимает секунды, так что это не редкий
+     * случай, а обычный первый запуск.
+     */
+    private class PendingSpeech(
+        val text: String,
+        val utteranceId: String,
+        val onDone: () -> Unit
+    )
+
+    private var pendingSpeech: PendingSpeech? = null
+    private var isTtsInitializing = false
+
     init {
         mainHandler.post {
             initTts()
@@ -310,7 +327,21 @@ class VoiceManager(private val context: Context) {
     }
 
     private fun initTts() {
+        // Повторный вход запрещён: инициализация асинхронная, а каждый новый
+        // TextToSpeech — это ещё одна привязка к службе синтеза.
+        if (isTtsInitializing) return
+        isTtsInitializing = true
+
+        // Старый движок гасим обязательно. Без shutdown объекты копились при
+        // каждом повторе инициализации и держали службу синтеза живой.
+        try {
+            tts?.shutdown()
+        } catch (_: Exception) {}
+        tts = null
+        isTtsReady = false
+
         val onInit = TextToSpeech.OnInitListener { status ->
+            isTtsInitializing = false
             if (status == TextToSpeech.SUCCESS) {
                 isTtsReady = true
                 val result = tts?.setLanguage(Locale.getDefault())
@@ -320,8 +351,14 @@ class VoiceManager(private val context: Context) {
                 applyTtsParameters()
                 setupUtteranceListener()
                 loadAvailableVoices()
+                // Текст, который просили озвучить до готовности движка,
+                // произносим сейчас — с уже применёнными скоростью и голосом.
+                flushPendingSpeech()
             } else {
                 isTtsReady = false
+                // Движка нет: держать текст незачем, иначе он всплывёт
+                // неожиданно позже, поверх другого ответа.
+                pendingSpeech = null
             }
         }
 
@@ -364,21 +401,36 @@ class VoiceManager(private val context: Context) {
     fun speak(text: String, utteranceId: String, onDone: () -> Unit = {}) {
         mainHandler.post {
             if (!isTtsReady || tts == null) {
+                // Движок ещё поднимается: запоминаем фразу и произнесём её
+                // сразу после OnInit. Выбрасывать нельзя — это первый ответ.
+                pendingSpeech = PendingSpeech(text, utteranceId, onDone)
                 initTts()
                 return@post
             }
-
-            stopSpeakingInternal()
-
-            val clean = cleanTextForSpeech(text)
-            if (clean.isBlank()) return@post
-
-            onSpeechDoneCallback = onDone
-            _activeUtteranceId.value = utteranceId
-            _isSpeaking.value = true
-
-            tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            speakInternal(text, utteranceId, onDone)
         }
+    }
+
+    private fun speakInternal(text: String, utteranceId: String, onDone: () -> Unit) {
+        // stopSpeakingInternal сбрасывает onSpeechDoneCallback, поэтому порядок
+        // важен: сначала останавливаем прошлую фразу, потом ставим новый колбэк.
+        stopSpeakingInternal()
+
+        val clean = cleanTextForSpeech(text)
+        if (clean.isBlank()) return
+
+        onSpeechDoneCallback = onDone
+        _activeUtteranceId.value = utteranceId
+        _isSpeaking.value = true
+
+        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+    }
+
+    /** Произносит фразу, отложенную до готовности движка. */
+    private fun flushPendingSpeech() {
+        val pending = pendingSpeech ?: return
+        pendingSpeech = null
+        speakInternal(pending.text, pending.utteranceId, pending.onDone)
     }
 
     /**
@@ -407,11 +459,13 @@ class VoiceManager(private val context: Context) {
         mainHandler.post {
             stopListeningInternal()
             stopSpeakingInternal()
+            pendingSpeech = null
             try {
                 tts?.shutdown()
             } catch (_: Exception) {}
             tts = null
             isTtsReady = false
+            isTtsInitializing = false
         }
     }
 

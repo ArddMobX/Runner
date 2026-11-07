@@ -609,6 +609,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val voiceManager = VoiceManager(application)
     val hapticManager = HapticManager(application)
 
+    /** Идентификатор владельца задач: у чата и у плавающего ассистента он свой. */
+    private val taskOwnerId = UUID.randomUUID().toString()
+
     // --- Провайдеры ---
 
     private val _providers = MutableStateFlow(providerStore.loadProviders())
@@ -1042,8 +1045,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Уборка корзины при запуске: срок хранения, выставленный в настройках,
         // иначе оставался бы только обещанием в интерфейсе.
         purgeTrashOnStart()
-        AgentExecutionService.onStopRequested = { stopGeneration() }
-        LiveAgentManager.onStopRequested = { stopGeneration() }
+        // Кнопка «Стоп» в уведомлении должна останавливать ЖИВУЮ ViewModel.
+        // Обработчик регистрируется под своим идентификатором: у плавающего
+        // ассистента своя ViewModel, и общая переменная перезаписывалась ею.
+        AgentExecutionService.registerStopHandler(taskOwnerId) { stopGeneration() }
         viewModelScope.launch {
             _currentStatus.collect { status ->
                 if (_isRunning.value && !status.isNullOrBlank()) {
@@ -1561,7 +1566,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isRunning.value = true
         AgentExecutionService.start(getApplication(), "Runner выполняет задачу...")
         if (_settings.value.liveModeEnabled) {
-            LiveAgentManager.start(getApplication())
+            // Обработчик «Стоп» привязан к этой сессии Live-режима, а не
+            // к глобальной переменной: иначе его перезапишет ViewModel
+            // плавающего ассистента, и кнопка остановит не ту задачу.
+            LiveAgentManager.start(getApplication(), onStop = { stopGeneration() })
         }
         _streamingText.value = ""
 
@@ -1660,7 +1668,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
-                AgentExecutionService.stop(getApplication())
+                // Задача завершилась: служба гасится только если других задач
+                // не осталось (в оверлее ассистента может идти своя).
+                AgentExecutionService.release(getApplication())
                 LiveAgentManager.finish("Завершено")
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
@@ -1736,7 +1746,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentStatus.value = null
                 _streamingText.value = ""
                 apiClient.cancelActive()
-                AgentExecutionService.stop(getApplication())
+                // Задача завершилась: служба гасится только если других задач
+                // не осталось (в оверлее ассистента может идти своя).
+                AgentExecutionService.release(getApplication())
                 LiveAgentManager.finish("Завершено")
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
@@ -2814,6 +2826,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        // Снимаем обработчик «Стоп»: статическая карта не должна держать
+        // уничтоженную ViewModel, иначе кнопка в уведомлении будет бить в неё.
+        AgentExecutionService.unregisterStopHandler(taskOwnerId)
         voiceManager.destroy()
         apiClient.cancelActive()
     }

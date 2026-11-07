@@ -8,13 +8,13 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,7 +69,6 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.runner.app.service.TouchVisualizerOverlay
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.RunnerTheme
-import kotlin.math.abs
 
 /**
  * Плавающий оверлей для управления Live-режимом (автопилотом) агента:
@@ -84,12 +84,6 @@ object LiveFloatingOverlay {
 
     private val isExpandedState = mutableStateOf(false)
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    private var initialX = 0
-    private var initialY = 0
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-    private var isDragging = false
 
     fun show(context: Context) {
         mainHandler.post {
@@ -139,6 +133,8 @@ object LiveFloatingOverlay {
                             onToggleExpand = {
                                 isExpandedState.value = !isExpandedState.value
                             },
+                            onDragBy = { dx, dy -> moveBy(dx, dy) },
+                            onDragEnd = { snapToEdge() },
                             onStop = {
                                 LiveAgentManager.stop("Остановлено пользователем")
                             },
@@ -153,57 +149,50 @@ object LiveFloatingOverlay {
                 }
             }
 
-            view.setOnTouchListener { _, event ->
-                val p = layoutParams ?: return@setOnTouchListener false
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = p.x
-                        initialY = p.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        isDragging = false
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = event.rawX - initialTouchX
-                        val dy = event.rawY - initialTouchY
-                        if (abs(dx) > 10 || abs(dy) > 10) {
-                            isDragging = true
-                            p.x = (initialX + dx).toInt()
-                            p.y = (initialY + dy).toInt()
-                            try {
-                                wm.updateViewLayout(view, p)
-                            } catch (_: Exception) {}
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isDragging) {
-                            // Тап без перемещения: переключаем свернуто/развернуто
-                            isExpandedState.value = !isExpandedState.value
-                        } else {
-                            // Доводчик (прилипание) к левому или правому краю экрана
-                            snapToEdge(view, p, screenWidth)
-                        }
-                        true
-                    }
-                    else -> false
-                }
-            }
-
             composeView = view
 
             try {
                 wm.addView(view, params)
             } catch (_: Exception) {
                 composeView = null
+                lifecycleOwner?.destroy()
                 lifecycleOwner = null
+                windowManager = null
             }
         }
     }
 
-    private fun snapToEdge(view: ComposeView, params: WindowManager.LayoutParams, screenWidth: Int) {
+    /**
+     * Сдвигает окно оверлея на дельту жеста.
+     *
+     * Перетаскивание живёт в Compose (`detectDragGestures`), а не в
+     * `setOnTouchListener` на ComposeView: слушатель родителя не получает
+     * события, которые уже съел дочерний узел, поэтому кружок «не тащился».
+     * Заодно исчез двойной тоггл — раньше тап обрабатывали оба обработчика.
+     */
+    private fun moveBy(dx: Float, dy: Float) {
+        val params = layoutParams ?: return
+        val view = composeView ?: return
         val wm = windowManager ?: return
+
+        val metrics = view.context.resources.displayMetrics
+        val maxX = (metrics.widthPixels - view.width).coerceAtLeast(0)
+        val maxY = (metrics.heightPixels - view.height).coerceAtLeast(0)
+
+        params.x = (params.x + dx.toInt()).coerceIn(0, maxX)
+        params.y = (params.y + dy.toInt()).coerceIn(0, maxY)
+        try {
+            wm.updateViewLayout(view, params)
+        } catch (_: Exception) {}
+    }
+
+    /** Доводит окно к ближайшему краю экрана после перетаскивания. */
+    private fun snapToEdge() {
+        val view = composeView ?: return
+        val params = layoutParams ?: return
+        val wm = windowManager ?: return
+
+        val screenWidth = view.context.resources.displayMetrics.widthPixels
         val currentX = params.x
         val midX = screenWidth / 2
         val targetX = if (currentX + 30 < midX) 20 else (screenWidth - view.width - 20).coerceAtLeast(0)
@@ -240,6 +229,8 @@ object LiveFloatingOverlay {
     @Composable
     private fun FloatingOverlayContent(
         onToggleExpand: () -> Unit,
+        onDragBy: (Float, Float) -> Unit,
+        onDragEnd: () -> Unit,
         onStop: () -> Unit,
         onConfirmAction: () -> Unit,
         onCancelAction: () -> Unit
@@ -251,6 +242,18 @@ object LiveFloatingOverlay {
             modifier = Modifier
                 .padding(8.dp)
                 .animateContentSize()
+                .pointerInput(Unit) {
+                    // Порог срабатывания берёт на себя detectDragGestures:
+                    // обычный тап по кнопкам до перетаскивания не доходит.
+                    detectDragGestures(
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            onDragBy(dragAmount.x, dragAmount.y)
+                        },
+                        onDragEnd = { onDragEnd() },
+                        onDragCancel = { onDragEnd() }
+                    )
+                }
         ) {
             if (!isExpanded) {
                 // Компактный плавающий кружок

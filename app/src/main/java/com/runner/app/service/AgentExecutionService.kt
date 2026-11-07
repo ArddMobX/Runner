@@ -38,7 +38,23 @@ class AgentExecutionService : Service() {
         val action = intent?.action
         when (action) {
             ACTION_STOP -> {
-                onStopRequested?.invoke()
+                // «Стоп» из уведомления останавливает ВСЕ задачи: у чата и у
+                // плавающего ассистента свои ViewModel, и раньше здесь лежал
+                // один колбэк, который перезаписывался при открытии оверлея —
+                // кнопка попадала в уже уничтоженную ViewModel и не делала
+                // ничего, а настоящая задача продолжала жечь лимит.
+                fireStopHandlers()
+                activeTasks.set(0)
+                stopForegroundAndSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_RELEASE -> {
+                // Задача завершилась сама. Гасим службу, но НЕ трогаем
+                // обработчики «Стоп»: это обычное завершение, а не остановка
+                // пользователем. Раньше здесь вызывался тот же колбэк, что и
+                // у кнопки, и завершение задачи обрывало озвучку ответа,
+                // которую только что запустил авто-speak.
+                activeTasks.set(0)
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
@@ -206,13 +222,51 @@ class AgentExecutionService : Service() {
 
         const val ACTION_START = "com.runner.app.action.START_EXECUTION"
         const val ACTION_STOP = "com.runner.app.action.STOP_EXECUTION"
+        const val ACTION_RELEASE = "com.runner.app.action.RELEASE_EXECUTION"
         const val ACTION_UPDATE_STATUS = "com.runner.app.action.UPDATE_STATUS"
         const val EXTRA_STATUS = "extra_status"
 
-        @Volatile
-        var onStopRequested: (() -> Unit)? = null
+        /**
+         * Сколько задач сейчас выполняется.
+         *
+         * Служба одна на приложение, а задач может быть две: обычный чат и
+         * плавающий ассистент (OverlayActivity со своей ViewModel). Раньше
+         * каждый, кто заканчивал первым, гасил службу целиком — вторая задача
+         * оставалась без foreground-режима и без wake-lock.
+         */
+        private val activeTasks = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /**
+         * Обработчики «Стоп» по владельцу.
+         *
+         * Ключ — идентификатор ViewModel, а не одна переменная: у чата и
+         * оверлея свои экземпляры, и общий колбэк перезаписывался тем, кто
+         * создан позже. Владелец обязан снимать обработчик в onCleared,
+         * иначе статическая карта держала бы уничтоженную ViewModel.
+         */
+        private val stopHandlers =
+            java.util.concurrent.ConcurrentHashMap<String, () -> Unit>()
+
+        fun registerStopHandler(ownerId: String, handler: () -> Unit) {
+            stopHandlers[ownerId] = handler
+        }
+
+        fun unregisterStopHandler(ownerId: String) {
+            stopHandlers.remove(ownerId)
+        }
+
+        /** Вызывается в службе на ACTION_STOP: останавливаем всех. */
+        private fun fireStopHandlers() {
+            // Копия: обработчик может снять себя прямо во время вызова.
+            stopHandlers.values.toList().forEach { handler ->
+                try {
+                    handler()
+                } catch (_: Exception) {}
+            }
+        }
 
         fun start(context: Context, status: String = "Выполняется...") {
+            activeTasks.incrementAndGet()
             try {
                 val intent = Intent(context, AgentExecutionService::class.java).apply {
                     action = ACTION_START
@@ -223,10 +277,15 @@ class AgentExecutionService : Service() {
                 } else {
                     context.startService(intent)
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                activeTasks.decrementAndGet()
+            }
         }
 
         fun updateStatus(context: Context, status: String) {
+            // Нечего показывать, если задач нет: иначе после завершения
+            // последней в уведомлении остаётся чужой статус.
+            if (activeTasks.get() <= 0) return
             try {
                 val intent = Intent(context, AgentExecutionService::class.java).apply {
                     action = ACTION_UPDATE_STATUS
@@ -236,7 +295,27 @@ class AgentExecutionService : Service() {
             } catch (_: Exception) {}
         }
 
+        /**
+         * Одна задача завершилась. Служба гасится только когда не осталось
+         * ни одной — иначе завершение задачи в оверлее обрывало бы основную.
+         */
+        fun release(context: Context) {
+            val previous = activeTasks.getAndUpdate { current -> if (current > 0) current - 1 else 0 }
+            // Только последняя задача гасит службу. Если задач не осталось
+            // (принудительная остановка уже была) — новый интент не нужен:
+            // служба создалась бы ради немедленной остановки.
+            if (previous != 1) return
+            try {
+                val intent = Intent(context, AgentExecutionService::class.java).apply {
+                    action = ACTION_RELEASE
+                }
+                context.startService(intent)
+            } catch (_: Exception) {}
+        }
+
+        /** Принудительная остановка: все задачи считаются прерванными. */
         fun stop(context: Context) {
+            activeTasks.set(0)
             try {
                 val intent = Intent(context, AgentExecutionService::class.java).apply {
                     action = ACTION_STOP

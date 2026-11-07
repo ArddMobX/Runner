@@ -15,6 +15,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.runner.app.ui.LiveAgentManager
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -417,23 +418,7 @@ class RunnerAccessibilityService : AccessibilityService() {
             moveTo(x, y)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, 60)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-
-        return suspendCancellableCoroutine { continuation ->
-            val callback = object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    if (continuation.isActive) continuation.resume(true)
-                }
-
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    if (continuation.isActive) continuation.resume(false)
-                }
-            }
-            val dispatched = dispatchGesture(gesture, callback, null)
-            if (!dispatched && continuation.isActive) {
-                continuation.resume(false)
-            }
-        }
+        return dispatchGestureSafely(GestureDescription.Builder().addStroke(stroke).build())
     }
 
     private suspend fun dispatchSwipeGesture(
@@ -449,28 +434,50 @@ class RunnerAccessibilityService : AccessibilityService() {
             lineTo(endX, endY)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return dispatchGestureSafely(GestureDescription.Builder().addStroke(stroke).build())
+    }
 
-        return suspendCancellableCoroutine { continuation ->
-            val callback = object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    if (continuation.isActive) continuation.resume(true)
-                }
+    /**
+     * Отправляет жест и ждёт результата ограниченное время.
+     *
+     * Колбэк может не прийти вовсе: службу отключили между проверкой `instance`
+     * и вызовом, жест вытеснил другой жест, система не отдала событие. Без
+     * предела корутина шага ждала бы вечно, а вместе с ней и вся задача —
+     * именно так Live-режим и зависал. По таймауту считаем, что жест не удался.
+     */
+    private suspend fun dispatchGestureSafely(gesture: GestureDescription): Boolean {
+        val delivered = withTimeoutOrNull(GESTURE_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation ->
+                val callback = object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (continuation.isActive) continuation.resume(true)
+                    }
 
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    if (continuation.isActive) continuation.resume(false)
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        if (continuation.isActive) continuation.resume(false)
+                    }
                 }
-            }
-            val dispatched = dispatchGesture(gesture, callback, null)
-            if (!dispatched && continuation.isActive) {
-                continuation.resume(false)
+                val dispatched = dispatchGesture(gesture, callback, null)
+                if (!dispatched && continuation.isActive) {
+                    continuation.resume(false)
+                }
             }
         }
+        return delivered ?: false
     }
 
     companion object {
         @Volatile
         var instance: RunnerAccessibilityService? = null
+
+        /**
+         * Предел ожидания результата жеста.
+         *
+         * Сам жест длится не больше 300 мс, поэтому три секунды — заведомо
+         * щедрый запас. Нужен он не для скорости, а чтобы отсутствие колбэка
+         * не превращалось в вечно висящий шаг задачи.
+         */
+        private const val GESTURE_TIMEOUT_MS = 3_000L
 
         fun isEnabled(context: Context): Boolean {
             if (instance != null) return true

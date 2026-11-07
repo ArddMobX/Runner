@@ -42,10 +42,18 @@ object LiveAgentManager {
 
     private var pendingContinuation: CancellableContinuation<Boolean>? = null
 
-    @Volatile
-    var onStopRequested: ((String) -> Unit)? = null
+    /**
+     * Что делать по «Стоп» в плавающей карточке.
+     *
+     * Хранится на сессию, а не в глобальной переменной: Live-режим может
+     * запустить и обычный чат, и плавающий ассистент со своей ViewModel.
+     * Глобальный колбэк перезаписывался тем, кто стартовал позже, и «Стоп»
+     * попадал в чужой (часто уже уничтоженный) экземпляр.
+     */
+    private var sessionStopHandler: (() -> Unit)? = null
 
-    fun start(context: Context, totalSteps: Int = 5) {
+    fun start(context: Context, totalSteps: Int = 5, onStop: (() -> Unit)? = null) {
+        sessionStopHandler = onStop
         _stateFlow.value = State(
             isExecuting = true,
             stepDescription = "Подготовка к выполнению...",
@@ -124,12 +132,17 @@ object LiveAgentManager {
             stepDescription = reason,
             confirmationPrompt = null
         )
-        onStopRequested?.invoke(reason)
+        val handler = sessionStopHandler
+        sessionStopHandler = null
+        handler?.invoke()
         LiveFloatingOverlay.dismiss()
     }
 
     fun finish(summary: String) {
         confirmPendingAction(false)
+        // Обработчик снимаем: сессия закончилась, держать ссылку на ViewModel
+        // незачем — она может быть уже уничтожена.
+        sessionStopHandler = null
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
             stepDescription = summary,

@@ -10,6 +10,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Фоновая служба переднего плана (Foreground Service) с типом mediaProjection,
@@ -21,14 +23,41 @@ class ScreenCaptureService : Service() {
         const val CHANNEL_ID = "runner_screen_capture"
         const val NOTIFICATION_ID = 1001
 
-        fun start(context: Context) {
-            val intent = Intent(context, ScreenCaptureService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+        /**
+         * Сигнал «служба уже в foreground».
+         *
+         * Начиная с Android 14 проекцию нельзя запрашивать, пока foreground-служба
+         * нужного типа не работает. Раньше здесь стояла пауза 150 мс «на глазок»:
+         * на медленном старте проекция не создавалась, и захват молча возвращал
+         * null. Теперь ждём настоящего события.
+         */
+        @Volatile
+        private var readySignal = CompletableDeferred<Unit>()
+
+        fun start(context: Context): CompletableDeferred<Unit> {
+            val signal = CompletableDeferred<Unit>()
+            readySignal = signal
+            try {
+                val intent = Intent(context, ScreenCaptureService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: Exception) {
+                // Служба не поднялась: не держим вызывающего в ожидании,
+                // проекция всё равно не создастся.
+                signal.complete(Unit)
             }
+            return signal
         }
+
+        /** Ждёт, пока служба войдёт в foreground. false — не успела. */
+        suspend fun awaitForeground(timeoutMs: Long = 3_000L): Boolean =
+            withTimeoutOrNull(timeoutMs) {
+                readySignal.await()
+                true
+            } ?: false
 
         fun stop(context: Context) {
             context.stopService(Intent(context, ScreenCaptureService::class.java))
@@ -51,6 +80,9 @@ class ScreenCaptureService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        // Только после startForeground: до этого система ещё не считает
+        // службу foreground, и проекция не создастся.
+        readySignal.complete(Unit)
     }
 
     private fun createNotificationChannel() {
