@@ -142,6 +142,7 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.data.AppThemeMode
 import com.runner.app.data.ColorSource
+import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
@@ -4151,6 +4152,7 @@ private fun AccessSettings(
     onOpenAppSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val appSettings by viewModel.settings.collectAsState()
     val hasStorage by viewModel.hasStoragePermission.collectAsState()
     val hasContacts by viewModel.hasContactsPermission.collectAsState()
     val hasCall by viewModel.hasCallPermission.collectAsState()
@@ -4531,6 +4533,155 @@ private fun AccessSettings(
                             fontSize = 12.5.sp
                         )
                     }
+                }
+            }
+        }
+
+                // 5. Live-режим: Автопилот по экрану
+        SettingsGroup("Live-режим (Автопилот по экрану)") {
+            Column(modifier = Modifier.padding(14.dp)) {
+                val hasAccessibility = remember(context) { RunnerAccessibilityService.isEnabled(context) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        tint = if (hasAccessibility) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (hasAccessibility) "Специальные возможности активны" else "Служба специальных возможностей отключена",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Позволяет агенту анализировать экран и отправлять физические жесты и тапы.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val hasOverlay = remember(context) { android.provider.Settings.canDrawOverlays(context) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        tint = if (hasOverlay) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (hasOverlay) "Наложение поверх окон разрешено" else "Отображение поверх окон запрещено",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Нужно для плавающего кружка управления и визуализации тачей.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+
+                if (!hasAccessibility || !hasOverlay) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            if (!hasAccessibility) {
+                                try {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                                } catch (_: Exception) {}
+                            } else if (!hasOverlay) {
+                                try {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = if (!hasAccessibility) "Включить спецвозможности" else "Разрешить наложение поверх окон",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                SettingsDivider()
+                Spacer(modifier = Modifier.height(10.dp))
+
+                var showFullAccessWarning by remember { mutableStateOf(false) }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Полный доступ (без подтверждений)",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Выполнять рискованные действия (покупка, оплата, удаление) без запроса подтверждения на плавающей карточке.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = appSettings.liveFullAccess,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                showFullAccessWarning = true
+                            } else {
+                                viewModel.updateAppSettings { copy(liveFullAccess = false) }
+                            }
+                        }
+                    )
+                }
+
+                if (showFullAccessWarning) {
+                    AlertDialog(
+                        onDismissRequest = { showFullAccessWarning = false },
+                        title = {
+                            Text("Внимание: Полный доступ", fontWeight = FontWeight.Bold)
+                        },
+                        text = {
+                            Text(
+                                "Включение полного доступа позволяет агенту выполнять любые действия на экране, включая потенциально рискованные операции (нажатие кнопок «Купить», «Оплатить», «Удалить»), без показа карточки подтверждения.\n\nИспользуйте этот режим только если полностью доверяете выполняемой задаче.",
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    viewModel.updateAppSettings { copy(liveFullAccess = true) }
+                                    showFullAccessWarning = false
+                                }
+                            ) {
+                                Text("Включить", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showFullAccessWarning = false }) {
+                                Text("Отмена")
+                            }
+                        }
+                    )
                 }
             }
         }
