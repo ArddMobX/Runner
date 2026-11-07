@@ -1,12 +1,23 @@
 package com.runner.app.ui
 
 import android.content.Context
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.Continuation
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
+
+/**
+ * Сколько ждём ответа на подтверждение, прежде чем считать действие отклонённым.
+ *
+ * Пять минут — заведомо больше, чем нужно человеку, чтобы прочитать карточку
+ * и нажать кнопку. Смысл не в строгости, а в том, чтобы задача не могла
+ * остаться в вечном ожидании: подтверждение, которое некуда показать, — это
+ * не «ждём пользователя», а зависший чат.
+ */
+private const val CONFIRM_TIMEOUT_MS = 5 * 60 * 1000L
 
 /**
  * Координатор Live-режима (автопилота) агента.
@@ -29,7 +40,7 @@ object LiveAgentManager {
     val isExecuting: Boolean
         get() = _stateFlow.value.isExecuting
 
-    private var pendingContinuation: Continuation<Boolean>? = null
+    private var pendingContinuation: CancellableContinuation<Boolean>? = null
 
     @Volatile
     var onStopRequested: ((String) -> Unit)? = null
@@ -57,28 +68,57 @@ object LiveAgentManager {
     /**
      * Приостанавливает выполнение и запрашивает подтверждение пользователя
      * на карточке плавающего оверлея.
+     *
+     * У ожидания есть предел: если оверлей так и не показался (нет разрешения
+     * на наложение, пользователь свернул приложение), подтверждение не придёт
+     * никогда, а задача встанет намертво — корутина шага ждёт continuation,
+     * `finally` не выполняется, `_isRunning` остаётся true, и чат залипает
+     * на кнопке «Стоп» до перезапуска приложения. По истечении таймаута
+     * считаем действие отклонённым — это безопасное направление.
      */
-    suspend fun requestConfirmation(prompt: String): Boolean {
+    suspend fun requestConfirmation(
+        prompt: String,
+        timeoutMs: Long = CONFIRM_TIMEOUT_MS
+    ): Boolean {
         _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = prompt)
-        return suspendCancellableCoroutine { continuation ->
-            pendingContinuation = continuation
-            continuation.invokeOnCancellation {
-                pendingContinuation = null
+        return withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { continuation ->
+                pendingContinuation = continuation
+                continuation.invokeOnCancellation {
+                    // Таймаут или отмена корутины шага: ссылку надо снять,
+                    // иначе следующий запрос перезапишет её и потеряет.
+                    if (pendingContinuation === continuation) pendingContinuation = null
+                    _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
+                }
             }
-        }
+        } ?: false
     }
 
     fun confirmPendingAction(approved: Boolean) {
         val continuation = pendingContinuation
         pendingContinuation = null
         _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
-        continuation?.resume(approved)
+        if (continuation != null && continuation.isActive) continuation.resume(approved)
+    }
+
+    /**
+     * Снимает висящее подтверждение, не трогая состояние выполнения.
+     *
+     * Нужен ровно в одном месте — в «Стоп»: ответ на диалог может ждать
+     * задача, которая Live-режим не запускала (оверлея нет, а подтверждение
+     * требуется), и тогда [stop] выходил по early return, оставляя корутину
+     * шага ждать вечно.
+     */
+    fun cancelPending() {
+        confirmPendingAction(false)
     }
 
     fun stop(reason: String = "Остановлено пользователем") {
+        // Снимаем ожидание ДО проверки isExecuting: подтверждение могло быть
+        // запрошено задачей, для которой Live-режим даже не стартовал.
+        confirmPendingAction(false)
         if (!isExecuting) return
 
-        confirmPendingAction(false)
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
             stepDescription = reason,

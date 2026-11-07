@@ -249,7 +249,16 @@ private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
     "open_url" to listOf("url"),
     "open_app" to listOf("app"),
     "organize_downloads" to listOf("category"),
-    "clipboard_write" to listOf("text")
+    "clipboard_write" to listOf("text"),
+    // Звонок и действия на экране стали опасными операциями и попадают
+    // в предодобрение плана. Без своих аргументов они получили бы пустой
+    // список значений, а `values.all { ... }` на пустом списке истинно:
+    // шаг плана, назвавший инструмент, заранее одобрял бы ЛЮБОЙ номер
+    // и любое нажатие. Именно так уже было с clipboard_write.
+    "call_phone" to listOf("phone_number", "contact_name", "target"),
+    "ui_click" to listOf("label"),
+    "ui_type" to listOf("text"),
+    "ui_global_action" to listOf("action")
 )
 
 /**
@@ -259,7 +268,11 @@ private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
  */
 private val PAYLOAD_ARGS: Map<String, List<String>> = mapOf(
     "write_file" to listOf("content"),
-    "clipboard_write" to listOf("text")
+    "clipboard_write" to listOf("text"),
+    // Текст, который агент печатает в чужое приложение, — такая же нагрузка:
+    // он может быть прочитан из файла или буфера и содержать чужую ссылку,
+    // сумму или адрес получателя.
+    "ui_type" to listOf("text")
 )
 
 /** Все аргументы, которые участвуют в сверке с текстом плана. */
@@ -1957,8 +1970,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 providerKind = provider.kind,
                 officialDeepSeekHost = provider.isOfficialDeepSeekHost,
                 // Объявляем только нужные инструменты: их схемы уходят в каждом
-                // запросе и занимают заметную часть лимита токенов. null — все.
+                // запросе и занимают заметную часть лимита токенов. null — все,
+                // доступные в текущем режиме.
                 toolNames = activeToolScope,
+                // Управление экраном вне Live-режима не объявляем вообще.
+                liveMode = currentSettings.liveModeEnabled,
                 // Стоп должен работать и во время паузы между ретраями,
                 // иначе кнопка «висит», а запрос всё равно уходит повторно.
                 shouldStop = { stopRequested }
@@ -2285,6 +2301,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // а «покажи, что будет сделано». Тексты ответов поэтому разные.
         val blockedByDryRun = dryRunActive && isDangerous
 
+        // Управление чужим экраном существует только в Live-режиме. Схемы этих
+        // инструментов при выключенном режиме в запрос не уходят (см.
+        // ToolDispatcher.getToolsJson), но модель могла узнать имя из истории
+        // или из контекста — поэтому отказ нужен и здесь, в гейте исполнения.
+        // Раньше такой проверки не было вовсе: обычный чат мог тапнуть по
+        // экрану, а подтверждение в этом случае некуда было показать —
+        // задача вставала намертво в ожидании ответа.
+        val isLiveOnlyTool = call.name.substringAfterLast(":") in ToolDispatcher.LIVE_ONLY_TOOL_NAMES
+        val blockedByLiveModeOff = isLiveOnlyTool && !_settings.value.liveModeEnabled
+
         // Абсолютные запреты shell (запрещённая команда, root без тумблера,
         // удаление данных приложений) отсекаются до подтверждения. Показывать
         // диалог для команды, которая всё равно не выполнится, нечестно, а
@@ -2368,9 +2394,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // заранее — самим включением режима.
             blockedByDryRun -> false
             blockedByReadOnly -> false
+            blockedByLiveModeOff -> false
             isInsideWorkingDir -> false
+            // Аргументы из недоверенного вывода проверяем ДО Live-исключения
+            // ниже: текст, прочитанный из файла или буфера, — единственная
+            // защита, которую нельзя отключать режимами.
             fromUntrusted -> true
             remembered -> _settings.value.confirmEveryStep
+            // Действия на экране в Live-режиме спрашивает плавающая карточка
+            // (LiveAgentManager.requestConfirmation, с учётом liveFullAccess),
+            // а не шторка в чате: шторка в этот момент перекрыта оверлеем и
+            // превратила бы один вопрос в два. Вне Live-режима сюда не дойти —
+            // такие вызовы отклоняет blockedByLiveModeOff.
+            isLiveOnlyTool && _settings.value.liveModeEnabled -> false
             isDangerous -> confirmDangerous && !preApproved
             else -> _settings.value.confirmEveryStep
         }
@@ -2398,6 +2434,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else if (blockedByDryRun) {
             declined = true
             dryRunRefusal(call)
+        } else if (blockedByLiveModeOff) {
+            declined = true
+            "Инструмент '${call.name.substringAfterLast(":")}' работает только в Live-режиме, " +
+                    "а он выключен. Не пытайся управлять экраном: реши задачу иначе или " +
+                    "попроси пользователя включить Live-режим кнопкой в шапке чата."
         } else if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             hapticManager.onConfirmationRequired(_settings.value)
@@ -2451,11 +2492,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
             val startedAt = System.currentTimeMillis()
+            // Настройки, от которых зависит поведение исполнителя, обязаны
+            // доходить и по этому пути. Раньше здесь передавался только
+            // shellOutsideStorage, поэтому тумблеры «Shell от root» и
+            // «Полный доступ в Live» работали лишь тогда, когда операция шла
+            // через подтверждение, а без подтверждений молча игнорировались.
             val result = ToolDispatcher.execute(
                 call.name,
                 call.arguments,
                 getApplication(),
-                _settings.value.shellOutsideStorage
+                _settings.value.shellOutsideStorage,
+                _settings.value.allowRootShell,
+                _settings.value.liveFullAccess
             )
             toolDurationMs = System.currentTimeMillis() - startedAt
             result
@@ -2610,7 +2658,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Пояснение к урезанному набору. Без него модель просто не знает, что
         // инструмент существует, и отвечает «не могу» вместо подключения.
         activeToolScope?.let { scope ->
-            content = content + "\n\n" + ToolDispatcher.toolScopeNote(scope)
+            content = content + "\n\n" + ToolDispatcher.toolScopeNote(scope, _settings.value.liveModeEnabled)
         }
         return JSONObject().apply {
             put("role", "system")
@@ -2698,9 +2746,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .forEach { requested += it }
         }
 
-        val known = ToolDispatcher.ALL_TOOL_NAMES.toSet()
+        // Вне Live-режима инструменты управления экраном недоступны, и обещать
+        // модели обратное нельзя: раньше `enable_tools` отвечал «подключены»,
+        // а область инструментов тут же перезаписывалась набором Live-режима —
+        // то есть подключение было фиктивным.
+        val liveMode = _settings.value.liveModeEnabled
+        val known = ToolDispatcher.ALL_TOOL_NAMES
+            .filter { liveMode || it !in ToolDispatcher.LIVE_ONLY_TOOL_NAMES }
+            .toSet()
         val accepted = requested.filter { it in known }.distinct()
         val unknown = requested.filterNot { it in known }.distinct()
+        val hiddenByMode = if (liveMode) {
+            emptyList()
+        } else {
+            requested.filter { it in ToolDispatcher.LIVE_ONLY_TOOL_NAMES }.distinct()
+        }
 
         enabledToolNames.addAll(accepted)
         updateToolScope()
@@ -2713,6 +2773,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 append("Подключены инструменты: ${accepted.joinToString(", ")}. ")
                 append("Они доступны со следующего шага.")
+            }
+            if (hiddenByMode.isNotEmpty()) {
+                append("\nНедоступны вне Live-режима: ${hiddenByMode.joinToString(", ")}. ")
+                append("Управление экраном включается кнопкой Live в шапке чата.")
             }
             if (unknown.isNotEmpty()) {
                 append("\nНеизвестные имена: ${unknown.joinToString(", ")}.")

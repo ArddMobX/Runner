@@ -246,13 +246,20 @@ class OpenAIClient {
         /** false — планировочный запрос без тулов: модель отвечает только текстом. */
         withTools: Boolean = true,
         /**
-         * Какие именно инструменты объявить в запросе. `null` — все.
+         * Какие именно инструменты объявить в запросе. `null` — все, доступные
+         * в текущем режиме.
          *
          * Схемы инструментов уходят в КАЖДОМ запросе и занимают заметную часть
          * лимита токенов, поэтому набор можно сузить: объявлять только нужное,
          * а остальное подключать инструментом `enable_tools`.
          */
         toolNames: Set<String>? = null,
+        /**
+         * Включён ли Live-режим. Инструменты управления экраном (`ui_*`)
+         * объявляются только при нём: вне Live-режима их не должно быть
+         * в запросе вовсе, даже если набор не сужен.
+         */
+        liveMode: Boolean = false,
         /** Бюджет контекста в символах: старые реплики отбрасываются, чтобы не упереться в лимит. */
         contextBudgetChars: Int = DEFAULT_CONTEXT_BUDGET_CHARS,
         /**
@@ -319,7 +326,7 @@ class OpenAIClient {
                 put("model", effectiveModel.removePrefix("models/"))
                 put("messages", contextMessages)
                 if (allowTools) {
-                    val tools = ToolDispatcher.getToolsJson(toolNames)
+                    val tools = ToolDispatcher.getToolsJson(toolNames, liveMode)
                     // Пустой набор означает «инструменты не нужны». Пустой массив
                     // в поле tools часть провайдеров отвергает как ошибку схемы,
                     // поэтому поле просто не отправляем.
