@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -473,6 +474,9 @@ private fun SessionRow(
     onTogglePin: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val isLiveSession = remember(session.title, session.contextJson) {
+        session.title.startsWith("⚡ Live") || session.title.contains("Live") || session.contextJson.contains("\"ui_")
+    }
 
     Box(
         modifier = Modifier
@@ -509,6 +513,7 @@ private fun SessionRow(
                     .clip(RoundedCornerShape(8.dp))
                     .background(
                         if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        else if (isLiveSession) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                         else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
                     ),
                 contentAlignment = Alignment.Center
@@ -517,6 +522,13 @@ private fun SessionRow(
                     Icon(
                         imageVector = Icons.Outlined.PushPin,
                         contentDescription = "Закреплено",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                } else if (isLiveSession) {
+                    Icon(
+                        imageVector = Icons.Outlined.TouchApp,
+                        contentDescription = "Live-сессия",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(13.dp)
                     )
@@ -533,14 +545,42 @@ private fun SessionRow(
             Spacer(modifier = Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = session.title.ifBlank { "Без названия" },
-                    color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
-                    fontSize = 13.5.sp,
-                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                val cleanTitle = remember(session.title) {
+                    if (session.title.startsWith("⚡ Live: ")) {
+                        session.title.removePrefix("⚡ Live: ").trim().ifBlank { "Live-сессия" }
+                    } else {
+                        session.title.ifBlank { "Без названия" }
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = cleanTitle,
+                        color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                        fontSize = 13.5.sp,
+                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isLiveSession) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        ) {
+                            Text(
+                                text = "Live",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
                 val cleanModel = remember(session.lastModel) {
                     session.lastModel?.removePrefix("models/")?.removePrefix("accounts/fireworks/models/")?.trim().orEmpty()
                 }

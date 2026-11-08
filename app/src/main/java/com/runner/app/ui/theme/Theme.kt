@@ -1,6 +1,8 @@
 package com.runner.app.ui.theme
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,7 +43,7 @@ fun RunnerTheme(
     val rawColorScheme: ColorScheme = if (useDynamic) {
         if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
-        // Neutral вместо TonalSpot: подложки — чистый серый без бежевого оттенка,
+        // Neutral вместо TonalSpot: подложки: чистый серый без бежевого оттенка,
         // акцент (primary) остаётся сочным цветом seed. Тумблеры, выделенные
         // кнопки и статусы уже сидят на primary/status-цветах и станут контрастнее.
         dynamicColorScheme(
@@ -65,20 +67,23 @@ fun RunnerTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
-            // На Android 15 (API 35) color-сеттеры системных панелей устарели
-            // и всё равно игнорируются: панели прозрачны поверх контента.
-            // До 15 цвета ещё работают — сохраняем прежнее поведение, но без
-            // обращения к устаревшему API там, где он ничего не делает.
-            @Suppress("DEPRECATION")
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                window.statusBarColor = colorScheme.background.toArgb()
-                window.navigationBarColor = colorScheme.background.toArgb()
+            val activity = view.context.findActivity()
+            val window = activity?.window
+            if (window != null) {
+                // На Android 15 (API 35) color-сеттеры системных панелей устарели
+                // и всё равно игнорируются: панели прозрачны поверх контента.
+                // До 15 цвета ещё работают: сохраняем прежнее поведение, но без
+                // обращения к устаревшему API там, где он ничего не делает.
+                @Suppress("DEPRECATION")
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    window.statusBarColor = colorScheme.background.toArgb()
+                    window.navigationBarColor = colorScheme.background.toArgb()
+                }
+                val isLight = !isDark
+                val insetsController = WindowCompat.getInsetsController(window, view)
+                insetsController.isAppearanceLightStatusBars = isLight
+                insetsController.isAppearanceLightNavigationBars = isLight
             }
-            val isLight = !isDark
-            val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = isLight
-            insetsController.isAppearanceLightNavigationBars = isLight
         }
     }
 
@@ -90,4 +95,13 @@ fun RunnerTheme(
         ),
         content = content
     )
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

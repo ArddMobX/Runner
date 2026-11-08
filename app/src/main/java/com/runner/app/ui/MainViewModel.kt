@@ -81,7 +81,7 @@ enum class MessageAction {
  * Решение пользователя по опасной операции.
  * selectedIds заполняется только для операций со списком объектов:
  * null означает «подтверждено целиком».
- * remember — пользователь попросил больше не спрашивать именно это действие.
+ * remember - пользователь попросил больше не спрашивать именно это действие.
  */
 data class ConfirmationDecision(
     val approved: Boolean,
@@ -96,7 +96,7 @@ data class ConfirmationRequest(
     val details: String,
     val warning: String,
     val preview: String = "",
-    /** Файлы, которые можно снять галочкой. Пусто — дробить нечего. */
+    /** Файлы, которые можно снять галочкой. Пусто - дробить нечего. */
     val items: List<ToolDispatcher.ActionItem> = emptyList(),
     /**
      * Есть ли смысл предлагать «больше не спрашивать».
@@ -116,7 +116,7 @@ data class ConnectionTestState(
 
 /**
  * План шагов на подтверждении у пользователя.
- * steps — распарсенные шаги, rawText — исходный текст модели.
+ * steps - распарсенные шаги, rawText - исходный текст модели.
  */
 data class PlanProposal(
     val id: String = UUID.randomUUID().toString(),
@@ -139,7 +139,7 @@ private const val MAX_PLAN_STEPS = 30
 
 /**
  * Сколько одинаковых вызовов ПОДРЯД терпим, прежде чем решить, что модель
- * зациклилась. Тексты «не повторяй операцию» в промпте — просьба к модели,
+ * зациклилась. Тексты «не повторяй операцию» в промпте - просьба к модели,
  * а не защита: без счётчика зациклившаяся модель просто выжигает maxSteps,
  * и пользователь видит «достигнут лимит» без причины.
  */
@@ -157,10 +157,10 @@ private const val UNTRUSTED_LINES_LIMIT = 2_000
  * аргументы совпали с прочитанным текстом.
  *
  * Автономный режим в рабочей папке существует именно для того, чтобы не
- * спрашивать, и отменять это поведение нельзя — иначе ломается обычный
+ * спрашивать, и отменять это поведение нельзя - иначе ломается обычный
  * сценарий «прочитай файл и перепиши его содержимое». Но промолчать тоже
  * нельзя: файл в папке может содержать указание вроде «удали всё», и тогда
- * агент выполнит его молча. Компромисс — диалога нет, но факт остаётся
+ * агент выполнит его молча. Компромисс - диалога нет, но факт остаётся
  * в истории: пометка видна в свёрнутой строке карточки и в подробностях.
  */
 private const val UNTRUSTED_AUTONOMOUS_NOTE =
@@ -172,7 +172,7 @@ private const val UNTRUSTED_AUTONOMOUS_NOTE =
 /**
  * Минимальная длина значения, которое план может предодобрить подстрокой.
  * Короткие значения («all», имя приложения из трёх букв) слишком легко
- * случайно оказываются частью текста шага, а предодобрение — это молчаливое
+ * случайно оказываются частью текста шага, а предодобрение - это молчаливое
  * выполнение операции. При сомнении честнее спросить.
  */
 private const val PREAPPROVE_MIN_VALUE_LEN = 4
@@ -201,7 +201,7 @@ private val NO_PLAN_CONTAINS = listOf(
  * или модифицирующих операций (удаление, перемещение, запись, сортировка, shell),
  * либо когда пользователь явно просит составить план («составь план», «по шагам»).
  * Безопасные запросы на чтение, аналитику и поиск (сводка памяти, поиск мусора,
- * тяжелые файлы, чтение буфера) идут напрямую в агентский цикл — это сокращает время
+ * тяжелые файлы, чтение буфера) идут напрямую в агентский цикл - это сокращает время
  * ответа модели вдвое, устраняя избыточный сетевой запрос планирования.
  */
 private fun shouldPlan(text: String): Boolean {
@@ -234,7 +234,7 @@ private data class PlanStep(
 /**
  * Аргументы-пути каждого инструмента. Предодобрение плана сверяется именно
  * с ними: вызов с именем из плана, но с другим путём, снова уходит на
- * подтверждение. Первый набор — просто список значений, второй — значения,
+ * подтверждение. Первый набор - просто список значений, второй - значения,
  * внутри которых лежит массив путей.
  */
 private val PATH_ARGS: Map<String, List<String>> = mapOf(
@@ -280,13 +280,13 @@ private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
 
 /**
  * Аргументы-«нагрузка»: не то, НАД чем выполняется операция, а то, ЧТО записывается.
- * Путь и команда привязывают одобрение к цели; здесь важно другое — не переносит ли
+ * Путь и команда привязывают одобрение к цели; здесь важно другое - не переносит ли
  * модель в файл или в буфер текст, прочитанный из недоверенного источника.
  */
 private val PAYLOAD_ARGS: Map<String, List<String>> = mapOf(
     "write_file" to listOf("content"),
     "clipboard_write" to listOf("text"),
-    // Текст, который агент печатает в чужое приложение, — такая же нагрузка:
+    // Текст, который агент печатает в чужое приложение, - такая же нагрузка:
     // он может быть прочитан из файла или буфера и содержать чужую ссылку,
     // сумму или адрес получателя.
     "ui_type" to listOf("text")
@@ -306,7 +306,7 @@ private val KNOWN_PLAN_TOOLS: Set<String> = setOf(
 )
 
 /**
- * Шаг плана, у которого уже срезан номер: «tool_name — что сделать».
+ * Шаг плана, у которого уже срезан номер: «tool_name - что сделать».
  * Номера снимает extractPlanStepLines, поэтому цифры здесь не обязательны.
  */
 private val PLAN_STEP_LINE = Regex("""^\s*([A-Za-z_][A-Za-z0-9_]*)\b(.*)$""")
@@ -382,7 +382,7 @@ private val PATH_REQUIRED_TOOLS: Set<String> = setOf(
  * Мало совпадения по имени: аргументы должны быть теми же, что были в шаге
  * плана, который пользователь видел на экране. Иначе модель может один раз
  * показать невинный шаг и выполнить совсем другое действие молча.
- * При любом сомнении возвращаем false — это отправит вызов на подтверждение.
+ * При любом сомнении возвращаем false - это отправит вызов на подтверждение.
  */
 private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson: String): Boolean {
     if (planSteps.isNullOrEmpty()) return false
@@ -400,7 +400,7 @@ private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson
 
     val values = criticalArgValues(cleanTool, argsJson)
 
-    // У инструмента есть критичные аргументы, но разобрать их не удалось — не рискуем.
+    // У инструмента есть критичные аргументы, но разобрать их не удалось - не рискуем.
     val expectedKeys = CRITICAL_ARGS_BY_TOOL[cleanTool]
     if (!expectedKeys.isNullOrEmpty() && values.isEmpty()) return false
 
@@ -409,7 +409,7 @@ private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson
         values.all { value ->
             val needle = normalizeForMatch(value)
             // Короткие значения не предодобряем: совпадение подстроки длиной
-            // 1–3 символа — почти наверняка случайность, а не совпадение шага.
+            // 1–3 символа - почти наверняка случайность, а не совпадение шага.
             needle.length >= PREAPPROVE_MIN_VALUE_LEN && haystack.contains(needle)
         }
     }
@@ -433,7 +433,7 @@ private fun shellCommandOf(argsJson: String): String = try {
  * Подпись операции для списка «больше не спрашивать».
  *
  * Галочка в диалоге действует на КОНКРЕТНОЕ действие, а не на инструмент
- * целиком: «открой YouTube» перестанет спрашивать, а «удали папку» —
+ * целиком: «открой YouTube» перестанет спрашивать, а «удали папку» -
  * нет. Поэтому в подпись входят критичные аргументы, нормализованные так же,
  * как при сверке с планом.
  */
@@ -481,7 +481,7 @@ private val TOOL_ERROR_PREFIXES = listOf("Ошибка", "Не удалось", 
  * Ошибка ли это в выводе инструмента.
  *
  * Раньше проверялось начало всего текста, а большинство инструментов
- * предваряют результат строкой `resolved_path:` — из-за этого ошибка
+ * предваряют результат строкой `resolved_path:` - из-за этого ошибка
  * («Ошибка: родительской папки нет») не распознавалась и карточка выглядела
  * успешной. Теперь смотрим начало каждой строки.
  */
@@ -506,16 +506,16 @@ private fun isDerivedFromUntrusted(untrusted: Set<String>, toolName: String, arg
     if (untrusted.isEmpty()) return false
     val clean = toolName.substringAfterLast(":")
 
-    // Аргументы места назначения — путь, команда, ссылка, имя приложения:
+    // Аргументы места назначения - путь, команда, ссылка, имя приложения:
     // сверяем значение целиком.
     val targets = criticalArgValues(clean, argsJson)
     if (targets.any { matchesUntrustedLine(it, untrusted) }) return true
 
     // Нагрузку (что именно записываем) сверяем построчно. Целое значение здесь
     // не работает: модель почти всегда составляет текст из нескольких строк,
-    // и совпадение целого значения не наступило бы никогда — то есть проверка
+    // и совпадение целого значения не наступило бы никогда - то есть проверка
     // была бы мёртвой. Это и был разрыв: read_file отдавал недоверенный текст,
-    // а содержимое write_file не проверялось вовсе, у clipboard_write — ничего.
+    // а содержимое write_file не проверялось вовсе, у clipboard_write - ничего.
     val payloads = argValues(argsJson, PAYLOAD_ARGS[clean] ?: emptyList())
     return payloads.any { payload ->
         payload.lineSequence().any { matchesUntrustedLine(it, untrusted) }
@@ -536,7 +536,7 @@ private val WHITESPACE_RUN = Regex("\\s+")
 /**
  * Сниппет совпадения: окно вокруг найденного текста.
  *
- * Показывать сообщение целиком нельзя — в истории бывают ответы на тысячи
+ * Показывать сообщение целиком нельзя - в истории бывают ответы на тысячи
  * символов, и список чатов превратился бы в простыню. Но и голое «нашлось»
  * бесполезно: непонятно, почему чат попал в выдачу.
  *
@@ -584,7 +584,7 @@ private const val PLAN_SYSTEM_PROMPT = """
 Правила вывода:
 - Выведи ТОЛЬКО нумерованный список шагов, по одному на строку: "1. имя_инструмента - что сделать".
 - Используй только инструменты из списка выше.
-- Пути указывай абсолютные от корня /storage/emulated/0, а для run_shell_command — саму команду целиком.
+- Пути указывай абсолютные от корня /storage/emulated/0, а для run_shell_command - саму команду целиком.
 - Никаких вступлений, пояснений и заключений.
 - Если задача решается одним текстовым ответом без инструментов, выведи одну строку: БЕЗ_ИНСТРУМЕНТОВ.
 """
@@ -608,7 +608,7 @@ data class ChatMessage(
     val durationMs: Long? = null,
     /** Время работы конкретного инструмента. */
     val toolDurationMs: Long? = null,
-    /** Размышления thinking-модели — показываются под катом. */
+    /** Размышления thinking-модели - показываются под катом. */
     val reasoningText: String? = null,
     val reasoningMs: Long? = null,
     val promptTokens: Int? = null,
@@ -680,7 +680,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Сниппеты совпадений для списка чатов: поиск идёт и по содержимому
      * сообщений, поэтому без сниппета непонятно, почему чат попал в выдачу.
-     * По одной строке на сессию — самое свежее совпадение.
+     * По одной строке на сессию - самое свежее совпадение.
      */
     val searchSnippets: StateFlow<Map<String, String>> = _sessionsQuery
         .flatMapLatest { query ->
@@ -815,7 +815,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
     val pendingConfirmation: StateFlow<ConfirmationRequest?> = _pendingConfirmation.asStateFlow()
 
-    /** План шагов, ожидающий решения пользователя (null — нет ожидания). */
+    /** План шагов, ожидающий решения пользователя (null - нет ожидания). */
     private val _pendingPlan = MutableStateFlow<PlanProposal?>(null)
     val pendingPlan: StateFlow<PlanProposal?> = _pendingPlan.asStateFlow()
 
@@ -840,7 +840,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Идёт сухой прогон: операции, меняющие состояние, не выполняются, а
-     * описываются. Флаг живёт один ход и не сохраняется — после перезапуска
+     * описываются. Флаг живёт один ход и не сохраняется - после перезапуска
      * приложение не должно «застрять» в предпросмотре.
      */
     @Volatile
@@ -853,10 +853,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val enabledToolNames = mutableSetOf<String>()
 
     /**
-     * Набор инструментов, объявляемый в запросе. `null` — все.
+     * Набор инструментов, объявляемый в запросе. `null` - все.
      *
      * Сужаем только когда план уже назвал нужные инструменты: тогда состав
-     * известен, и урезание ничего не ломает. Без плана шлём всё — иначе модель
+     * известен, и урезание ничего не ломает. Без плана шлём всё - иначе модель
      * упрётся в отсутствие нужного тула на середине задачи.
      */
     private var activeToolScope: Set<String>? = null
@@ -873,7 +873,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasAudioPermission = MutableStateFlow(false)
     val hasAudioPermission: StateFlow<Boolean> = _hasAudioPermission.asStateFlow()
 
-    /** Занято/всего для виджета хранилища на пустом экране (null — не удалось прочитать). */
+    /** Занято/всего для виджета хранилища на пустом экране (null - не удалось прочитать). */
     private val _storageStats = MutableStateFlow<ToolDispatcher.StorageStats?>(null)
     val storageStats: StateFlow<ToolDispatcher.StorageStats?> = _storageStats.asStateFlow()
 
@@ -1013,7 +1013,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Удаляет удалённое безвозвратно и стирает журнал.
      *
-     * Объекты перемещений не трогаются — они стоят на своих новых местах,
+     * Объекты перемещений не трогаются - они стоят на своих новых местах,
      * теряется только возможность откатить эти перемещения. Формулировка
      * сообщения это проговаривает: иначе легко решить, что «очистить» вернёт
      * или удалит и перемещённое тоже.
@@ -1092,7 +1092,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
         _hasStoragePermission.value = granted
-        // Право выдали на системном экране — first-run диалог больше не нужен.
+        // Право выдали на системном экране - first-run диалог больше не нужен.
         if (granted) {
             _showStoragePrompt.value = false
             refreshStorageStats()
@@ -1149,7 +1149,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startNewChat() {
         if (_isRunning.value) return
         viewModelScope.launch {
-            // Если в текущем чате ещё нет пользовательских сообщений — не создаём дубликат
+            // Если в текущем чате ещё нет пользовательских сообщений - не создаём дубликат
             if (_messages.value.none { it.role != MessageRole.SYSTEM_INFO }) {
                 return@launch
             }
@@ -1227,13 +1227,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeProviderId.value = providerId
     }
 
-    /** Выбор модели переключает и провайдера — одной операцией. */
+    /** Выбор модели переключает и провайдера - одной операцией. */
     fun selectModel(providerId: String, model: String) {
         val provider = _providers.value.firstOrNull { it.id == providerId } ?: return
         val modelId = model.trim()
         if (modelId.isBlank()) return
 
-        // ID, введённый вручную, дописываем в список — иначе он потеряется
+        // ID, введённый вручную, дописываем в список - иначе он потеряется
         // при следующем обновлении списка.
         val models = if (provider.models.any { it.id == modelId }) {
             provider.models
@@ -1556,7 +1556,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stopRequested = false
         approvedPlanSteps = null
         untrustedLines = emptySet()
-        // Состояние сухого прогона и область инструментов — на один ход.
+        // Состояние сухого прогона и область инструментов - на один ход.
         enabledToolNames.clear()
         activeToolScope = null
         dryRunBannerShown = false
@@ -1603,7 +1603,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 if (isFirstUserMessage) {
-                    val title = effectiveText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    val rawTitle = effectiveText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    val title = if (_settings.value.liveModeEnabled) "⚡ Live: $rawTitle" else rawTitle
                     repository.renameSession(sessionId, title)
                     _currentSessionTitle.value = title
                 }
@@ -1741,7 +1742,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         stopRequested = false
         approvedPlanSteps = null
         untrustedLines = emptySet()
-        // Область инструментов — на один ход: при повторе план заново не
+        // Область инструментов - на один ход: при повторе план заново не
         // запрашивается, значит сужать набор нечем и незачем.
         enabledToolNames.clear()
         activeToolScope = null
@@ -1853,7 +1854,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return null
             }
             is AIResponseResult.ToolCallsResult -> {
-                // Без тулов этого быть не должно; fallback — свободный режим.
+                // Без тулов этого быть не должно; fallback - свободный режим.
                 return null
             }
         }
@@ -1932,7 +1933,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Строки вида "1. ..." / "1) ..." — остальное игнорируем. */
+    /** Строки вида "1. ..." / "1) ..." - остальное игнорируем. */
     private fun extractPlanStepLines(text: String): List<String> {
         val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
         return text.lines()
@@ -1945,7 +1946,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val trackStats = currentSettings.showStats
         val turnStartedAt = System.currentTimeMillis()
 
-        // Суммарные счётчики по всей задаче — уходят в плашку под финальным ответом
+        // Суммарные счётчики по всей задаче - уходят в плашку под финальным ответом
         var totalPromptTokens = 0
         var totalCompletionTokens = 0
         var step = 0
@@ -1999,7 +2000,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 providerKind = provider.kind,
                 officialDeepSeekHost = provider.isOfficialDeepSeekHost,
                 // Объявляем только нужные инструменты: их схемы уходят в каждом
-                // запросе и занимают заметную часть лимита токенов. null — все,
+                // запросе и занимают заметную часть лимита токенов. null - все,
                 // доступные в текущем режиме.
                 toolNames = activeToolScope,
                 // Управление экраном вне Live-режима не объявляем вообще.
@@ -2094,8 +2095,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     result.toolCalls.forEachIndexed { index, call ->
                         if (stopRequested || loopDetected) return@forEachIndexed
 
-                        // Подпись — имя плюс аргументы целиком: «list_dir Download»
-                        // и «list_dir Documents» — разные вызовы, и повтором
+                        // Подпись - имя плюс аргументы целиком: «list_dir Download»
+                        // и «list_dir Documents» - разные вызовы, и повтором
                         // считается только полное совпадение.
                         val signature = call.name.substringAfterLast(":") + "\u0000" + call.arguments
                         if (signature == lastCallSignature) {
@@ -2163,7 +2164,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Баннер после сухого прогона.
      *
      * Вызывается из `finally`, а не в конце [runAgentLoop]: обычный ответ выходит
-     * из цикла раньше — из ветки TextResult, — и до кода после цикла дело не
+     * из цикла раньше - из ветки TextResult, - и до кода после цикла дело не
      * доходит. Именно так прогон и заканчивается в большинстве случаев.
      */
     private fun finishDryRunIfNeeded() {
@@ -2182,7 +2183,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      *
      * Повторяет ту же ветку, что кнопка «Заново»: контекст и лента обрезаются до
      * последнего сообщения пользователя, поэтому предпросмотр не дублируется
-     * с реальным прогоном. Режим прогона при повторе не включается — иначе
+     * с реальным прогоном. Режим прогона при повторе не включается - иначе
      * кнопка зациклилась бы.
      */
     fun confirmDryRun() {
@@ -2194,7 +2195,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Дописывает в ответ этого хода общее время пайплайна и суммарные токены.
-     * [assistantMessageId] — id ответа, созданного в текущем ходе. Если его нет
+     * [assistantMessageId] - id ответа, созданного в текущем ходе. Если его нет
      * (ход закончился только выводом инструментов), плашку не вешаем вовсе:
      * раньше статистика прилипала к последнему ASSISTANT во всей ленте, то есть
      * к ответу предыдущего хода.
@@ -2309,7 +2310,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val fromUntrusted = isDangerous &&
                 isDerivedFromUntrusted(untrustedLines, call.name, call.arguments)
 
-        // Подпись этого конкретного действия: «открой YouTube» и «удали папку» —
+        // Подпись этого конкретного действия: «открой YouTube» и «удали папку» -
         // разные подписи, поэтому разрешение одного не открывает второе.
         val signature = confirmationSignature(call.name, call.arguments)
         val remembered = isDangerous && signature in _settings.value.approvedOperationSignatures
@@ -2317,25 +2318,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Запоминать имеет смысл только операцию с опознаваемыми аргументами.
         // Пустая подпись склеила бы в одно разрешение все вызовы инструмента:
         // именно так одно нажатие на записи в буфер разрешало все последующие.
-        // Если модель аргументов не передала — предлагать галочку нечестно.
+        // Если модель аргументов не передала - предлагать галочку нечестно.
         val canRemember = isDangerous &&
                 criticalArgValues(call.name, call.arguments).isNotEmpty()
 
         // Режим «только чтение» блокирует ровно те же операции, что считаются
         // опасными: отдельного списка «изменяющих» инструментов не заводим, иначе
-        // списки разойдутся — на этом в проекте уже была ошибка.
+        // списки разойдутся - на этом в проекте уже была ошибка.
         val blockedByReadOnly = _settings.value.readOnlyMode && isDangerous
 
-        // Сухой прогон — тот же набор операций, но по другой причине: не «нельзя»,
+        // Сухой прогон - тот же набор операций, но по другой причине: не «нельзя»,
         // а «покажи, что будет сделано». Тексты ответов поэтому разные.
         val blockedByDryRun = dryRunActive && isDangerous
 
         // Управление чужим экраном существует только в Live-режиме. Схемы этих
         // инструментов при выключенном режиме в запрос не уходят (см.
         // ToolDispatcher.getToolsJson), но модель могла узнать имя из истории
-        // или из контекста — поэтому отказ нужен и здесь, в гейте исполнения.
+        // или из контекста - поэтому отказ нужен и здесь, в гейте исполнения.
         // Раньше такой проверки не было вовсе: обычный чат мог тапнуть по
-        // экрану, а подтверждение в этом случае некуда было показать —
+        // экрану, а подтверждение в этом случае некуда было показать -
         // задача вставала намертво в ожидании ответа.
         val isLiveOnlyTool = call.name.substringAfterLast(":") in ToolDispatcher.LIVE_ONLY_TOOL_NAMES
         val blockedByLiveModeOff = isLiveOnlyTool && !_settings.value.liveModeEnabled
@@ -2344,7 +2345,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // удаление данных приложений) отсекаются до подтверждения. Показывать
         // диалог для команды, которая всё равно не выполнится, нечестно, а
         // модель должна сразу узнать отказ. Песочница путей сюда не входит:
-        // её отказ срабатывает при выполнении, после подтверждения — так
+        // её отказ срабатывает при выполнении, после подтверждения - так
         // пользователь видит, что именно предлагалось выполнить.
         val isShellCall = call.name.substringAfterLast(":") == "run_shell_command"
         val commandLine = if (isShellCall) shellCommandOf(call.arguments) else ""
@@ -2354,7 +2355,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             null
         }
 
-        // Подключение инструментов — не операция над файлами, а часть диалога:
+        // Подключение инструментов - не операция над файлами, а часть диалога:
         // ни подтверждений, ни режимов у неё быть не должно.
         val isEnableTools = call.name.substringAfterLast(":") == ToolDispatcher.ENABLE_TOOLS
 
@@ -2420,20 +2421,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val needConfirm = when {
             isEnableTools -> false
             // Заблокированное не подтверждаем: спрашивать нечего, ответ уже дан
-            // заранее — самим включением режима.
+            // заранее - самим включением режима.
             blockedByDryRun -> false
             blockedByReadOnly -> false
             blockedByLiveModeOff -> false
             isInsideWorkingDir -> false
             // Аргументы из недоверенного вывода проверяем ДО Live-исключения
-            // ниже: текст, прочитанный из файла или буфера, — единственная
+            // ниже: текст, прочитанный из файла или буфера, - единственная
             // защита, которую нельзя отключать режимами.
             fromUntrusted -> true
             remembered -> _settings.value.confirmEveryStep
             // Действия на экране в Live-режиме спрашивает плавающая карточка
             // (LiveAgentManager.requestConfirmation, с учётом liveFullAccess),
             // а не шторка в чате: шторка в этот момент перекрыта оверлеем и
-            // превратила бы один вопрос в два. Вне Live-режима сюда не дойти —
+            // превратила бы один вопрос в два. Вне Live-режима сюда не дойти -
             // такие вызовы отклоняет blockedByLiveModeOff.
             isLiveOnlyTool && _settings.value.liveModeEnabled -> false
             isDangerous -> confirmDangerous && !preApproved
@@ -2444,7 +2445,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else if (shellPreRefusal != null) {
             // Абсолютный запрет важнее режимов: «попроси выключить режим» не
             // помогло бы с командой, запрещённой навсегда. Попытку тоже пишем
-            // в журнал — это факт, по которому потом разбирается инцидент.
+            // в журнал - это факт, по которому потом разбирается инцидент.
             declined = true
             ShellLog.append(
                 getApplication(),
@@ -2557,7 +2558,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Операция прошла без вопроса, хотя её аргументы взяты из прочитанного
-        // текста. Так работает автономный режим в рабочей папке — спрашивать
+        // текста. Так работает автономный режим в рабочей папке - спрашивать
         // он не должен. Но пометку ставим: сводку считаем по чистому выводу,
         // чтобы пояснение не съело её в свёрнутой строке, а в подробностях
         // добавляем сам текст предупреждения.
@@ -2615,7 +2616,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         persistContext(sessionId)
 
-        // Появилась обратимая операция — обновляем состояние для кнопки
+        // Появилась обратимая операция - обновляем состояние для кнопки
         // «Отменить последнее» в шапке. Читаем журнал только когда он реально
         // изменился, а не на каждом вызове инструмента.
         if (TrashStore.undoRefFromOutput(output) != null) {
@@ -2714,7 +2715,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Пересобирает набор инструментов для запроса.
      *
      * Сужаем только когда план уже назвал нужные: тогда состав известен.
-     * Без плана набор не трогаем — иначе на середине задачи модель обнаружит,
+     * Без плана набор не трогаем - иначе на середине задачи модель обнаружит,
      * что нужного инструмента нет.
      */
     private fun updateToolScope() {
@@ -2780,7 +2781,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ?.let { requested += it }
             }
         }
-        // Модели иногда присылают строку вместо массива — принимаем и её,
+        // Модели иногда присылают строку вместо массива - принимаем и её,
         // иначе подключение молча ничего не сделает.
         if (requested.isEmpty()) {
             args.optString("names", "")
@@ -2792,7 +2793,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Вне Live-режима инструменты управления экраном недоступны, и обещать
         // модели обратное нельзя: раньше `enable_tools` отвечал «подключены»,
-        // а область инструментов тут же перезаписывалась набором Live-режима —
+        // а область инструментов тут же перезаписывалась набором Live-режима -
         // то есть подключение было фиктивным.
         val liveMode = _settings.value.liveModeEnabled
         val known = ToolDispatcher.ALL_TOOL_NAMES
@@ -2839,7 +2840,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Анти-спам системных плашек: identical SYSTEM_INFO подряд не плодим
      * (например, «Ключ провайдера не задан» на каждый клик Send). Повтор просто
-     * игнорируется — в ленте висит один актуальный баннер.
+     * игнорируется - в ленте висит один актуальный баннер.
      */
     private fun appendSystemInfo(text: String, action: MessageAction?) {
         val last = _messages.value.lastOrNull()

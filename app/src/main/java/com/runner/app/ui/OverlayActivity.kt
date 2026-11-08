@@ -204,8 +204,9 @@ private fun OverlayScreen(
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             isCapturingScreen = true
             scope.launch {
+                val act = context as? Activity ?: return@launch
                 val uri = ScreenCaptureManager.captureScreen(
-                    context as Activity,
+                    act,
                     result.resultCode,
                     result.data!!
                 )

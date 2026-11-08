@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -126,6 +127,7 @@ object LiveFloatingOverlay {
             layoutParams = params
 
             val view = ComposeView(context).apply {
+                setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
                 setViewTreeLifecycleOwner(owner)
                 setViewTreeViewModelStoreOwner(owner)
                 setViewTreeSavedStateRegistryOwner(owner)
@@ -174,7 +176,7 @@ object LiveFloatingOverlay {
      * Перетаскивание живёт в Compose (`detectDragGestures`), а не в
      * `setOnTouchListener` на ComposeView: слушатель родителя не получает
      * события, которые уже съел дочерний узел, поэтому кружок «не тащился».
-     * Заодно исчез двойной тоггл — раньше тап обрабатывали оба обработчика.
+     * Заодно исчез двойной тоггл - раньше тап обрабатывали оба обработчика.
      */
     private fun moveBy(dx: Float, dy: Float) {
         val params = layoutParams ?: return

@@ -145,6 +145,8 @@ import com.runner.app.ui.components.MarkdownView
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.components.LiveModeTopButton
 import com.runner.app.ui.components.LivePermissionSheet
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
@@ -462,6 +464,7 @@ fun ChatScreen(
             if (appSettings.terminalAmbientEnabled) {
                 TerminalAmbientBackground(
                     enabled = true,
+                    isLiveMode = appSettings.liveModeEnabled,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -472,6 +475,40 @@ fun ChatScreen(
                     .navigationBarsPadding()
                     .imePadding()
             ) {
+                AnimatedVisibility(
+                    visible = appSettings.liveModeEnabled,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Live-режим: агент видит экран и выполняет жесты автономно",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
                 if (isEmptyChat) {
                     EmptyChatState(
                         settings = appSettings,
@@ -583,11 +620,13 @@ fun ChatScreen(
                 AgentStatusIndicator(status = currentStatus)
             }
 
-            WorkspaceFolderBar(
-                workingDir = appSettings.defaultWorkingDir,
-                autoApprove = appSettings.autoApproveInWorkingDir,
-                onOpenFolderSheet = { showFolderSheet = true }
-            )
+            if (!appSettings.liveModeEnabled) {
+                WorkspaceFolderBar(
+                    workingDir = appSettings.defaultWorkingDir,
+                    autoApprove = appSettings.autoApproveInWorkingDir,
+                    onOpenFolderSheet = { showFolderSheet = true }
+                )
+            }
 
             ChatInputBar(
                 inputState = inputState,
@@ -595,6 +634,8 @@ fun ChatScreen(
                 isListening = isListening,
                 rmsLevel = rmsLevel,
                 sendOnEnter = appSettings.sendOnEnter,
+                placeholder = if (appSettings.liveModeEnabled) "Опишите действие на экране..." else "Задать задачу или сказать голосом...",
+                isLiveMode = appSettings.liveModeEnabled,
                 onSend = { text, images ->
                     if (appSettings.liveModeEnabled) {
                         (context as? android.app.Activity)?.moveTaskToBack(true)
@@ -761,6 +802,15 @@ private val GREETING_TEMPLATES = listOf(
     "Что запустим?"
 )
 
+private val LIVE_GREETING_TEMPLATES = listOf(
+    "Что сделать на экране?",
+    "Автопилот наготове",
+    "Какое приложение открыть?",
+    "Что найти или нажать?",
+    "Жду задачу по экрану",
+    "Готов к действиям в системе"
+)
+
 @Composable
 private fun EmptyChatState(
     settings: AppSettings,
@@ -768,8 +818,9 @@ private fun EmptyChatState(
     onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val greeting = remember(sessionId) {
-        GREETING_TEMPLATES.random()
+    val isLive = settings.liveModeEnabled
+    val greeting = remember(sessionId, isLive) {
+        if (isLive) LIVE_GREETING_TEMPLATES.random() else GREETING_TEMPLATES.random()
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -878,16 +929,55 @@ private fun EmptyChatState(
         )
     }
 
-    val allSuggestions: List<EmptyStateSuggestion> = remember(settings.customPromptSuggestions, defaultSuggestions) {
-        val custom: List<EmptyStateSuggestion> = settings.customPromptSuggestions.mapIndexed { idx, promptText ->
+    val liveSuggestions = remember {
+        listOf(
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.Visibility,
+                title = "Что на экране?",
+                prompt = "Посмотри на экран и подробно опиши, что сейчас открыто",
+                isMint = true
+            ),
             EmptyStateSuggestion(
                 icon = Icons.Outlined.AutoAwesome,
-                title = promptText.take(24),
-                prompt = promptText,
-                isMint = (idx % 2 == 1)
+                title = "Настройки системы",
+                prompt = "Открой настройки телефона и проверь статус сети",
+                isMint = false
+            ),
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.Psychology,
+                title = "Поиск в Telegram",
+                prompt = "Открой Telegram и найди последний чат",
+                isMint = true
+            ),
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.Info,
+                title = "Проверить заряд и сеть",
+                prompt = "Проверь уровень заряда батареи и статус Wi-Fi",
+                isMint = false
+            ),
+            EmptyStateSuggestion(
+                icon = Icons.Outlined.AutoAwesome,
+                title = "Погода в браузере",
+                prompt = "Открой браузер и найди прогноз погоды на сегодня",
+                isMint = true
             )
+        )
+    }
+
+    val allSuggestions: List<EmptyStateSuggestion> = remember(settings.customPromptSuggestions, defaultSuggestions, liveSuggestions, isLive) {
+        if (isLive) {
+            liveSuggestions
+        } else {
+            val custom: List<EmptyStateSuggestion> = settings.customPromptSuggestions.mapIndexed { idx, promptText ->
+                EmptyStateSuggestion(
+                    icon = Icons.Outlined.AutoAwesome,
+                    title = promptText.take(24),
+                    prompt = promptText,
+                    isMint = (idx % 2 == 1)
+                )
+            }
+            defaultSuggestions + custom
         }
-        defaultSuggestions + custom
     }
 
     Column(
@@ -902,29 +992,86 @@ private fun EmptyChatState(
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "RUNNER",
-                fontFamily = GoogleSans,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 6.sp,
-                modifier = Modifier.graphicsLayer {
-                    alpha = titleAlpha.value
-                    translationY = titleOffsetY.value * density
-                    scaleX = titleScale.value
-                    scaleY = titleScale.value
-                },
-                style = TextStyle(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+            if (isLive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = titleAlpha.value
+                        translationY = titleOffsetY.value * density
+                        scaleX = titleScale.value
+                        scaleY = titleScale.value
+                    }
+                ) {
+                    Text(
+                        text = "RUNNER",
+                        fontFamily = GoogleSans,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 6.sp,
+                        style = TextStyle(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            ),
+                            textAlign = TextAlign.Center
                         )
-                    ),
-                    textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "LIVE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = "RUNNER",
+                    fontFamily = GoogleSans,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 6.sp,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = titleAlpha.value
+                        translationY = titleOffsetY.value * density
+                        scaleX = titleScale.value
+                        scaleY = titleScale.value
+                    },
+                    style = TextStyle(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                            )
+                        ),
+                        textAlign = TextAlign.Center
+                    )
                 )
-            )
+            }
             Spacer(modifier = Modifier.height(14.dp))
             Column(
                 modifier = Modifier
@@ -945,7 +1092,11 @@ private fun EmptyChatState(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Спросите о файлах, памяти или выберите сценарий",
+                    text = if (isLive) {
+                        "Агент видит экран и автономно выполняет действия перед вашими глазами"
+                    } else {
+                        "Спросите о файлах, памяти или выберите сценарий"
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
