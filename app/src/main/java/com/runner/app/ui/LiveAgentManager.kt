@@ -17,6 +17,7 @@ object LiveAgentManager {
 
     data class State(
         val isExecuting: Boolean = false,
+        val isFinished: Boolean = false,
         val stepDescription: String = "",
         val stepIndex: Int = 0,
         val totalSteps: Int = 0,
@@ -37,6 +38,7 @@ object LiveAgentManager {
     fun start(context: Context, totalSteps: Int = 5) {
         _stateFlow.value = State(
             isExecuting = true,
+            isFinished = false,
             stepDescription = "Подготовка к выполнению...",
             stepIndex = 1,
             totalSteps = totalSteps
@@ -81,6 +83,7 @@ object LiveAgentManager {
         confirmPendingAction(false)
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
+            isFinished = false,
             stepDescription = reason,
             confirmationPrompt = null
         )
@@ -92,9 +95,17 @@ object LiveAgentManager {
         confirmPendingAction(false)
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
+            isFinished = true,
             stepDescription = summary,
             confirmationPrompt = null
         )
+        // Не убираем оверлей автоматически: пользователь видит статус "Готово",
+        // карточку результата и может перейти в Runner или закрыть оверлей.
+    }
+
+    fun reset() {
+        confirmPendingAction(false)
+        _stateFlow.value = State()
         LiveFloatingOverlay.dismiss()
     }
 }

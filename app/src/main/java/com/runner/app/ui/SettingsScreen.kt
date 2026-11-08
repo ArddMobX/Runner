@@ -70,7 +70,6 @@ import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -454,6 +453,13 @@ private fun SettingsRoot(
                 }
             ),
             SearchableSetting(
+                title = "Тест вибрации (3 сек)",
+                section = "Вибрация",
+                description = "Проверка тактильного отклика и силы импульса",
+                icon = Icons.Outlined.Tune,
+                onClick = { viewModel.testHaptic3Seconds(appSettings.hapticIntensity) }
+            ),
+            SearchableSetting(
                 title = "Reverse proxy",
                 section = "Сеть и прокси",
                 description = proxyUrl.ifBlank { "Прямое подключение к Base URL" },
@@ -504,7 +510,7 @@ private fun SettingsRoot(
             SearchableSetting(
                 title = "Telegram-канал",
                 section = "О проекте",
-                description = "@runner_agent — новости разработки",
+                description = "@runner_agent - новости разработки",
                 icon = RunnerIcons.Telegram,
                 onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
             ),
@@ -1097,7 +1103,7 @@ private fun SettingsRoot(
 
             SettingsDivider()
 
-            // 2. Проверка соединения: статус и триггер — единый виджет.
+            // 2. Проверка соединения: статус и триггер - единый виджет.
             // Тап по плашке запускает проверку заново, отдельная кнопка не нужна.
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
@@ -2129,7 +2135,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             // Режим «только чтение»: жёсткая блокировка вместо подтверждений.
             // Нужен, когда агент работает с недоверенными файлами или на модели,
-            // которая обучается на промптах, — тогда менять данные нельзя вообще.
+            // которая обучается на промптах, - тогда менять данные нельзя вообще.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2255,7 +2261,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     text = "Схемы инструментов занимают заметную часть запроса, поэтому " +
                             "их список сужается до чтения и того, что назвал утверждённый " +
                             "план. Если понадобится что-то ещё, агент подключит это сам. " +
-                            "Без плана список не сужается — иначе инструмента может " +
+                            "Без плана список не сужается - иначе инструмента может " +
                             "не оказаться в нужный момент.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp,
@@ -2377,7 +2383,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             // Файловые инструменты заперты в /storage/emulated/0, а sh -c эту
             // песочницу обходит. По умолчанию обход выключен: команды вроде
-            // df -h и ls /sdcard работают, а /data, /system и /proc — нет.
+            // df -h и ls /sdcard работают, а /data, /system и /proc - нет.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2420,7 +2426,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             SettingsDivider()
 
-            // Root — не «ещё один доступ», а принципиально другой уровень риска:
+            // Root - не «ещё один доступ», а принципиально другой уровень риска:
             // su обходит и песочницу путей, и права приложения, и именно так
             // произошёл инцидент со стиранием данных. Поэтому отдельный тумблер
             // и постоянная защита: pm clear, uninstall, wipe, mkfs и dd на
@@ -2439,7 +2445,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     )
                     Text(
                         text = if (appSettings.allowRootShell) {
-                            "Каждое su-действие — по подтверждению"
+                            "Каждое su-действие - по подтверждению"
                         } else {
                             "Команды с su отклоняются"
                         },
@@ -2489,7 +2495,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
  *
  * Раздел появился вместе с обратимым удалением, а затем в него добавились
  * перемещения: у них файлы не теряются, но разложенное агентом по папкам
- * руками уже не собрать. Срок хранения — обещание, которое должно где-то
+ * руками уже не собрать. Срок хранения - обещание, которое должно где-то
  * проверяться, а размер нужно видеть: иначе корзина тихо занимает память,
  * которую пользователь считает свободной.
  */
@@ -2607,7 +2613,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "По истечении срока записи исчезают при следующем запуске. " +
                             "Для удалённого и перезаписанного это означает безвозвратное " +
-                            "стирание, для перемещённого — только потерю возможности откатить.",
+                            "стирание, для перемещённого - только потерю возможности откатить.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
@@ -2653,7 +2659,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
         }
     }
 
-    // Очистка корзины — единственное безвозвратное действие в приложении,
+    // Очистка корзины - единственное безвозвратное действие в приложении,
     // поэтому спрашиваем подтверждение, а не делаем по одному тапу.
     if (confirmEmpty) {
         AlertDialog(
@@ -2666,7 +2672,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Сейчас в корзине ${PluralUtils.files(trash.deletedFileCount)} " +
                             "на ${ToolDispatcher.formatFileSize(trash.totalBytes)}.\n\n" +
                             "Файлы, которые агент переместил, останутся на своих новых " +
-                            "местах — но откатить эти перемещения станет нельзя."
+                            "местах - но откатить эти перемещения станет нельзя."
                 )
             },
             confirmButton = {
@@ -2692,7 +2698,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
  * Список записей журнала: что именно удалено и перемещено, когда и откуда,
  * с возможностью вернуть по одной.
  *
- * Раньше в настройках был только счётчик — по нему нельзя понять, что лежит
+ * Раньше в настройках был только счётчик - по нему нельзя понять, что лежит
  * в корзине, а значит и решить, возвращать ли.
  */
 @Composable
@@ -2782,7 +2788,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             title = { Text("Вернуть всё?") },
             text = {
                 Text(
-                    "Удалённое вернётся на исходные места, перемещённое — обратно туда, " +
+                    "Удалённое вернётся на исходные места, перемещённое - обратно туда, " +
                             "откуда его взяли, а файлы с перезаписью получат обратно прежнее " +
                             "содержимое. Если место занято, файл получит новое имя."
                 )
@@ -2835,8 +2841,8 @@ private fun TrashListScreen(viewModel: MainViewModel) {
  * Журнал shell-команд: что агент пытался выполнить и чем это закончилось.
  *
  * Появился после инцидента со стиранием данных приложений: разбираться было
- * нечем — выполненные команды нигде не сохранялись. Показывает и отказы:
- * попытка опасной команды — такой же факт, как её выполнение.
+ * нечем - выполненные команды нигде не сохранялись. Показывает и отказы:
+ * попытка опасной команды - такой же факт, как её выполнение.
  */
 @Composable
 private fun ShellLogScreen() {
@@ -3480,62 +3486,69 @@ private fun VibrationSettingsCard(
             )
         }
 
-        if (appSettings.hapticEnabled) {
-            SettingsDivider()
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "Сила вибрации",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                SegmentedChips(
-                    options = listOf(
-                        1 to "Слабая",
-                        2 to "Средняя",
-                        3 to "Сильная"
-                    ),
-                    selected = appSettings.hapticIntensity,
-                    onSelect = {
+        SettingsDivider()
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "Сила вибрации",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            SegmentedChips(
+                options = listOf(
+                    1 to "Слабая",
+                    2 to "Средняя",
+                    3 to "Сильная"
+                ),
+                selected = appSettings.hapticIntensity,
+                onSelect = {
+                    if (!appSettings.hapticEnabled) {
+                        viewModel.updateSettings(appSettings.copy(hapticEnabled = true, hapticIntensity = it))
+                    } else {
                         viewModel.updateSettings(appSettings.copy(hapticIntensity = it))
-                        viewModel.testHaptic(it)
                     }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                var isHapticTestRunning by remember { mutableStateOf(false) }
-                LaunchedEffect(isHapticTestRunning) {
-                    if (isHapticTestRunning) {
-                        kotlinx.coroutines.delay(3000L)
-                        isHapticTestRunning = false
-                    }
+                    viewModel.testHaptic(it)
                 }
-                Button(
-                    onClick = {
-                        if (isHapticTestRunning) {
-                            viewModel.stopHapticTest()
-                            isHapticTestRunning = false
-                        } else {
-                            viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
-                            isHapticTestRunning = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isHapticTestRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = if (isHapticTestRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary
-                    ),
-                    border = BorderStroke(0.6.dp, if (isHapticTestRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                ) {
-                    Text(
-                        text = if (isHapticTestRunning) "Остановить тест вибрации" else "Тест вибрации (3 сек)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            var isHapticTestRunning by remember { mutableStateOf(false) }
+            LaunchedEffect(isHapticTestRunning) {
+                if (isHapticTestRunning) {
+                    kotlinx.coroutines.delay(3000L)
+                    isHapticTestRunning = false
                 }
             }
+            Button(
+                onClick = {
+                    if (isHapticTestRunning) {
+                        viewModel.stopHapticTest()
+                        isHapticTestRunning = false
+                    } else {
+                        if (!appSettings.hapticEnabled) {
+                            viewModel.updateSettings(appSettings.copy(hapticEnabled = true))
+                        }
+                        viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
+                        isHapticTestRunning = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isHapticTestRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = if (isHapticTestRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary
+                ),
+                border = BorderStroke(0.6.dp, if (isHapticTestRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            ) {
+                Text(
+                    text = if (isHapticTestRunning) "Остановить тест вибрации" else "Тест вибрации (3 сек)",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
 
+        if (appSettings.hapticEnabled) {
             SettingsDivider()
 
             Text(
@@ -3863,7 +3876,7 @@ private fun uriToStoragePath(uri: Uri): String? {
 /**
  * Компактный сегментный переключатель: равные сегменты, выбранный залит
  * сплошным primary с текстом onPrimary. Раньше активный отличался только
- * тонкой рамкой и оттенком 14% — на свету было не понять, что включено.
+ * тонкой рамкой и оттенком 14% - на свету было не понять, что включено.
  */
 @Composable
 private fun <T> SegmentedChips(
@@ -3937,7 +3950,7 @@ private fun <T> SegmentedChips(
 
 /**
  * Единый слайдер настроек: трек 3dp с засечками по шагам, бегунок 14dp
- * с кольцом цвета фона, снизу — границы диапазона и текущее значение по центру.
+ * с кольцом цвета фона, снизу - границы диапазона и текущее значение по центру.
  *
  * Раньше температура и лимит шагов выглядели по-разному (гладкая полоска против
  * засечек, значение сбоку против подписи снизу), хотя это один и тот же контрол.
@@ -4618,107 +4631,197 @@ private fun AccessSettings(
             )
         }
 
-        // 5. Live-режим: Автопилот по экрану (В разработке)
-        var showLiveInDevDialog by remember { mutableStateOf(false) }
+        // 5. Live-режим: Автопилот по экрану (БЕТА)
+        var showFullAccessWarning by remember { mutableStateOf(false) }
 
         SettingsGroup(
-            title = "Спецвозможности: Live-режим (Автопилот)",
-            badgeText = "В разработке",
-            badgeColor = MaterialTheme.colorScheme.outline,
-            badgeContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            titleIcon = Icons.Outlined.Lock
+            title = "Live-режим (Автопилот по экрану)",
+            badgeText = "БЕТА",
+            badgeColor = MaterialTheme.colorScheme.primary,
+            badgeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
-                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Lock,
+                            imageVector = Icons.Outlined.Info,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp).padding(top = 1.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Функция в активной разработке",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Управление экраном через службу специальных возможностей временно заблокировано и находится на стадии доработки.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Бета-версия: Live-режим позволяет агенту самостоятельно взаимодействовать с приложениями на экране через службу спецвозможностей. Не передавайте управление на экранах ввода паролей и платежных сервисов.",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Button(
-                    onClick = { showLiveInDevDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                ) {
+                val hasAccessibility = remember(context) { RunnerAccessibilityService.isEnabled(context) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.Lock,
+                        imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        tint = if (hasAccessibility) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Включить Live-режим",
-                        fontSize = 13.5.sp,
+                        text = if (hasAccessibility) "Служба спецвозможностей активна" else "Служба спецвозможностей отключена",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Позволяет агенту анализировать экран и совершать физические нажатия и жесты.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val hasOverlay = remember(context) { android.provider.Settings.canDrawOverlays(context) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        tint = if (hasOverlay) StatusSuccess else StatusWarning,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (hasOverlay) "Наложение поверх окон разрешено" else "Отображение поверх окон запрещено",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Нужно для плавающего кружка управления и визуализации тачей.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+
+                if (!hasAccessibility || !hasOverlay) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            if (!hasAccessibility) {
+                                try {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                                } catch (_: Exception) {}
+                            } else if (!hasOverlay) {
+                                try {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = if (!hasAccessibility) "Включить спецвозможности" else "Разрешить наложение поверх окон",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                SettingsDivider()
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Полный доступ (без подтверждений)",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Выполнять рискованные действия без запроса подтверждения на плавающей карточке.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = appSettings.liveFullAccess,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                showFullAccessWarning = true
+                            } else {
+                                viewModel.updateSettings(appSettings.copy(liveFullAccess = false))
+                            }
+                        },
+                        colors = runnerSwitchColors()
                     )
                 }
             }
         }
 
-        if (showLiveInDevDialog) {
+        if (showFullAccessWarning) {
             AlertDialog(
-                onDismissRequest = { showLiveInDevDialog = false },
+                onDismissRequest = { showFullAccessWarning = false },
                 icon = {
                     Icon(
-                        imageVector = Icons.Outlined.Lock,
+                        imageVector = Icons.Outlined.WarningAmber,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(28.dp)
                     )
                 },
                 title = {
                     Text(
-                        text = "Режим в разработке",
+                        text = "Включить полный доступ?",
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp
                     )
                 },
                 text = {
                     Text(
-                        text = "Live-режим (автопилот по экрану через спецвозможности) пока не работает и находится в разработке. Следите за будущими обновлениями!",
+                        text = "В режиме полного доступа агент сможет подтверждать диалоговые окна и совершать действия без ручного одобрения на экране. Используйте с осторожностью.",
                         fontSize = 13.5.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = { showLiveInDevDialog = false }) {
-                        Text("Понятно", fontWeight = FontWeight.SemiBold)
+                    TextButton(
+                        onClick = {
+                            viewModel.updateSettings(appSettings.copy(liveFullAccess = true))
+                            showFullAccessWarning = false
+                        }
+                    ) {
+                        Text("Включить", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showFullAccessWarning = false }) {
+                        Text("Отмена")
                     }
                 }
             )
@@ -4855,7 +4958,7 @@ private fun SettingsDivider() {
 /**
  * Статус проверки связи + триггер в одном виджете: тап по плашке запускает
  * проверку заново. Состояния: ожидание (приглашение), тест (спиннер),
- * результат (цветной бейдж — успех/доступен/ошибка вроде 403).
+ * результат (цветной бейдж - успех/доступен/ошибка вроде 403).
  */
 @Composable
 private fun ConnectionStatusWidget(
@@ -5027,7 +5130,7 @@ private fun ThemeSettingsContent(
                 ColorSource.DYNAMIC to "Обои",
                 ColorSource.CUSTOM to "Свой цвет"
             ),
-            // Без Android 12+ «Обои» недоступны — показываем выбранным «Свой цвет».
+            // Без Android 12+ «Обои» недоступны - показываем выбранным «Свой цвет».
             selected = if (isDynamicAvailable) themeConfig.colorSource else ColorSource.CUSTOM,
             onSelect = onSourceChange,
             isEnabled = { it != ColorSource.DYNAMIC || isDynamicAvailable }

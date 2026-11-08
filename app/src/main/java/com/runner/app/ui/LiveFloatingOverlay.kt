@@ -2,6 +2,7 @@ package com.runner.app.ui
 
 import android.animation.ValueAnimator
 import android.content.Context
+import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -50,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +68,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.runner.app.MainActivity
 import com.runner.app.service.TouchVisualizerOverlay
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.RunnerTheme
@@ -248,6 +251,8 @@ object LiveFloatingOverlay {
     ) {
         val isExpanded = isExpandedState.value
         val state by LiveAgentManager.stateFlow.collectAsState()
+        val isFinished = state.isFinished || (!state.isExecuting && state.stepDescription.isNotEmpty())
+        val context = LocalContext.current
 
         Box(
             modifier = Modifier
@@ -256,19 +261,23 @@ object LiveFloatingOverlay {
         ) {
             if (!isExpanded) {
                 // Компактный плавающий кружок
+                val borderColor = if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                val iconVector = if (isFinished) Icons.Outlined.Check else Icons.Outlined.TouchApp
+                val iconTint = if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+
                 Box(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF141416))
-                        .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), CircleShape)
+                        .border(1.5.dp, borderColor, CircleShape)
                         .clickable { onToggleExpand() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.TouchApp,
-                        contentDescription = "Live",
-                        tint = MaterialTheme.colorScheme.primary,
+                        imageVector = iconVector,
+                        contentDescription = if (isFinished) "Готово" else "Live",
+                        tint = iconTint,
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -280,7 +289,7 @@ object LiveFloatingOverlay {
                     shadowElevation = 8.dp,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                        if (isFinished) Color(0xFF4CAF50).copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
                     ),
                     modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)
                 ) {
@@ -298,15 +307,15 @@ object LiveFloatingOverlay {
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
+                                        .background(if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Runner Live",
+                                    text = if (isFinished) "Runner Live: Готово" else "Runner Live",
                                     fontFamily = GoogleSans,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (isFinished) Color(0xFF81C784) else MaterialTheme.colorScheme.primary
                                 )
                             }
 
@@ -329,17 +338,17 @@ object LiveFloatingOverlay {
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Описание текущего действия
+                        // Описание текущего действия / отчет
                         Text(
-                            text = state.stepDescription.ifEmpty { "Выполнение задачи..." },
+                            text = state.stepDescription.ifEmpty { if (isFinished) "Задача успешно выполнена" else "Выполнение задачи..." },
                             fontFamily = GoogleSans,
                             fontSize = 14.sp,
                             color = Color.White,
-                            maxLines = 3,
+                            maxLines = 4,
                             overflow = TextOverflow.Ellipsis
                         )
 
-                        if (state.stepIndex > 0) {
+                        if (!isFinished && state.stepIndex > 0) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Шаг ${state.stepIndex} из ${state.totalSteps.coerceAtLeast(state.stepIndex)}",
@@ -400,30 +409,74 @@ object LiveFloatingOverlay {
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Кнопка Стоп (аварийная остановка)
-                        ElevatedButton(
-                            onClick = onStop,
-                            colors = ButtonDefaults.elevatedButtonColors(
-                                containerColor = Color(0xFF381A1A),
-                                contentColor = Color(0xFFFF6B6B)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Стоп",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Стоп",
-                                fontFamily = GoogleSans,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        if (isFinished) {
+                            // Действия по завершению задачи: Закрыть и Перейти в чат Runner
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { dismiss() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                ) {
+                                    Text("Закрыть", fontFamily = GoogleSans, fontSize = 12.sp)
+                                }
+                                ElevatedButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(context, MainActivity::class.java).apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                        dismiss()
+                                    },
+                                    colors = ButtonDefaults.elevatedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1.3f)
+                                        .height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "В Runner",
+                                        fontFamily = GoogleSans,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        } else {
+                            // Кнопка Стоп (аварийная остановка)
+                            ElevatedButton(
+                                onClick = onStop,
+                                colors = ButtonDefaults.elevatedButtonColors(
+                                    containerColor = Color(0xFF381A1A),
+                                    contentColor = Color(0xFFFF6B6B)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "Стоп",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Стоп",
+                                    fontFamily = GoogleSans,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
                 }

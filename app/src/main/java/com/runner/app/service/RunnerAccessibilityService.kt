@@ -216,21 +216,37 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     private fun hasPasswordFields(root: AccessibilityNodeInfo): Boolean {
+        if (!root.isVisibleToUser) return false
+
+        val bounds = Rect()
+        root.getBoundsInScreen(bounds)
+        if (bounds.width() <= 0 || bounds.height() <= 0) return false
+
         if (root.isPassword) return true
+
         val inputType = root.inputType
-        val isPasswordType = (inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD) != 0 ||
-                (inputType and InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD) != 0 ||
-                (inputType and InputType.TYPE_NUMBER_VARIATION_PASSWORD) != 0
-        if (isPasswordType) return true
+        if (inputType != 0) {
+            val inputClass = inputType and InputType.TYPE_MASK_CLASS
+            val variation = inputType and InputType.TYPE_MASK_VARIATION
+            val isPasswordType = when (inputClass) {
+                InputType.TYPE_CLASS_TEXT -> {
+                    variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                            variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+                }
+                InputType.TYPE_CLASS_NUMBER -> {
+                    variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                }
+                else -> false
+            }
+            if (isPasswordType) return true
+        }
 
         val count = root.childCount
         for (i in 0 until count) {
             val child = root.getChild(i) ?: continue
-            if (hasPasswordFields(child)) {
-                child.recycle()
-                return true
-            }
+            val hasPass = hasPasswordFields(child)
             child.recycle()
+            if (hasPass) return true
         }
         return false
     }
@@ -238,6 +254,14 @@ class RunnerAccessibilityService : AccessibilityService() {
     private fun isSensitivePackage(packageName: String): Boolean {
         if (packageName.isBlank()) return false
         val lower = packageName.lowercase()
+        if (lower.startsWith("com.runner.app") ||
+            lower.contains("telegram") ||
+            lower.contains("whatsapp") ||
+            lower.contains("viber") ||
+            lower.contains("chrome") ||
+            lower.contains("browser")) {
+            return false
+        }
         return SENSITIVE_PACKAGES.any { lower.contains(it) }
     }
 
@@ -499,7 +523,11 @@ class RunnerAccessibilityService : AccessibilityService() {
             "gazprombank",
             "sovcomcard",
             "gosuslugi",
-            "passwords",
+            "passwordmanager",
+            "1password",
+            "bitwarden",
+            "keepass",
+            "lastpass",
             "authenticator"
         )
     }
