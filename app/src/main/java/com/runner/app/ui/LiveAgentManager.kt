@@ -15,8 +15,16 @@ import kotlin.coroutines.resume
  */
 object LiveAgentManager {
 
+    enum class StepStatus {
+        RUNNING,
+        SUCCESS,
+        ERROR,
+        STOPPED
+    }
+
     data class State(
         val isExecuting: Boolean = false,
+        val status: StepStatus = StepStatus.RUNNING,
         val isFinished: Boolean = false,
         val stepDescription: String = "",
         val stepIndex: Int = 0,
@@ -40,6 +48,7 @@ object LiveAgentManager {
         sessionStopHandler = onStop
         _stateFlow.value = State(
             isExecuting = true,
+            status = StepStatus.RUNNING,
             isFinished = false,
             stepDescription = "Подготовка к выполнению...",
             stepIndex = 1,
@@ -51,6 +60,8 @@ object LiveAgentManager {
     fun updateStep(description: String, index: Int, total: Int = 0) {
         val current = _stateFlow.value
         _stateFlow.value = current.copy(
+            isExecuting = true,
+            status = StepStatus.RUNNING,
             stepDescription = description,
             stepIndex = index,
             totalSteps = if (total > 0) total else current.totalSteps,
@@ -79,12 +90,21 @@ object LiveAgentManager {
         continuation?.resume(approved)
     }
 
-    fun stop(reason: String = "Остановлено пользователем") {
+    fun stop(reason: String = "Остановлено пользователем", isError: Boolean = false) {
         if (!isExecuting) return
 
         confirmPendingAction(false)
+        val lower = reason.lowercase()
+        val isErr = isError ||
+                lower.contains("ошибка") ||
+                lower.contains("блокировк") ||
+                lower.contains("security") ||
+                lower.contains("сбой") ||
+                lower.contains("недоступен")
+
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
+            status = if (isErr) StepStatus.ERROR else StepStatus.STOPPED,
             isFinished = false,
             stepDescription = reason,
             confirmationPrompt = null
@@ -92,13 +112,15 @@ object LiveAgentManager {
         sessionStopHandler?.invoke()
         sessionStopHandler = null
         onStopRequested?.invoke(reason)
-        LiveFloatingOverlay.dismiss()
+        // Оверлей не закрываем: пользователь должен видеть причину остановки или ошибки,
+        // с возможностью закрыть окно или перейти в Runner.
     }
 
     fun finish(summary: String) {
         confirmPendingAction(false)
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
+            status = StepStatus.SUCCESS,
             isFinished = true,
             stepDescription = summary,
             confirmationPrompt = null

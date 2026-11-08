@@ -1068,10 +1068,11 @@ object ToolDispatcher {
                             res.formattedHierarchy
                         }
                         is com.runner.app.service.RunnerAccessibilityService.ScreenInspectionResult.SecurityBlocked -> {
-                            com.runner.app.ui.LiveAgentManager.stop(res.reason)
+                            com.runner.app.ui.LiveAgentManager.stop(res.reason, isError = true)
                             res.reason
                         }
                         is com.runner.app.service.RunnerAccessibilityService.ScreenInspectionResult.Error -> {
+                            com.runner.app.ui.LiveAgentManager.stop(res.message, isError = true)
                             res.message
                         }
                     }
@@ -1702,6 +1703,162 @@ object ToolDispatcher {
      * путём. Раньше алиас обрывал поиск, и «открой ютуб» с модифицированным
      * YouTube возвращало «нет иконки в меню» вместо найденного приложения.
      */
+    /**
+     * Популярные сервисы и список всех известных пакетов: официальные, моды и форки.
+     * Если у пользователя стоит неофициальный клиент (ReVanced, NewPipe, Telegram X,
+     * Nekogram, VTosters, Kate Mobile и т.д.), мы находим и запускаем его сразу.
+     */
+    private val KNOWN_SERVICE_PACKAGES = mapOf(
+        "youtube" to listOf(
+            "app.revanced.android.youtube",
+            "app.rvx.android.youtube",
+            "com.google.android.youtube",
+            "com.vanced.android.youtube",
+            "org.schabi.newpipe",
+            "org.schabi.newpipelegacy",
+            "org.polymorphicshade.tubular",
+            "io.github.junkfood.seal",
+            "com.github.libretube",
+            "free.rm.skytube.oss",
+            "free.rm.skytube.extra"
+        ),
+        "ютуб" to listOf(
+            "app.revanced.android.youtube",
+            "app.rvx.android.youtube",
+            "com.google.android.youtube",
+            "com.vanced.android.youtube",
+            "org.schabi.newpipe",
+            "org.schabi.newpipelegacy",
+            "org.polymorphicshade.tubular",
+            "io.github.junkfood.seal",
+            "com.github.libretube"
+        ),
+        "youtube music" to listOf(
+            "app.revanced.android.apps.youtube.music",
+            "app.rvx.android.apps.youtube.music",
+            "com.vanced.android.apps.youtube.music",
+            "com.google.android.apps.youtube.music",
+            "it.vfsfitvnm.vimusic",
+            "com.zionhuang.music"
+        ),
+        "telegram" to listOf(
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "org.thunderdog.challegram",
+            "nekox.messenger",
+            "com.ayugram.desktop",
+            "org.telegram.plus",
+            "com.turrit.telegram",
+            "org.telegram.BifToGram",
+            "org.forkclient.messenger"
+        ),
+        "телеграм" to listOf(
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "org.thunderdog.challegram",
+            "nekox.messenger",
+            "com.ayugram.desktop",
+            "org.telegram.plus",
+            "com.turrit.telegram"
+        ),
+        "телеграмм" to listOf(
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "org.thunderdog.challegram",
+            "nekox.messenger",
+            "com.ayugram.desktop",
+            "org.telegram.plus"
+        ),
+        "whatsapp" to listOf(
+            "com.whatsapp",
+            "com.whatsapp.w4b",
+            "com.gbwhatsapp",
+            "com.yowhatsapp",
+            "com.fmwhatsapp"
+        ),
+        "ватсап" to listOf(
+            "com.whatsapp",
+            "com.whatsapp.w4b",
+            "com.gbwhatsapp",
+            "com.yowhatsapp",
+            "com.fmwhatsapp"
+        ),
+        "vk" to listOf(
+            "com.vkontakte.android",
+            "com.perm.kate",
+            "com.perm.kate.pro",
+            "com.vtosters.lite",
+            "com.vk.im",
+            "com.vk.music"
+        ),
+        "вконтакте" to listOf(
+            "com.vkontakte.android",
+            "com.perm.kate",
+            "com.perm.kate.pro",
+            "com.vtosters.lite",
+            "com.vk.im",
+            "com.vk.music"
+        ),
+        "reddit" to listOf(
+            "com.reddit.frontpage",
+            "ml.docilealligator.infinityforreddit",
+            "com.rubenmayayo.reddit",
+            "com.laurencedawson.reddit_sync",
+            "com.andrewshu.android.reddit"
+        ),
+        "реддит" to listOf(
+            "com.reddit.frontpage",
+            "ml.docilealligator.infinityforreddit",
+            "com.rubenmayayo.reddit",
+            "com.laurencedawson.reddit_sync"
+        ),
+        "музыка" to listOf(
+            "com.spotify.music",
+            "ru.yandex.music",
+            "app.revanced.android.apps.youtube.music",
+            "it.vfsfitvnm.vimusic",
+            "com.google.android.apps.youtube.music",
+            "com.vk.music",
+            "com.apple.android.music"
+        ),
+        "music" to listOf(
+            "com.spotify.music",
+            "ru.yandex.music",
+            "app.revanced.android.apps.youtube.music",
+            "it.vfsfitvnm.vimusic",
+            "com.google.android.apps.youtube.music",
+            "com.vk.music",
+            "com.apple.android.music"
+        ),
+        "twitter" to listOf(
+            "com.twitter.android",
+            "org.mariotaku.twidere",
+            "it.mvilla.android.fenix2"
+        ),
+        "x" to listOf(
+            "com.twitter.android",
+            "org.mariotaku.twidere"
+        )
+    )
+
+    /** Синонимы и названия модов для поиска приложений в лончере */
+    private val SERVICE_MOD_SYNONYMS = mapOf(
+        "youtube" to listOf("revanced", "rvx", "newpipe", "tubular", "libretube", "skytube", "vanced"),
+        "ютуб" to listOf("youtube", "revanced", "rvx", "newpipe", "tubular", "libretube", "skytube", "vanced"),
+        "youtube music" to listOf("vimusic", "innertune", "blackhole", "revanced"),
+        "telegram" to listOf("nekogram", "ayugram", "challegram", "plus", "turrit"),
+        "телеграм" to listOf("telegram", "nekogram", "ayugram", "challegram", "plus", "turrit"),
+        "телеграмм" to listOf("telegram", "nekogram", "ayugram", "challegram", "plus", "turrit"),
+        "whatsapp" to listOf("gbwhatsapp", "yowhatsapp", "fmwhatsapp"),
+        "ватсап" to listOf("whatsapp", "gbwhatsapp", "yowhatsapp", "fmwhatsapp"),
+        "vk" to listOf("kate", "vtosters", "мессенджер"),
+        "вконтакте" to listOf("vk", "kate", "vtosters", "мессенджер"),
+        "reddit" to listOf("infinity", "relay", "sync"),
+        "реддит" to listOf("reddit", "infinity", "relay", "sync"),
+        "музыка" to listOf("music", "spotify", "vimusic", "innertune", "yandex.music"),
+        "music" to listOf("музыка", "spotify", "vimusic", "innertune", "yandex.music")
+    )
+
     private val APP_ALIASES = mapOf(
         "youtube" to "com.google.android.youtube",
         "ютуб" to "com.google.android.youtube",
@@ -1900,9 +2057,17 @@ object ToolDispatcher {
         urlCandidates.forEach { add(it.label, it.packageName, true) }
 
         val launcher = launcherApps(context)
+        val modSynonyms = SERVICE_MOD_SYNONYMS[needle].orEmpty()
         launcher.filter { it.first.lowercase() == needle }.forEach { add(it.first, it.second, false) }
         launcher.filter { it.first.lowercase().contains(needle) }.forEach { add(it.first, it.second, false) }
         launcher.filter { it.second.lowercase().contains(needle) }.forEach { add(it.first, it.second, false) }
+        if (modSynonyms.isNotEmpty()) {
+            launcher.filter { app ->
+                val l = app.first.lowercase()
+                val p = app.second.lowercase()
+                modSynonyms.any { l.contains(it) || p.contains(it) }
+            }.forEach { add(it.first, it.second, false) }
+        }
 
         // Последним проходом — среди ВСЕХ запускаемых приложений, включая те,
         // у которых нет своей иконки в меню (моды и форки).
@@ -1950,10 +2115,15 @@ object ToolDispatcher {
             }
         }
 
-        // 3. Встроенный алиас, но только если он реально установлен.
-        //    Раньше алиас срабатывал всегда и обрывал поиск по названию.
-        APP_ALIASES[key]?.let { pkg ->
-            if (isInstalled(pm, pkg)) launch(pkg, raw)?.let { return it }
+        // 3. Известные сервисы (включая официальные пакеты и неофициальные моды:
+        //    ReVanced, RVX, NewPipe, Telegram X, Nekogram, AyuGram, GBWhatsApp, Kate Mobile, VTosters и др.)
+        val knownPackages = KNOWN_SERVICE_PACKAGES[key] ?: APP_ALIASES[key]?.let { listOf(it) }
+        knownPackages?.forEach { pkg ->
+            if (isInstalled(pm, pkg) && isLaunchable(pm, pkg)) {
+                rememberAppChoice(context, key, pkg)
+                val label = labelOf(pm, pkg)
+                launch(pkg, label)?.let { return it }
+            }
         }
 
         // 4. Поиск по названию и по обработчикам ссылок.
@@ -1982,6 +2152,18 @@ object ToolDispatcher {
                 urlCandidates.isNotEmpty() &&
                 !queryIsBrowser
         if (onlyBrowsersFound) {
+            // Прежде чем сдаться: проверяем, установлен ли мод с похожим названием среди приложений
+            val modSynonyms = SERVICE_MOD_SYNONYMS[key].orEmpty()
+            val fallbackMod = launcherApps(context).firstOrNull { app ->
+                val l = app.first.lowercase()
+                val p = app.second.lowercase()
+                modSynonyms.any { syn -> l.contains(syn) || p.contains(syn) }
+            }
+            if (fallbackMod != null) {
+                rememberAppChoice(context, key, fallbackMod.second)
+                launch(fallbackMod.second, fallbackMod.first)?.let { return it }
+            }
+
             return "Приложение '$raw' не найдено. Ссылку этого сервиса умеют открывать только " +
                     "браузеры: ${candidates.joinToString(", ") { it.label }}. " +
                     "Если нужно именно в браузере, попроси открыть ссылку."

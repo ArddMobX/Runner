@@ -1,6 +1,5 @@
 package com.runner.app.ui
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -9,13 +8,13 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.PauseCircleOutline
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedButton
@@ -45,11 +46,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -89,12 +93,6 @@ object LiveFloatingOverlay {
     private val isExpandedState = mutableStateOf(false)
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var initialX = 0
-    private var initialY = 0
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-    private var isDragging = false
-
     fun show(context: Context) {
         mainHandler.post {
             if (composeView != null) return@post
@@ -127,7 +125,7 @@ object LiveFloatingOverlay {
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = screenWidth - (64 * density).toInt()
+                x = screenWidth - (68 * density).toInt()
                 y = (screenHeight * 0.35f).toInt()
             }
             layoutParams = params
@@ -141,9 +139,8 @@ object LiveFloatingOverlay {
                 setContent {
                     RunnerTheme {
                         FloatingOverlayContent(
-                            onToggleExpand = {
-                                isExpandedState.value = !isExpandedState.value
-                            },
+                            onToggleExpand = { toggleExpand() },
+                            onMove = { dx, dy -> moveOverlay(dx, dy) },
                             onStop = {
                                 LiveAgentManager.stop("Остановлено пользователем")
                             },
@@ -158,44 +155,6 @@ object LiveFloatingOverlay {
                 }
             }
 
-            view.setOnTouchListener { _, event ->
-                val p = layoutParams ?: return@setOnTouchListener false
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = p.x
-                        initialY = p.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        isDragging = false
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = event.rawX - initialTouchX
-                        val dy = event.rawY - initialTouchY
-                        if (abs(dx) > 10 || abs(dy) > 10) {
-                            isDragging = true
-                            p.x = (initialX + dx).toInt()
-                            p.y = (initialY + dy).toInt()
-                            try {
-                                wm.updateViewLayout(view, p)
-                            } catch (_: Exception) {}
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isDragging) {
-                            // Тап без перемещения: переключаем свернуто/развернуто
-                            isExpandedState.value = !isExpandedState.value
-                        } else {
-                            // Доводчик (прилипание) к левому или правому краю экрана
-                            snapToEdge(view, p, screenWidth)
-                        }
-                        true
-                    }
-                    else -> false
-                }
-            }
-
             composeView = view
 
             try {
@@ -207,23 +166,56 @@ object LiveFloatingOverlay {
         }
     }
 
-    private fun snapToEdge(view: ComposeView, params: WindowManager.LayoutParams, screenWidth: Int) {
+    private fun moveOverlay(dx: Float, dy: Float) {
+        val p = layoutParams ?: return
         val wm = windowManager ?: return
-        val currentX = params.x
-        val midX = screenWidth / 2
-        val targetX = if (currentX + 30 < midX) 20 else (screenWidth - view.width - 20).coerceAtLeast(0)
+        val view = composeView ?: return
+        val context = view.context
+        val metrics = context.resources.displayMetrics
+        val screenWidth = metrics.widthPixels
+        val screenHeight = metrics.heightPixels
+        val density = metrics.density
 
-        ValueAnimator.ofInt(currentX, targetX).apply {
-            duration = 200
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { anim ->
-                params.x = anim.animatedValue as Int
-                try {
-                    wm.updateViewLayout(view, params)
-                } catch (_: Exception) {}
+        val currentWidth = if (isExpandedState.value) (320 * density).toInt() else (54 * density).toInt()
+        val currentHeight = if (isExpandedState.value) (260 * density).toInt() else (54 * density).toInt()
+
+        p.x = (p.x + dx.toInt()).coerceIn(0, (screenWidth - currentWidth).coerceAtLeast(0))
+        p.y = (p.y + dy.toInt()).coerceIn(
+            (24 * density).toInt(),
+            (screenHeight - currentHeight - (48 * density).toInt()).coerceAtLeast(0)
+        )
+        try {
+            wm.updateViewLayout(view, p)
+        } catch (_: Exception) {}
+    }
+
+    private fun toggleExpand() {
+        val willExpand = !isExpandedState.value
+        val p = layoutParams ?: return
+        val wm = windowManager ?: return
+        val view = composeView ?: return
+        val context = view.context
+        val metrics = context.resources.displayMetrics
+        val screenWidth = metrics.widthPixels
+        val screenHeight = metrics.heightPixels
+        val density = metrics.density
+
+        if (willExpand) {
+            val cardWidthPx = (320 * density).toInt()
+            val cardHeightPx = (280 * density).toInt()
+            val marginPx = (16 * density).toInt()
+
+            if (p.x + cardWidthPx > screenWidth - marginPx) {
+                p.x = (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx)
             }
-            start()
+            if (p.y + cardHeightPx > screenHeight - marginPx) {
+                p.y = (screenHeight - cardHeightPx - marginPx).coerceAtLeast(marginPx)
+            }
+            try {
+                wm.updateViewLayout(view, p)
+            } catch (_: Exception) {}
         }
+        isExpandedState.value = willExpand
     }
 
     fun dismiss() {
@@ -242,87 +234,145 @@ object LiveFloatingOverlay {
         }
     }
 
+    private data class StatusVisuals(
+        val color: Color,
+        val icon: ImageVector,
+        val title: String
+    )
+
     @Composable
     private fun FloatingOverlayContent(
         onToggleExpand: () -> Unit,
+        onMove: (Float, Float) -> Unit,
         onStop: () -> Unit,
         onConfirmAction: () -> Unit,
         onCancelAction: () -> Unit
     ) {
         val isExpanded = isExpandedState.value
         val state by LiveAgentManager.stateFlow.collectAsState()
-        val isFinished = state.isFinished || (!state.isExecuting && state.stepDescription.isNotEmpty())
         val context = LocalContext.current
 
-        Box(
-            modifier = Modifier
-                .padding(8.dp)
-                .animateContentSize()
-        ) {
-            if (!isExpanded) {
-                // Компактный плавающий кружок
-                val borderColor = if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                val iconVector = if (isFinished) Icons.Outlined.Check else Icons.Outlined.TouchApp
-                val iconTint = if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+        val visuals = when (state.status) {
+            LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
+                color = Color(0xFF4CAF50),
+                icon = Icons.Outlined.Check,
+                title = "Runner Live: Готово"
+            )
+            LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
+                color = Color(0xFFEF5350),
+                icon = Icons.Outlined.ErrorOutline,
+                title = "Runner Live: Ошибка"
+            )
+            LiveAgentManager.StepStatus.STOPPED -> StatusVisuals(
+                color = Color(0xFFFFA726),
+                icon = Icons.Outlined.PauseCircleOutline,
+                title = "Runner Live: Остановлено"
+            )
+            LiveAgentManager.StepStatus.RUNNING -> StatusVisuals(
+                color = MaterialTheme.colorScheme.primary,
+                icon = Icons.Outlined.TouchApp,
+                title = "Runner Live"
+            )
+        }
 
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF141416))
-                        .border(1.5.dp, borderColor, CircleShape)
-                        .clickable { onToggleExpand() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = iconVector,
-                        contentDescription = if (isFinished) "Готово" else "Live",
-                        tint = iconTint,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            } else {
-                // Развернутая мини-карточка статуса
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF161618),
-                    shadowElevation = 8.dp,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isFinished) Color(0xFF4CAF50).copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                    ),
-                    modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp)
-                    ) {
-                        // Верхняя строка: бэдж Live, статус шага, кнопка свернуть
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isFinished) "Runner Live: Готово" else "Runner Live",
-                                    fontFamily = GoogleSans,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = if (isFinished) Color(0xFF81C784) else MaterialTheme.colorScheme.primary
+        val isFinished = state.status != LiveAgentManager.StepStatus.RUNNING
+
+        Box(
+            modifier = Modifier.padding(6.dp)
+        ) {
+            Crossfade(
+                targetState = isExpanded,
+                animationSpec = tween(150),
+                label = "overlay_expand_fade"
+            ) { expanded ->
+                if (!expanded) {
+                    // Компактный плавающий кружок с плавным перетаскиванием
+                    var hasDragged by remember { mutableStateOf(false) }
+
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragStart = { hasDragged = false },
+                                    onDragEnd = {},
+                                    onDragCancel = {},
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        if (abs(dragAmount.x) > 0.5f || abs(dragAmount.y) > 0.5f) {
+                                            hasDragged = true
+                                            onMove(dragAmount.x, dragAmount.y)
+                                        }
+                                    }
                                 )
                             }
-
-                            Box(
+                            .clip(CircleShape)
+                            .background(Color(0xFF141416))
+                            .border(1.5.dp, visuals.color, CircleShape)
+                            .clickable {
+                                if (!hasDragged) {
+                                    onToggleExpand()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = visuals.icon,
+                            contentDescription = visuals.title,
+                            tint = visuals.color,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                } else {
+                    // Развернутая мини-карточка статуса
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFF161618),
+                        shadowElevation = 8.dp,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            visuals.color.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp)
+                        ) {
+                            // Верхняя строка: заголовок со статусом и кнопка свернуть
+                            // Также поддерживает перетаскивание карточки за заголовок
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
+                                    .fillMaxWidth()
+                                    .pointerInput(Unit) {
+                                        detectDragGestures { change, dragAmount ->
+                                            change.consume()
+                                            onMove(dragAmount.x, dragAmount.y)
+                                        }
+                                    }
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(visuals.color)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = visuals.title,
+                                        fontFamily = GoogleSans,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = visuals.color
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
                                     .background(Color(0xFF242428))
                                     .clickable { onToggleExpand() },
                                 contentAlignment = Alignment.Center
@@ -340,7 +390,9 @@ object LiveFloatingOverlay {
 
                         // Описание текущего действия / отчет
                         Text(
-                            text = state.stepDescription.ifEmpty { if (isFinished) "Задача успешно выполнена" else "Выполнение задачи..." },
+                            text = state.stepDescription.ifEmpty {
+                                if (isFinished) "Задача завершена" else "Выполнение задачи..."
+                            },
                             fontFamily = GoogleSans,
                             fontSize = 14.sp,
                             color = Color.White,
@@ -435,8 +487,8 @@ object LiveFloatingOverlay {
                                         dismiss()
                                     },
                                     colors = ButtonDefaults.elevatedButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                        containerColor = visuals.color,
+                                        contentColor = Color.White
                                     ),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
@@ -483,6 +535,7 @@ object LiveFloatingOverlay {
             }
         }
     }
+}
 
     private class OverlayLifecycleOwner : LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
         private val lifecycleRegistry = LifecycleRegistry(this)

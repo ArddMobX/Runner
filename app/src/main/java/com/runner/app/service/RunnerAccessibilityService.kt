@@ -63,7 +63,6 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     fun clearNodeCache() {
-        cachedNodes.values.forEach { runCatching { it.recycle() } }
         cachedNodes.clear()
         cachedBounds.clear()
     }
@@ -72,131 +71,120 @@ class RunnerAccessibilityService : AccessibilityService() {
      * Проверяет безопасность текущего экрана и извлекает компактную иерархию элементов.
      */
     fun dumpScreenHierarchy(): ScreenInspectionResult {
-        clearNodeCache()
+        return try {
+            clearNodeCache()
 
-        val root = rootInActiveWindow ?: return ScreenInspectionResult.Error("Экран недоступен или заблокирован")
-        val pkg = root.packageName?.toString().orEmpty()
-        lastExtractedPackage = pkg
+            val root = rootInActiveWindow ?: return ScreenInspectionResult.Error("Экран недоступен или заблокирован")
+            val pkg = root.packageName?.toString().orEmpty()
+            lastExtractedPackage = pkg
 
-        // Проверка черного списка безопасности
-        if (isSensitivePackage(pkg)) {
-            root.recycle()
-            return ScreenInspectionResult.SecurityBlocked(
-                "Блокировка безопасности: обнаружено чувствительное приложение ($pkg). " +
-                        "В целях защиты данных Live-режим остановлен."
-            )
-        }
-
-        // Проверка наличия полей ввода пароля
-        if (hasPasswordFields(root)) {
-            root.recycle()
-            return ScreenInspectionResult.SecurityBlocked(
-                "Блокировка безопасности: на экране обнаружено поле ввода пароля. " +
-                        "В целях защиты конфиденциальности Live-режим остановлен."
-            )
-        }
-
-        val displayMetrics = resources.displayMetrics
-        val screenWidth = displayMetrics.widthPixels
-        val screenHeight = displayMetrics.heightPixels
-
-        val visibleNodes = mutableListOf<NodeEntry>()
-        var nextId = 1
-
-        fun traverse(node: AccessibilityNodeInfo?) {
-            if (node == null) return
-            if (!node.isVisibleToUser) {
-                node.recycle()
-                return
-            }
-
-            val bounds = Rect()
-            node.getBoundsInScreen(bounds)
-
-            // Пропускаем узлы нулевого размера или полностью за пределами экрана
-            if (bounds.width() <= 0 || bounds.height() <= 0 ||
-                bounds.bottom < 0 || bounds.right < 0 ||
-                bounds.left > screenWidth || bounds.top > screenHeight) {
-                node.recycle()
-                return
-            }
-
-            val text = node.text?.toString()?.trim().orEmpty()
-            val desc = node.contentDescription?.toString()?.trim().orEmpty()
-            val isClickable = node.isClickable
-            val isEditable = node.isEditable
-            val isScrollable = node.isScrollable
-            val isCheckable = node.isCheckable
-
-            val isMeaningful = text.isNotEmpty() || desc.isNotEmpty() ||
-                    isClickable || isEditable || isScrollable || isCheckable
-
-            if (isMeaningful) {
-                val elementId = nextId++
-                cachedNodes[elementId] = node
-                cachedBounds[elementId] = bounds
-
-                val typeLabel = simplifyClassName(node.className?.toString())
-                visibleNodes.add(
-                    NodeEntry(
-                        id = elementId,
-                        type = typeLabel,
-                        text = text,
-                        description = desc,
-                        bounds = bounds,
-                        isClickable = isClickable,
-                        isEditable = isEditable,
-                        isScrollable = isScrollable,
-                        isChecked = if (isCheckable) node.isChecked else null
-                    )
+            // Проверка черного списка безопасности
+            if (isSensitivePackage(pkg)) {
+                return ScreenInspectionResult.SecurityBlocked(
+                    "Блокировка безопасности: обнаружено чувствительное приложение ($pkg). " +
+                            "В целях защиты данных Live-режим остановлен."
                 )
-            } else {
-                // Если узел сам по себе не интерактивен и не несет текста,
-                // проверяем детей, а сам узел утилизируем
+            }
+
+            // Проверка наличия полей ввода пароля
+            if (hasPasswordFields(root)) {
+                return ScreenInspectionResult.SecurityBlocked(
+                    "Блокировка безопасности: на экране обнаружено поле ввода пароля. " +
+                            "В целях защиты конфиденциальности Live-режим остановлен."
+                )
+            }
+
+            val displayMetrics = resources.displayMetrics
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+
+            val visibleNodes = mutableListOf<NodeEntry>()
+            var nextId = 1
+
+            fun traverse(node: AccessibilityNodeInfo?) {
+                if (node == null) return
+                if (!node.isVisibleToUser) return
+
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+
+                // Пропускаем узлы нулевого размера или полностью за пределами экрана
+                if (bounds.width() <= 0 || bounds.height() <= 0 ||
+                    bounds.bottom < 0 || bounds.right < 0 ||
+                    bounds.left > screenWidth || bounds.top > screenHeight) {
+                    return
+                }
+
+                val text = node.text?.toString()?.trim().orEmpty()
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                val isClickable = node.isClickable
+                val isEditable = node.isEditable
+                val isScrollable = node.isScrollable
+                val isCheckable = node.isCheckable
+
+                val isMeaningful = text.isNotEmpty() || desc.isNotEmpty() ||
+                        isClickable || isEditable || isScrollable || isCheckable
+
+                if (isMeaningful) {
+                    val elementId = nextId++
+                    cachedNodes[elementId] = node
+                    cachedBounds[elementId] = bounds
+
+                    val typeLabel = simplifyClassName(node.className?.toString())
+                    visibleNodes.add(
+                        NodeEntry(
+                            id = elementId,
+                            type = typeLabel,
+                            text = text,
+                            description = desc,
+                            bounds = bounds,
+                            isClickable = isClickable,
+                            isEditable = isEditable,
+                            isScrollable = isScrollable,
+                            isChecked = if (isCheckable) node.isChecked else null
+                        )
+                    )
+                }
+
                 val childCount = node.childCount
                 for (i in 0 until childCount) {
                     traverse(node.getChild(i))
                 }
-                node.recycle()
-                return
             }
 
-            val childCount = node.childCount
-            for (i in 0 until childCount) {
-                traverse(node.getChild(i))
-            }
-        }
+            traverse(root)
 
-        traverse(root)
-
-        val formattedTree = buildString {
-            appendLine("Приложение: $pkg (размер экрана: ${screenWidth}x$screenHeight)")
-            if (visibleNodes.isEmpty()) {
-                appendLine("Интерактивные элементы не найдены.")
-            } else {
-                appendLine("Видимые элементы:")
-                for (entry in visibleNodes) {
-                    append("[#${entry.id}] ${entry.type}")
-                    if (entry.text.isNotEmpty()) append(" \"${entry.text}\"")
-                    if (entry.description.isNotEmpty() && entry.description != entry.text) {
-                        append(" (описание: \"${entry.description}\")")
+            val formattedTree = buildString {
+                appendLine("Приложение: $pkg (размер экрана: ${screenWidth}x$screenHeight)")
+                if (visibleNodes.isEmpty()) {
+                    appendLine("Интерактивные элементы не найдены.")
+                } else {
+                    appendLine("Видимые элементы:")
+                    for (entry in visibleNodes) {
+                        append("[#${entry.id}] ${entry.type}")
+                        if (entry.text.isNotEmpty()) append(" \"${entry.text}\"")
+                        if (entry.description.isNotEmpty() && entry.description != entry.text) {
+                            append(" (описание: \"${entry.description}\")")
+                        }
+                        if (entry.isChecked != null) {
+                            append(" [выбрано=${entry.isChecked}]")
+                        }
+                        val cx = entry.bounds.centerX()
+                        val cy = entry.bounds.centerY()
+                        append(" -> центр: ($cx, $cy)")
+                        appendLine(" границы: [${entry.bounds.left}, ${entry.bounds.top}, ${entry.bounds.right}, ${entry.bounds.bottom}]")
                     }
-                    if (entry.isChecked != null) {
-                        append(" [выбрано=${entry.isChecked}]")
-                    }
-                    val cx = entry.bounds.centerX()
-                    val cy = entry.bounds.centerY()
-                    append(" -> центр: ($cx, $cy)")
-                    appendLine(" границы: [${entry.bounds.left}, ${entry.bounds.top}, ${entry.bounds.right}, ${entry.bounds.bottom}]")
                 }
             }
-        }
 
-        return ScreenInspectionResult.Success(
-            packageName = pkg,
-            formattedHierarchy = formattedTree,
-            nodes = visibleNodes
-        )
+            ScreenInspectionResult.Success(
+                packageName = pkg,
+                formattedHierarchy = formattedTree,
+                nodes = visibleNodes
+            )
+        } catch (t: Throwable) {
+            ScreenInspectionResult.Error("Ошибка анализа экрана: ${t.localizedMessage ?: t.javaClass.simpleName}")
+        }
     }
 
     private fun simplifyClassName(fullClass: String?): String {
@@ -245,7 +233,6 @@ class RunnerAccessibilityService : AccessibilityService() {
         for (i in 0 until count) {
             val child = root.getChild(i) ?: continue
             val hasPass = hasPasswordFields(child)
-            child.recycle()
             if (hasPass) return true
         }
         return false
@@ -359,7 +346,6 @@ class RunnerAccessibilityService : AccessibilityService() {
             val child = root.getChild(i) ?: continue
             val found = findFocusedEditText(child)
             if (found != null) return found
-            child.recycle()
         }
         return null
     }
