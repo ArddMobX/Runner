@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -44,6 +45,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.runner.app.ui.ChatScreen
+import com.runner.app.ui.LiveAgentManager
+import com.runner.app.ui.LiveFloatingOverlay
 import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
@@ -136,6 +139,11 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Пользователь мог вернуться с системного экрана выдачи прав
         viewModel.checkAllPermissions()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        LiveFloatingOverlay.dismiss()
     }
 }
 
@@ -245,10 +253,12 @@ fun AppNavigation(viewModel: MainViewModel) {
                         snippets = searchSnippets,
                         onQueryChange = { viewModel.setSessionsQuery(it) },
                         onNewChat = {
+                            LiveAgentManager.reset()
                             viewModel.startNewChat()
                             scope.launch { drawerState.close() }
                         },
                         onOpenSession = { sessionId ->
+                            LiveAgentManager.reset()
                             viewModel.openSession(sessionId)
                             scope.launch { drawerState.close() }
                         },
@@ -306,7 +316,10 @@ fun openAppSettings(context: Context) {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
-    } catch (_: Exception) {}
+    } catch (e: Exception) {
+        // Кнопка «открыть настройки» ничего не делает — это стоит видеть в логе.
+        Log.w("RunnerSettings", "не удалось открыть системные настройки", e)
+    }
 }
 
 /**

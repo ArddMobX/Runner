@@ -1,5 +1,6 @@
 package com.runner.app.ui
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -8,13 +9,15 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,14 +49,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -76,7 +76,6 @@ import com.runner.app.MainActivity
 import com.runner.app.service.TouchVisualizerOverlay
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.RunnerTheme
-import kotlin.math.abs
 
 /**
  * Плавающий оверлей для управления Live-режимом (автопилотом) агента:
@@ -111,15 +110,17 @@ object LiveFloatingOverlay {
             val screenWidth = displayMetrics.widthPixels
             val screenHeight = displayMetrics.heightPixels
 
+            val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                },
+                layoutType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
@@ -140,7 +141,6 @@ object LiveFloatingOverlay {
                     RunnerTheme {
                         FloatingOverlayContent(
                             onToggleExpand = { toggleExpand() },
-                            onMove = { dx, dy -> moveOverlay(dx, dy) },
                             onStop = {
                                 LiveAgentManager.stop("Остановлено пользователем")
                             },
@@ -151,6 +151,120 @@ object LiveFloatingOverlay {
                                 LiveAgentManager.confirmPendingAction(false)
                             }
                         )
+                    }
+                }
+            }
+
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+            var isDragging = false
+            var isHeaderTouch = false
+            val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+
+            view.setOnTouchListener { _, event ->
+                val p = layoutParams ?: return@setOnTouchListener false
+                val curWm = windowManager ?: return@setOnTouchListener false
+
+                if (!isExpandedState.value) {
+                    // Компактный плавающий кружок: перетаскивание и тап
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            initialX = p.x
+                            initialY = p.y
+                            initialTouchX = event.rawX
+                            initialTouchY = event.rawY
+                            isDragging = false
+                            true
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dx = event.rawX - initialTouchX
+                            val dy = event.rawY - initialTouchY
+                            if (!isDragging && (dx * dx + dy * dy > touchSlop * touchSlop)) {
+                                isDragging = true
+                            }
+                            if (isDragging) {
+                                val bubbleSizePx = (54 * density).toInt()
+                                p.x = (initialX + dx).toInt().coerceIn(0, (screenWidth - bubbleSizePx).coerceAtLeast(0))
+                                p.y = (initialY + dy).toInt().coerceIn(
+                                    (24 * density).toInt(),
+                                    (screenHeight - bubbleSizePx - (48 * density).toInt()).coerceAtLeast(0)
+                                )
+                                try {
+                                    curWm.updateViewLayout(view, p)
+                                } catch (_: Exception) {}
+                            }
+                            true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            if (!isDragging) {
+                                toggleExpand()
+                            } else {
+                                snapToEdge(view, p, screenWidth, density)
+                            }
+                            true
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
+                            isDragging = false
+                            true
+                        }
+                        else -> false
+                    }
+                } else {
+                    // Развернутая карточка: перетаскивание за верхнюю плашку (кроме кнопки закрытия X)
+                    val headerHeightPx = (46 * density).toInt()
+                    val closeButtonZonePx = (52 * density).toInt()
+
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            if (event.y < headerHeightPx && event.x < (view.width - closeButtonZonePx)) {
+                                isHeaderTouch = true
+                                initialX = p.x
+                                initialY = p.y
+                                initialTouchX = event.rawX
+                                initialTouchY = event.rawY
+                                isDragging = false
+                                true
+                            } else {
+                                isHeaderTouch = false
+                                false
+                            }
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (isHeaderTouch) {
+                                val dx = event.rawX - initialTouchX
+                                val dy = event.rawY - initialTouchY
+                                if (!isDragging && (dx * dx + dy * dy > touchSlop * touchSlop)) {
+                                    isDragging = true
+                                }
+                                if (isDragging) {
+                                    val cardWidthPx = (320 * density).toInt()
+                                    val cardHeightPx = (280 * density).toInt()
+                                    p.x = (initialX + dx).toInt().coerceIn(0, (screenWidth - cardWidthPx).coerceAtLeast(0))
+                                    p.y = (initialY + dy).toInt().coerceIn(
+                                        (24 * density).toInt(),
+                                        (screenHeight - cardHeightPx).coerceAtLeast(0)
+                                    )
+                                    try {
+                                        curWm.updateViewLayout(view, p)
+                                    } catch (_: Exception) {}
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            if (isHeaderTouch) {
+                                isHeaderTouch = false
+                                isDragging = false
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        else -> false
                     }
                 }
             }
@@ -166,27 +280,29 @@ object LiveFloatingOverlay {
         }
     }
 
-    private fun moveOverlay(dx: Float, dy: Float) {
-        val p = layoutParams ?: return
+    private fun snapToEdge(view: ComposeView, params: WindowManager.LayoutParams, screenWidth: Int, density: Float) {
         val wm = windowManager ?: return
-        val view = composeView ?: return
-        val context = view.context
-        val metrics = context.resources.displayMetrics
-        val screenWidth = metrics.widthPixels
-        val screenHeight = metrics.heightPixels
-        val density = metrics.density
+        val currentX = params.x
+        val bubbleSizePx = (54 * density).toInt()
+        val marginPx = (16 * density).toInt()
+        val midX = screenWidth / 2
+        val targetX = if (currentX + bubbleSizePx / 2 < midX) {
+            marginPx
+        } else {
+            (screenWidth - bubbleSizePx - marginPx).coerceAtLeast(marginPx)
+        }
 
-        val currentWidth = if (isExpandedState.value) (320 * density).toInt() else (54 * density).toInt()
-        val currentHeight = if (isExpandedState.value) (260 * density).toInt() else (54 * density).toInt()
-
-        p.x = (p.x + dx.toInt()).coerceIn(0, (screenWidth - currentWidth).coerceAtLeast(0))
-        p.y = (p.y + dy.toInt()).coerceIn(
-            (24 * density).toInt(),
-            (screenHeight - currentHeight - (48 * density).toInt()).coerceAtLeast(0)
-        )
-        try {
-            wm.updateViewLayout(view, p)
-        } catch (_: Exception) {}
+        ValueAnimator.ofInt(currentX, targetX).apply {
+            duration = 180
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { anim ->
+                params.x = anim.animatedValue as Int
+                try {
+                    wm.updateViewLayout(view, params)
+                } catch (_: Exception) {}
+            }
+            start()
+        }
     }
 
     private fun toggleExpand() {
@@ -200,10 +316,10 @@ object LiveFloatingOverlay {
         val screenHeight = metrics.heightPixels
         val density = metrics.density
 
+        val marginPx = (16 * density).toInt()
         if (willExpand) {
             val cardWidthPx = (320 * density).toInt()
             val cardHeightPx = (280 * density).toInt()
-            val marginPx = (16 * density).toInt()
 
             if (p.x + cardWidthPx > screenWidth - marginPx) {
                 p.x = (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx)
@@ -211,6 +327,13 @@ object LiveFloatingOverlay {
             if (p.y + cardHeightPx > screenHeight - marginPx) {
                 p.y = (screenHeight - cardHeightPx - marginPx).coerceAtLeast(marginPx)
             }
+            try {
+                wm.updateViewLayout(view, p)
+            } catch (_: Exception) {}
+        } else {
+            val bubbleSizePx = (54 * density).toInt()
+            p.x = p.x.coerceIn(marginPx, (screenWidth - bubbleSizePx - marginPx).coerceAtLeast(marginPx))
+            p.y = p.y.coerceIn(marginPx, (screenHeight - bubbleSizePx - marginPx).coerceAtLeast(marginPx))
             try {
                 wm.updateViewLayout(view, p)
             } catch (_: Exception) {}
@@ -243,7 +366,6 @@ object LiveFloatingOverlay {
     @Composable
     private fun FloatingOverlayContent(
         onToggleExpand: () -> Unit,
-        onMove: (Float, Float) -> Unit,
         onStop: () -> Unit,
         onConfirmAction: () -> Unit,
         onCancelAction: () -> Unit
@@ -254,19 +376,19 @@ object LiveFloatingOverlay {
 
         val visuals = when (state.status) {
             LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
-                color = Color(0xFF4CAF50),
+                color = Color(0xFF34D399),
                 icon = Icons.Outlined.Check,
-                title = "Runner Live: Готово"
-            )
-            LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
-                color = Color(0xFFEF5350),
-                icon = Icons.Outlined.ErrorOutline,
-                title = "Runner Live: Ошибка"
+                title = "Готово"
             )
             LiveAgentManager.StepStatus.STOPPED -> StatusVisuals(
-                color = Color(0xFFFFA726),
+                color = Color(0xFFFBBF24),
                 icon = Icons.Outlined.PauseCircleOutline,
-                title = "Runner Live: Остановлено"
+                title = "Остановлено"
+            )
+            LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
+                color = Color(0xFFF87171),
+                icon = Icons.Outlined.ErrorOutline,
+                title = "Ошибка"
             )
             LiveAgentManager.StepStatus.RUNNING -> StatusVisuals(
                 color = MaterialTheme.colorScheme.primary,
@@ -286,34 +408,13 @@ object LiveFloatingOverlay {
                 label = "overlay_expand_fade"
             ) { expanded ->
                 if (!expanded) {
-                    // Компактный плавающий кружок с плавным перетаскиванием
-                    var hasDragged by remember { mutableStateOf(false) }
-
+                    // Компактный плавающий кружок
                     Box(
                         modifier = Modifier
                             .size(54.dp)
-                            .pointerInput(Unit) {
-                                detectDragGestures(
-                                    onDragStart = { hasDragged = false },
-                                    onDragEnd = {},
-                                    onDragCancel = {},
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        if (abs(dragAmount.x) > 0.5f || abs(dragAmount.y) > 0.5f) {
-                                            hasDragged = true
-                                            onMove(dragAmount.x, dragAmount.y)
-                                        }
-                                    }
-                                )
-                            }
                             .clip(CircleShape)
                             .background(Color(0xFF141416))
-                            .border(1.5.dp, visuals.color, CircleShape)
-                            .clickable {
-                                if (!hasDragged) {
-                                    onToggleExpand()
-                                }
-                            },
+                            .border(1.5.dp, visuals.color, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -338,21 +439,16 @@ object LiveFloatingOverlay {
                         Column(
                             modifier = Modifier.padding(14.dp)
                         ) {
-                            // Верхняя строка: заголовок со статусом и кнопка свернуть
-                            // Также поддерживает перетаскивание карточки за заголовок
+                            // Заголовок карточки со статусом и кнопкой сворачивания
                             Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .pointerInput(Unit) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            onMove(dragAmount.x, dragAmount.y)
-                                        }
-                                    }
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
                                     Box(
                                         modifier = Modifier
                                             .size(8.dp)
@@ -371,163 +467,170 @@ object LiveFloatingOverlay {
 
                                 Box(
                                     modifier = Modifier
-                                        .size(24.dp)
+                                        .size(28.dp)
                                         .clip(CircleShape)
-                                    .background(Color(0xFF242428))
-                                    .clickable { onToggleExpand() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Свернуть",
-                                    tint = Color.White.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(14.dp)
+                                        .background(Color(0xFF242428))
+                                        .clickable {
+                                            if (isFinished) {
+                                                LiveAgentManager.reset()
+                                            } else {
+                                                onToggleExpand()
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = if (isFinished) "Закрыть" else "Свернуть",
+                                        tint = Color.White.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Описание текущего действия / отчет
+                            Text(
+                                text = state.stepDescription.ifEmpty {
+                                    if (isFinished) "Задача завершена" else "Выполнение задачи..."
+                                },
+                                fontFamily = GoogleSans,
+                                fontSize = 14.sp,
+                                color = Color.White,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (!isFinished && state.stepIndex > 0) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Шаг ${state.stepIndex} из ${state.totalSteps.coerceAtLeast(state.stepIndex)}",
+                                    fontFamily = GoogleSans,
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.6f)
                                 )
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Описание текущего действия / отчет
-                        Text(
-                            text = state.stepDescription.ifEmpty {
-                                if (isFinished) "Задача завершена" else "Выполнение задачи..."
-                            },
-                            fontFamily = GoogleSans,
-                            fontSize = 14.sp,
-                            color = Color.White,
-                            maxLines = 4,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        if (!isFinished && state.stepIndex > 0) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Шаг ${state.stepIndex} из ${state.totalSteps.coerceAtLeast(state.stepIndex)}",
-                                fontFamily = GoogleSans,
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.5f)
-                            )
-                        }
-
-                        // Если требуется подтверждение рискованного действия
-                        if (state.confirmationPrompt != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF2A2016))
-                                    .border(1.dp, Color(0xFFE5A030).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Column {
+                            // Блок подтверждения действия, если агент запросил подтверждение
+                            state.confirmationPrompt?.let { prompt ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF231F14))
+                                        .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                        .padding(10.dp)
+                                ) {
                                     Text(
-                                        text = state.confirmationPrompt.orEmpty(),
+                                        text = prompt,
                                         fontFamily = GoogleSans,
                                         fontSize = 12.sp,
-                                        color = Color(0xFFF3C77D)
+                                        color = Color(0xFFFDE68A)
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(
-                                        horizontalArrangement = Arrangement.End,
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         OutlinedButton(
                                             onClick = onCancelAction,
-                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(32.dp)
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f).height(34.dp)
                                         ) {
-                                            Text("Отмена", fontSize = 11.sp)
+                                            Text("Отмена", fontFamily = GoogleSans, fontSize = 11.sp)
                                         }
-                                        Spacer(modifier = Modifier.width(8.dp))
                                         ElevatedButton(
                                             onClick = onConfirmAction,
-                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                             colors = ButtonDefaults.elevatedButtonColors(
-                                                containerColor = MaterialTheme.colorScheme.primary,
-                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                                containerColor = Color(0xFFF59E0B),
+                                                contentColor = Color.Black
                                             ),
-                                            modifier = Modifier.height(32.dp)
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f).height(34.dp)
                                         ) {
-                                            Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Подтвердить", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                text = "Да",
+                                                fontFamily = GoogleSans,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        if (isFinished) {
-                            // Действия по завершению задачи: Закрыть и Перейти в чат Runner
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { dismiss() },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(38.dp)
+                            if (isFinished) {
+                                // Действия по завершению задачи: Закрыть и Перейти в чат Runner
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text("Закрыть", fontFamily = GoogleSans, fontSize = 12.sp)
+                                    OutlinedButton(
+                                        onClick = { LiveAgentManager.reset() },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(38.dp)
+                                    ) {
+                                        Text("Закрыть", fontFamily = GoogleSans, fontSize = 12.sp)
+                                    }
+                                    ElevatedButton(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(context, MainActivity::class.java).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                            LiveAgentManager.reset()
+                                        },
+                                        colors = ButtonDefaults.elevatedButtonColors(
+                                            containerColor = visuals.color,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1.3f)
+                                            .height(38.dp)
+                                    ) {
+                                        Text(
+                                            text = "В Runner",
+                                            fontFamily = GoogleSans,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
                                 }
+                            } else {
+                                // Кнопка Стоп (аварийная остановка)
                                 ElevatedButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(context, MainActivity::class.java).apply {
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                        dismiss()
-                                    },
+                                    onClick = onStop,
                                     colors = ButtonDefaults.elevatedButtonColors(
-                                        containerColor = visuals.color,
-                                        contentColor = Color.White
+                                        containerColor = Color(0xFF381A1A),
+                                        contentColor = Color(0xFFFF6B6B)
                                     ),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
-                                        .weight(1.3f)
+                                        .fillMaxWidth()
                                         .height(38.dp)
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Stop,
+                                        contentDescription = "Стоп",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "В Runner",
+                                        text = "Стоп",
                                         fontFamily = GoogleSans,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
+                                        fontSize = 13.sp
                                     )
                                 }
-                            }
-                        } else {
-                            // Кнопка Стоп (аварийная остановка)
-                            ElevatedButton(
-                                onClick = onStop,
-                                colors = ButtonDefaults.elevatedButtonColors(
-                                    containerColor = Color(0xFF381A1A),
-                                    contentColor = Color(0xFFFF6B6B)
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Stop,
-                                    contentDescription = "Стоп",
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Стоп",
-                                    fontFamily = GoogleSans,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
                             }
                         }
                     }
@@ -535,7 +638,6 @@ object LiveFloatingOverlay {
             }
         }
     }
-}
 
     private class OverlayLifecycleOwner : LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
         private val lifecycleRegistry = LifecycleRegistry(this)
