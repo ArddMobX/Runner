@@ -70,6 +70,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.runner.app.MainActivity
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.MarkdownView
@@ -204,8 +205,9 @@ private fun OverlayScreen(
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             isCapturingScreen = true
             scope.launch {
+                val act = context as? Activity ?: return@launch
                 val uri = ScreenCaptureManager.captureScreen(
-                    context as Activity,
+                    act,
                     result.resultCode,
                     result.data!!
                 )
@@ -295,6 +297,20 @@ private fun OverlayScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "БЕТА",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                        )
+                    }
 
                     activeProvider?.let { p ->
                         Spacer(modifier = Modifier.width(6.dp))

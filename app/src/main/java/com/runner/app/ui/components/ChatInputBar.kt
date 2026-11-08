@@ -147,6 +147,8 @@ fun ChatInputBar(
     onStop: () -> Unit,
     onStartListening: (() -> Unit)? = null,
     onStopListening: (() -> Unit)? = null,
+    placeholder: String? = null,
+    isLiveMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -211,6 +213,7 @@ fun ChatInputBar(
             isRunning -> MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
             isListening -> MaterialTheme.colorScheme.primary
             isActive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+            isLiveMode -> MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
             else -> MaterialTheme.colorScheme.outlineVariant
         },
         animationSpec = MotionTokens.fluidTween(200),
@@ -278,7 +281,7 @@ fun ChatInputBar(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(26.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(26.dp))
+                .border(BorderStroke(if (isLiveMode) 1.2.dp else 1.dp, borderColor), RoundedCornerShape(26.dp))
                 .padding(horizontal = 6.dp, vertical = 5.dp),
             verticalAlignment = if (textValue.text.contains('\n')) Alignment.Bottom else Alignment.CenterVertically
         ) {
@@ -388,7 +391,7 @@ fun ChatInputBar(
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (rawText.isEmpty()) {
                             Text(
-                                text = if (isListening) "Слушаю речь..." else "Задать задачу или сказать голосом...",
+                                text = if (isListening) "Слушаю речь..." else (placeholder ?: "Задать задачу или сказать голосом..."),
                                 color = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                 fontSize = 15.sp,
                                 lineHeight = 22.sp

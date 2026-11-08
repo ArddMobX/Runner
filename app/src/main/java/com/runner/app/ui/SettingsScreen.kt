@@ -68,7 +68,9 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -4419,8 +4421,43 @@ private fun AccessSettings(
             isAssistantActive = checkAssistantActive()
         }
 
-        SettingsGroup("Системный ассистент Android") {
+        var showAssistantBetaWarningDialog by remember { mutableStateOf(false) }
+
+        SettingsGroup(
+            title = "Системный ассистент Android",
+            badgeText = "БЕТА",
+            badgeColor = MaterialTheme.colorScheme.tertiary,
+            badgeContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+        ) {
             Column(modifier = Modifier.padding(14.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f),
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(16.dp).padding(top = 1.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Бета-версия: на некоторых прошивках (MIUI/HyperOS, ColorOS, OneUI) системный вызов ассистента жестом или скриншоты экрана могут работать нестабильно.",
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (isAssistantActive) Icons.Outlined.CheckCircle else Icons.Outlined.AutoAwesome,
@@ -4465,7 +4502,7 @@ private fun AccessSettings(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "1. Нажмите кнопку ниже\n2. В системном списке выберите «Runner»\n3. Подтвердите выбор для доступа к экрану",
+                                text = "1. Нажмите кнопку ниже\n2. Ознакомьтесь с предупреждением о бета-версии\n3. В системном списке выберите «Runner»",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.5.sp,
                                 lineHeight = 16.sp
@@ -4481,22 +4518,7 @@ private fun AccessSettings(
                         if (isAssistantActive) {
                             openSystemAssistantSettings()
                         } else {
-                            var launchedPrompt = false
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                val roleManager = context.getSystemService(RoleManager::class.java)
-                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
-                                    try {
-                                        val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                                        assistantRoleLauncher.launch(intent)
-                                        launchedPrompt = true
-                                    } catch (_: Exception) {
-                                        launchedPrompt = false
-                                    }
-                                }
-                            }
-                            if (!launchedPrompt) {
-                                openSystemAssistantSettings()
-                            }
+                            showAssistantBetaWarningDialog = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -4524,7 +4546,7 @@ private fun AccessSettings(
                 if (!isAssistantActive) {
                     Spacer(modifier = Modifier.height(6.dp))
                     TextButton(
-                        onClick = openSystemAssistantSettings,
+                        onClick = { showAssistantBetaWarningDialog = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
@@ -4537,153 +4559,169 @@ private fun AccessSettings(
             }
         }
 
-                // 5. Live-режим: Автопилот по экрану
-        SettingsGroup("Live-режим (Автопилот по экрану)") {
-            Column(modifier = Modifier.padding(14.dp)) {
-                val hasAccessibility = remember(context) { RunnerAccessibilityService.isEnabled(context) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        if (showAssistantBetaWarningDialog) {
+            AlertDialog(
+                onDismissRequest = { showAssistantBetaWarningDialog = false },
+                icon = {
                     Icon(
-                        imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        imageVector = Icons.Outlined.Info,
                         contentDescription = null,
-                        tint = if (hasAccessibility) StatusSuccess else StatusWarning,
-                        modifier = Modifier.size(17.dp)
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(28.dp)
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                },
+                title = {
                     Text(
-                        text = if (hasAccessibility) "Специальные возможности активны" else "Служба специальных возможностей отключена",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        text = "Бета-версия ассистента",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
                     )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Позволяет агенту анализировать экран и отправлять физические жесты и тапы.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                val hasOverlay = remember(context) { android.provider.Settings.canDrawOverlays(context) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
-                        contentDescription = null,
-                        tint = if (hasOverlay) StatusSuccess else StatusWarning,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
+                },
+                text = {
                     Text(
-                        text = if (hasOverlay) "Наложение поверх окон разрешено" else "Отображение поверх окон запрещено",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        text = "Внимание: системный цифровой ассистент Runner находится на этапе бета-тестирования.\n\nНа некоторых устройствах и сторонних прошивках (MIUI/HyperOS, ColorOS, OneUI) вызов по жесту свайпа или захват экрана может работать нестабильно. Вы можете протестировать функцию сейчас или вернуться к штатному ассистенту в любой момент.",
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Нужно для плавающего кружка управления и визуализации тачей.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-
-                if (!hasAccessibility || !hasOverlay) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
+                },
+                confirmButton = {
+                    TextButton(
                         onClick = {
-                            if (!hasAccessibility) {
-                                try {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-                                } catch (_: Exception) {}
-                            } else if (!hasOverlay) {
-                                try {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-                                } catch (_: Exception) {}
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = if (!hasAccessibility) "Включить спецвозможности" else "Разрешить наложение поверх окон",
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-                SettingsDivider()
-                Spacer(modifier = Modifier.height(10.dp))
-
-                var showFullAccessWarning by remember { mutableStateOf(false) }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Полный доступ (без подтверждений)",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Выполнять рискованные действия (покупка, оплата, удаление) без запроса подтверждения на плавающей карточке.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(
-                        checked = appSettings.liveFullAccess,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                showFullAccessWarning = true
-                            } else {
-                                viewModel.updateAppSettings { copy(liveFullAccess = false) }
-                            }
-                        }
-                    )
-                }
-
-                if (showFullAccessWarning) {
-                    AlertDialog(
-                        onDismissRequest = { showFullAccessWarning = false },
-                        title = {
-                            Text("Внимание: Полный доступ", fontWeight = FontWeight.Bold)
-                        },
-                        text = {
-                            Text(
-                                "Включение полного доступа позволяет агенту выполнять любые действия на экране, включая потенциально рискованные операции (нажатие кнопок «Купить», «Оплатить», «Удалить»), без показа карточки подтверждения.\n\nИспользуйте этот режим только если полностью доверяете выполняемой задаче.",
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    viewModel.updateAppSettings { copy(liveFullAccess = true) }
-                                    showFullAccessWarning = false
+                            showAssistantBetaWarningDialog = false
+                            var launchedPrompt = false
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                val roleManager = context.getSystemService(RoleManager::class.java)
+                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
+                                    try {
+                                        val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                                        assistantRoleLauncher.launch(intent)
+                                        launchedPrompt = true
+                                    } catch (_: Exception) {
+                                        launchedPrompt = false
+                                    }
                                 }
-                            ) {
-                                Text("Включить", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                             }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showFullAccessWarning = false }) {
-                                Text("Отмена")
+                            if (!launchedPrompt) {
+                                openSystemAssistantSettings()
                             }
                         }
+                    ) {
+                        Text("Продолжить", fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAssistantBetaWarningDialog = false }) {
+                        Text("Отмена")
+                    }
+                }
+            )
+        }
+
+        // 5. Live-режим: Автопилот по экрану (В разработке)
+        var showLiveInDevDialog by remember { mutableStateOf(false) }
+
+        SettingsGroup(
+            title = "Спецвозможности: Live-режим (Автопилот)",
+            badgeText = "В разработке",
+            badgeColor = MaterialTheme.colorScheme.outline,
+            badgeContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            titleIcon = Icons.Outlined.Lock
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Функция в активной разработке",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Управление экраном через службу специальных возможностей временно заблокировано и находится на стадии доработки.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { showLiveInDevDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Lock,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Включить Live-режим",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
+        }
+
+        if (showLiveInDevDialog) {
+            AlertDialog(
+                onDismissRequest = { showLiveInDevDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Режим в разработке",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Live-режим (автопилот по экрану через спецвозможности) пока не работает и находится в разработке. Следите за будущими обновлениями!",
+                        fontSize = 13.5.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { showLiveInDevDialog = false }) {
+                        Text("Понятно", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -4693,19 +4731,51 @@ private fun AccessSettings(
 @Composable
 private fun SettingsGroup(
     title: String? = null,
+    badgeText: String? = null,
+    badgeColor: Color = MaterialTheme.colorScheme.primary,
+    badgeContainerColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+    titleIcon: ImageVector? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column {
         if (title != null) {
-            Text(
-                text = title,
-                // TextSecondary вместо TextTertiary: на чистом чёрном Tertiary почти растворяется
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.2.sp,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-            )
+            ) {
+                if (titleIcon != null) {
+                    Icon(
+                        imageVector = titleIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.2.sp
+                )
+                if (badgeText != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = badgeContainerColor,
+                        border = BorderStroke(0.5.dp, badgeColor.copy(alpha = 0.45f))
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
         }
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),

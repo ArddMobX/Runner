@@ -28,6 +28,7 @@ import kotlin.random.Random
 @Composable
 fun TerminalAmbientBackground(
     enabled: Boolean,
+    isLiveMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (!enabled) return
@@ -36,11 +37,12 @@ fun TerminalAmbientBackground(
     val primaryColor = MaterialTheme.colorScheme.primary
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
 
-    val particles = remember {
+    val activeGlyphs = if (isLiveMode) LIVE_GLYPHS else GLYPHS
+    val particles = remember(isLiveMode) {
         val list = ArrayList<AmbientParticle>(PARTICLE_COUNT)
-        val rnd = Random(42)
+        val rnd = Random(if (isLiveMode) 77 else 42)
         repeat(PARTICLE_COUNT) {
-            val glyph = GLYPHS[it % GLYPHS.size]
+            val glyph = activeGlyphs[it % activeGlyphs.size]
             val usePrimary = it % 3 == 0
             list.add(
                 AmbientParticle(
@@ -152,4 +154,10 @@ private val GLYPHS = listOf(
     "sh", "git", "cd", "200", "404", "1", "0", "&&",
     "||", "val", "=>", "/* */", "run", "echo", "grep",
     "true", "ls", "pwd", "exit", "null"
+)
+
+private val LIVE_GLYPHS = listOf(
+    "tap", "swipe", "screen", "click", "inspect", "view",
+    "ui", "touch", "auto", "live", "key", "press", "window",
+    "node", "x, y", "focus", "bounds", "read"
 )

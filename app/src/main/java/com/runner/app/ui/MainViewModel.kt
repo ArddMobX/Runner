@@ -1565,7 +1565,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 if (isFirstUserMessage) {
-                    val title = effectiveText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    val rawTitle = effectiveText.replace('\n', ' ').take(ChatRepository.MAX_TITLE_LENGTH)
+                    val title = if (_settings.value.liveModeEnabled) "⚡ Live: $rawTitle" else rawTitle
                     repository.renameSession(sessionId, title)
                     _currentSessionTitle.value = title
                 }
