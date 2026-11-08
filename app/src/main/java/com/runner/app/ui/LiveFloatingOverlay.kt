@@ -2,20 +2,20 @@ package com.runner.app.ui
 
 import android.animation.ValueAnimator
 import android.content.Context
+import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,8 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,9 +68,11 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.runner.app.MainActivity
 import com.runner.app.service.TouchVisualizerOverlay
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.RunnerTheme
+import kotlin.math.abs
 
 /**
  * Плавающий оверлей для управления Live-режимом (автопилотом) агента:
@@ -79,8 +81,6 @@ import com.runner.app.ui.theme.RunnerTheme
  */
 object LiveFloatingOverlay {
 
-    private const val TAG = "RunnerLiveOverlay"
-
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
@@ -88,6 +88,12 @@ object LiveFloatingOverlay {
 
     private val isExpandedState = mutableStateOf(false)
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var initialX = 0
+    private var initialY = 0
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var isDragging = false
 
     fun show(context: Context) {
         mainHandler.post {
@@ -138,8 +144,6 @@ object LiveFloatingOverlay {
                             onToggleExpand = {
                                 isExpandedState.value = !isExpandedState.value
                             },
-                            onDragBy = { dx, dy -> moveBy(dx, dy) },
-                            onDragEnd = { snapToEdge() },
                             onStop = {
                                 LiveAgentManager.stop("Остановлено пользователем")
                             },
@@ -154,53 +158,57 @@ object LiveFloatingOverlay {
                 }
             }
 
+            view.setOnTouchListener { _, event ->
+                val p = layoutParams ?: return@setOnTouchListener false
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = p.x
+                        initialY = p.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        isDragging = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        if (abs(dx) > 10 || abs(dy) > 10) {
+                            isDragging = true
+                            p.x = (initialX + dx).toInt()
+                            p.y = (initialY + dy).toInt()
+                            try {
+                                wm.updateViewLayout(view, p)
+                            } catch (_: Exception) {}
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!isDragging) {
+                            // Тап без перемещения: переключаем свернуто/развернуто
+                            isExpandedState.value = !isExpandedState.value
+                        } else {
+                            // Доводчик (прилипание) к левому или правому краю экрана
+                            snapToEdge(view, p, screenWidth)
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+
             composeView = view
 
             try {
                 wm.addView(view, params)
-            } catch (e: Exception) {
-                // Наложение запретили или окно уже существует. Молчаливое
-                // «кружка нет» выглядит как поломка Live-режима.
-                Log.w(TAG, "не удалось показать плавающий оверлей", e)
+            } catch (_: Exception) {
                 composeView = null
-                lifecycleOwner?.destroy()
                 lifecycleOwner = null
-                windowManager = null
             }
         }
     }
 
-    /**
-     * Сдвигает окно оверлея на дельту жеста.
-     *
-     * Перетаскивание живёт в Compose (`detectDragGestures`), а не в
-     * `setOnTouchListener` на ComposeView: слушатель родителя не получает
-     * события, которые уже съел дочерний узел, поэтому кружок «не тащился».
-     * Заодно исчез двойной тоггл - раньше тап обрабатывали оба обработчика.
-     */
-    private fun moveBy(dx: Float, dy: Float) {
-        val params = layoutParams ?: return
-        val view = composeView ?: return
+    private fun snapToEdge(view: ComposeView, params: WindowManager.LayoutParams, screenWidth: Int) {
         val wm = windowManager ?: return
-
-        val metrics = view.context.resources.displayMetrics
-        val maxX = (metrics.widthPixels - view.width).coerceAtLeast(0)
-        val maxY = (metrics.heightPixels - view.height).coerceAtLeast(0)
-
-        params.x = (params.x + dx.toInt()).coerceIn(0, maxX)
-        params.y = (params.y + dy.toInt()).coerceIn(0, maxY)
-        try {
-            wm.updateViewLayout(view, params)
-        } catch (_: Exception) {}
-    }
-
-    /** Доводит окно к ближайшему краю экрана после перетаскивания. */
-    private fun snapToEdge() {
-        val view = composeView ?: return
-        val params = layoutParams ?: return
-        val wm = windowManager ?: return
-
-        val screenWidth = view.context.resources.displayMetrics.widthPixels
         val currentX = params.x
         val midX = screenWidth / 2
         val targetX = if (currentX + 30 < midX) 20 else (screenWidth - view.width - 20).coerceAtLeast(0)
@@ -237,47 +245,39 @@ object LiveFloatingOverlay {
     @Composable
     private fun FloatingOverlayContent(
         onToggleExpand: () -> Unit,
-        onDragBy: (Float, Float) -> Unit,
-        onDragEnd: () -> Unit,
         onStop: () -> Unit,
         onConfirmAction: () -> Unit,
         onCancelAction: () -> Unit
     ) {
         val isExpanded = isExpandedState.value
         val state by LiveAgentManager.stateFlow.collectAsState()
+        val isFinished = state.isFinished || (!state.isExecuting && state.stepDescription.isNotEmpty())
+        val context = LocalContext.current
 
         Box(
             modifier = Modifier
                 .padding(8.dp)
                 .animateContentSize()
-                .pointerInput(Unit) {
-                    // Порог срабатывания берёт на себя detectDragGestures:
-                    // обычный тап по кнопкам до перетаскивания не доходит.
-                    detectDragGestures(
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            onDragBy(dragAmount.x, dragAmount.y)
-                        },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragEnd() }
-                    )
-                }
         ) {
             if (!isExpanded) {
                 // Компактный плавающий кружок
+                val borderColor = if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                val iconVector = if (isFinished) Icons.Outlined.Check else Icons.Outlined.TouchApp
+                val iconTint = if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+
                 Box(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF141416))
-                        .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), CircleShape)
+                        .border(1.5.dp, borderColor, CircleShape)
                         .clickable { onToggleExpand() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.TouchApp,
-                        contentDescription = "Live",
-                        tint = MaterialTheme.colorScheme.primary,
+                        imageVector = iconVector,
+                        contentDescription = if (isFinished) "Готово" else "Live",
+                        tint = iconTint,
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -289,7 +289,7 @@ object LiveFloatingOverlay {
                     shadowElevation = 8.dp,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                        if (isFinished) Color(0xFF4CAF50).copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
                     ),
                     modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)
                 ) {
@@ -307,15 +307,15 @@ object LiveFloatingOverlay {
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
+                                        .background(if (isFinished) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Runner Live",
+                                    text = if (isFinished) "Runner Live: Готово" else "Runner Live",
                                     fontFamily = GoogleSans,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (isFinished) Color(0xFF81C784) else MaterialTheme.colorScheme.primary
                                 )
                             }
 
@@ -338,27 +338,20 @@ object LiveFloatingOverlay {
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Описание текущего действия
+                        // Описание текущего действия / отчет
                         Text(
-                            text = state.stepDescription.ifEmpty { "Выполнение задачи..." },
+                            text = state.stepDescription.ifEmpty { if (isFinished) "Задача успешно выполнена" else "Выполнение задачи..." },
                             fontFamily = GoogleSans,
                             fontSize = 14.sp,
                             color = Color.White,
-                            maxLines = 3,
+                            maxLines = 4,
                             overflow = TextOverflow.Ellipsis
                         )
 
-                        if (state.stepIndex > 0) {
+                        if (!isFinished && state.stepIndex > 0) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                // «из N» показываем только когда N действительно
-                                // известно: иначе индикатор врал (было «из 5»
-                                // при любом числе шагов).
-                                text = if (state.totalSteps > 0) {
-                                    "Шаг ${state.stepIndex} из ${state.totalSteps}"
-                                } else {
-                                    "Шаг ${state.stepIndex}"
-                                },
+                                text = "Шаг ${state.stepIndex} из ${state.totalSteps.coerceAtLeast(state.stepIndex)}",
                                 fontFamily = GoogleSans,
                                 fontSize = 11.sp,
                                 color = Color.White.copy(alpha = 0.5f)
@@ -416,30 +409,74 @@ object LiveFloatingOverlay {
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Кнопка Стоп (аварийная остановка)
-                        ElevatedButton(
-                            onClick = onStop,
-                            colors = ButtonDefaults.elevatedButtonColors(
-                                containerColor = Color(0xFF381A1A),
-                                contentColor = Color(0xFFFF6B6B)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Стоп",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Стоп",
-                                fontFamily = GoogleSans,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        if (isFinished) {
+                            // Действия по завершению задачи: Закрыть и Перейти в чат Runner
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { dismiss() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                ) {
+                                    Text("Закрыть", fontFamily = GoogleSans, fontSize = 12.sp)
+                                }
+                                ElevatedButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(context, MainActivity::class.java).apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                        dismiss()
+                                    },
+                                    colors = ButtonDefaults.elevatedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1.3f)
+                                        .height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "В Runner",
+                                        fontFamily = GoogleSans,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        } else {
+                            // Кнопка Стоп (аварийная остановка)
+                            ElevatedButton(
+                                onClick = onStop,
+                                colors = ButtonDefaults.elevatedButtonColors(
+                                    containerColor = Color(0xFF381A1A),
+                                    contentColor = Color(0xFFFF6B6B)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "Стоп",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Стоп",
+                                    fontFamily = GoogleSans,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
                 }

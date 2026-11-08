@@ -16,7 +16,7 @@ import com.runner.app.data.AppSettings
  * `USAGE_ALARM`, а этот канал система не глушит ни в беззвучном режиме, ни в
  * «не беспокоить»: приложение вибрировало там, где пользователь явно попросил
  * тишины. Теперь тап и тест вибрации идут как `USAGE_TOUCH`, а завершение
- * задачи, подтверждение и ошибка — как `USAGE_NOTIFICATION`: это события,
+ * задачи, подтверждение и ошибка - как `USAGE_NOTIFICATION`: это события,
  * и правила уведомлений к ним применимы.
  */
 class HapticManager(private val context: Context) {
@@ -40,7 +40,7 @@ class HapticManager(private val context: Context) {
     }
 
     /**
-     * @param asNotification true — событие (уведомление), false — отклик на касание.
+     * @param asNotification true - событие (уведомление), false - отклик на касание.
      */
     private fun performVibration(effect: VibrationEffect, asNotification: Boolean = true) {
         val vib = vibrator ?: return
@@ -169,10 +169,7 @@ class HapticManager(private val context: Context) {
 
     /** Тестовая короткая вибрация для предпросмотра силы в настройках */
     fun testVibration(intensity: Int) {
-        // Тест — явный запрос пользователя, поэтому канал уведомления, а не
-        // касания: иначе при выключенном системном «тактильном отклике» кнопка
-        // проверки выглядела бы сломанной.
-        vibrate(60L, intensity, asNotification = true)
+        vibrate(75L, intensity, asNotification = false)
     }
 
     /** Непрерывный/пульсирующий тест вибрации на 3 секунды */
@@ -181,7 +178,7 @@ class HapticManager(private val context: Context) {
         if (!vib.hasVibrator()) return
 
         val amp = when (intensity) {
-            1 -> 110
+            1 -> 120
             3 -> 255
             else -> 190
         }
@@ -193,10 +190,7 @@ class HapticManager(private val context: Context) {
                 val effectiveAmp = if (vib.hasAmplitudeControl()) amp else VibrationEffect.DEFAULT_AMPLITUDE
                 val amplitudes = intArrayOf(0, effectiveAmp, 0, effectiveAmp, 0, effectiveAmp, 0, effectiveAmp, 0, effectiveAmp)
                 val effect = VibrationEffect.createWaveform(timings, amplitudes, -1)
-                // Тест запускает сам пользователь кнопкой в настройках, поэтому
-                // идём каналом уведомления: он не зависит от системного тумблера
-                // «тактильный отклик», но по-прежнему подчиняется «не беспокоить».
-                performVibration(effect, asNotification = true)
+                performVibration(effect, asNotification = false)
             } else {
                 @Suppress("DEPRECATION")
                 vib.vibrate(3000L)
@@ -216,7 +210,7 @@ class HapticManager(private val context: Context) {
         try {
             vibrator?.cancel()
         } catch (_: Exception) {
-            // Отмена — уборка: если мотор уже отпустил эффект, падать некуда.
+            // Отмена - уборка: если мотор уже отпустил эффект, падать некуда.
         }
     }
 

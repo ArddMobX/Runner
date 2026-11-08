@@ -8,7 +8,6 @@ import android.service.voice.VoiceInteractionService
 import com.runner.app.service.RunnerVoiceInteractionService
 import androidx.compose.runtime.DisposableEffect
 import android.content.Context
-import android.util.Log
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -69,6 +68,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -119,8 +119,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,7 +129,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -456,6 +453,13 @@ private fun SettingsRoot(
                 }
             ),
             SearchableSetting(
+                title = "Тест вибрации (3 сек)",
+                section = "Вибрация",
+                description = "Проверка тактильного отклика и силы импульса",
+                icon = Icons.Outlined.Tune,
+                onClick = { viewModel.testHaptic3Seconds(appSettings.hapticIntensity) }
+            ),
+            SearchableSetting(
                 title = "Reverse proxy",
                 section = "Сеть и прокси",
                 description = proxyUrl.ifBlank { "Прямое подключение к Base URL" },
@@ -506,7 +510,7 @@ private fun SettingsRoot(
             SearchableSetting(
                 title = "Telegram-канал",
                 section = "О проекте",
-                description = "@runner_agent — новости разработки",
+                description = "@runner_agent - новости разработки",
                 icon = RunnerIcons.Telegram,
                 onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
             ),
@@ -1099,7 +1103,7 @@ private fun SettingsRoot(
 
             SettingsDivider()
 
-            // 2. Проверка соединения: статус и триггер — единый виджет.
+            // 2. Проверка соединения: статус и триггер - единый виджет.
             // Тап по плашке запускает проверку заново, отдельная кнопка не нужна.
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
@@ -2131,7 +2135,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             // Режим «только чтение»: жёсткая блокировка вместо подтверждений.
             // Нужен, когда агент работает с недоверенными файлами или на модели,
-            // которая обучается на промптах, — тогда менять данные нельзя вообще.
+            // которая обучается на промптах, - тогда менять данные нельзя вообще.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2257,7 +2261,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     text = "Схемы инструментов занимают заметную часть запроса, поэтому " +
                             "их список сужается до чтения и того, что назвал утверждённый " +
                             "план. Если понадобится что-то ещё, агент подключит это сам. " +
-                            "Без плана список не сужается — иначе инструмента может " +
+                            "Без плана список не сужается - иначе инструмента может " +
                             "не оказаться в нужный момент.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp,
@@ -2379,7 +2383,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             // Файловые инструменты заперты в /storage/emulated/0, а sh -c эту
             // песочницу обходит. По умолчанию обход выключен: команды вроде
-            // df -h и ls /sdcard работают, а /data, /system и /proc — нет.
+            // df -h и ls /sdcard работают, а /data, /system и /proc - нет.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2422,7 +2426,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             SettingsDivider()
 
-            // Root — не «ещё один доступ», а принципиально другой уровень риска:
+            // Root - не «ещё один доступ», а принципиально другой уровень риска:
             // su обходит и песочницу путей, и права приложения, и именно так
             // произошёл инцидент со стиранием данных. Поэтому отдельный тумблер
             // и постоянная защита: pm clear, uninstall, wipe, mkfs и dd на
@@ -2441,7 +2445,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     )
                     Text(
                         text = if (appSettings.allowRootShell) {
-                            "Каждое su-действие — по подтверждению"
+                            "Каждое su-действие - по подтверждению"
                         } else {
                             "Команды с su отклоняются"
                         },
@@ -2491,7 +2495,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
  *
  * Раздел появился вместе с обратимым удалением, а затем в него добавились
  * перемещения: у них файлы не теряются, но разложенное агентом по папкам
- * руками уже не собрать. Срок хранения — обещание, которое должно где-то
+ * руками уже не собрать. Срок хранения - обещание, которое должно где-то
  * проверяться, а размер нужно видеть: иначе корзина тихо занимает память,
  * которую пользователь считает свободной.
  */
@@ -2609,7 +2613,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "По истечении срока записи исчезают при следующем запуске. " +
                             "Для удалённого и перезаписанного это означает безвозвратное " +
-                            "стирание, для перемещённого — только потерю возможности откатить.",
+                            "стирание, для перемещённого - только потерю возможности откатить.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp
                 )
@@ -2655,7 +2659,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
         }
     }
 
-    // Очистка корзины — единственное безвозвратное действие в приложении,
+    // Очистка корзины - единственное безвозвратное действие в приложении,
     // поэтому спрашиваем подтверждение, а не делаем по одному тапу.
     if (confirmEmpty) {
         AlertDialog(
@@ -2668,7 +2672,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Сейчас в корзине ${PluralUtils.files(trash.deletedFileCount)} " +
                             "на ${ToolDispatcher.formatFileSize(trash.totalBytes)}.\n\n" +
                             "Файлы, которые агент переместил, останутся на своих новых " +
-                            "местах — но откатить эти перемещения станет нельзя."
+                            "местах - но откатить эти перемещения станет нельзя."
                 )
             },
             confirmButton = {
@@ -2694,7 +2698,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
  * Список записей журнала: что именно удалено и перемещено, когда и откуда,
  * с возможностью вернуть по одной.
  *
- * Раньше в настройках был только счётчик — по нему нельзя понять, что лежит
+ * Раньше в настройках был только счётчик - по нему нельзя понять, что лежит
  * в корзине, а значит и решить, возвращать ли.
  */
 @Composable
@@ -2784,7 +2788,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             title = { Text("Вернуть всё?") },
             text = {
                 Text(
-                    "Удалённое вернётся на исходные места, перемещённое — обратно туда, " +
+                    "Удалённое вернётся на исходные места, перемещённое - обратно туда, " +
                             "откуда его взяли, а файлы с перезаписью получат обратно прежнее " +
                             "содержимое. Если место занято, файл получит новое имя."
                 )
@@ -2837,8 +2841,8 @@ private fun TrashListScreen(viewModel: MainViewModel) {
  * Журнал shell-команд: что агент пытался выполнить и чем это закончилось.
  *
  * Появился после инцидента со стиранием данных приложений: разбираться было
- * нечем — выполненные команды нигде не сохранялись. Показывает и отказы:
- * попытка опасной команды — такой же факт, как её выполнение.
+ * нечем - выполненные команды нигде не сохранялись. Показывает и отказы:
+ * попытка опасной команды - такой же факт, как её выполнение.
  */
 @Composable
 private fun ShellLogScreen() {
@@ -3482,62 +3486,69 @@ private fun VibrationSettingsCard(
             )
         }
 
-        if (appSettings.hapticEnabled) {
-            SettingsDivider()
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "Сила вибрации",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                SegmentedChips(
-                    options = listOf(
-                        1 to "Слабая",
-                        2 to "Средняя",
-                        3 to "Сильная"
-                    ),
-                    selected = appSettings.hapticIntensity,
-                    onSelect = {
+        SettingsDivider()
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "Сила вибрации",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            SegmentedChips(
+                options = listOf(
+                    1 to "Слабая",
+                    2 to "Средняя",
+                    3 to "Сильная"
+                ),
+                selected = appSettings.hapticIntensity,
+                onSelect = {
+                    if (!appSettings.hapticEnabled) {
+                        viewModel.updateSettings(appSettings.copy(hapticEnabled = true, hapticIntensity = it))
+                    } else {
                         viewModel.updateSettings(appSettings.copy(hapticIntensity = it))
-                        viewModel.testHaptic(it)
                     }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                var isHapticTestRunning by remember { mutableStateOf(false) }
-                LaunchedEffect(isHapticTestRunning) {
-                    if (isHapticTestRunning) {
-                        kotlinx.coroutines.delay(3000L)
-                        isHapticTestRunning = false
-                    }
+                    viewModel.testHaptic(it)
                 }
-                Button(
-                    onClick = {
-                        if (isHapticTestRunning) {
-                            viewModel.stopHapticTest()
-                            isHapticTestRunning = false
-                        } else {
-                            viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
-                            isHapticTestRunning = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isHapticTestRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = if (isHapticTestRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary
-                    ),
-                    border = BorderStroke(0.6.dp, if (isHapticTestRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                ) {
-                    Text(
-                        text = if (isHapticTestRunning) "Остановить тест вибрации" else "Тест вибрации (3 сек)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            var isHapticTestRunning by remember { mutableStateOf(false) }
+            LaunchedEffect(isHapticTestRunning) {
+                if (isHapticTestRunning) {
+                    kotlinx.coroutines.delay(3000L)
+                    isHapticTestRunning = false
                 }
             }
+            Button(
+                onClick = {
+                    if (isHapticTestRunning) {
+                        viewModel.stopHapticTest()
+                        isHapticTestRunning = false
+                    } else {
+                        if (!appSettings.hapticEnabled) {
+                            viewModel.updateSettings(appSettings.copy(hapticEnabled = true))
+                        }
+                        viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
+                        isHapticTestRunning = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isHapticTestRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = if (isHapticTestRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary
+                ),
+                border = BorderStroke(0.6.dp, if (isHapticTestRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            ) {
+                Text(
+                    text = if (isHapticTestRunning) "Остановить тест вибрации" else "Тест вибрации (3 сек)",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
 
+        if (appSettings.hapticEnabled) {
             SettingsDivider()
 
             Text(
@@ -3841,45 +3852,6 @@ private fun WorkingDirField(
     }
 }
 
-/** Доступы, без которых Live-режим не работает. */
-private data class LiveAccess(
-    val accessibility: Boolean,
-    val overlay: Boolean
-)
-
-private fun readLiveAccess(context: Context): LiveAccess = LiveAccess(
-    accessibility = RunnerAccessibilityService.isEnabled(context),
-    overlay = android.provider.Settings.canDrawOverlays(context)
-)
-
-/**
- * Статус доступов Live-режима, который пересчитывается при возврате из
- * системных настроек.
- *
- * Раньше здесь стоял `remember(context) { ... }`: значение считалось один раз
- * и не обновлялось. Пользователь включал спецвозможности, возвращался в
- * приложение — и видел «служба отключена» до перезапуска экрана, хотя всё уже
- * работало. `LivePermissionSheet` при этом вёл себя правильно (следил за
- * жизненным циклом), то есть два места говорили разное об одном и том же.
- */
-@Composable
-private fun rememberLiveAccess(): LiveAccess {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var access by remember { mutableStateOf(readLiveAccess(context)) }
-
-    DisposableEffect(lifecycleOwner, context) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                access = readLiveAccess(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    return access
-}
-
 private fun uriToStoragePath(uri: Uri): String? {
     return try {
         val treeDocId = DocumentsContract.getTreeDocumentId(uri)
@@ -3904,7 +3876,7 @@ private fun uriToStoragePath(uri: Uri): String? {
 /**
  * Компактный сегментный переключатель: равные сегменты, выбранный залит
  * сплошным primary с текстом onPrimary. Раньше активный отличался только
- * тонкой рамкой и оттенком 14% — на свету было не понять, что включено.
+ * тонкой рамкой и оттенком 14% - на свету было не понять, что включено.
  */
 @Composable
 private fun <T> SegmentedChips(
@@ -3978,7 +3950,7 @@ private fun <T> SegmentedChips(
 
 /**
  * Единый слайдер настроек: трек 3dp с засечками по шагам, бегунок 14dp
- * с кольцом цвета фона, снизу — границы диапазона и текущее значение по центру.
+ * с кольцом цвета фона, снизу - границы диапазона и текущее значение по центру.
  *
  * Раньше температура и лимит шагов выглядели по-разному (гладкая полоска против
  * засечек, значение сбоку против подписи снизу), хотя это один и тот же контрол.
@@ -4393,9 +4365,7 @@ private fun AccessSettings(
 
         var isAssistantActive by remember { mutableStateOf(checkAssistantActive()) }
 
-        // Явный тип нужен, потому что catch-ветка возвращает Int (Log.w),
-        // а лямбда используется как () -> Unit.
-        val openSystemAssistantSettings: () -> Unit = remember(context) {
+        val openSystemAssistantSettings = remember(context) {
             {
                 val specificIntent = Intent("android.settings.VOICE_INPUT_SETTINGS").apply {
                     component = ComponentName(
@@ -4424,14 +4394,12 @@ private fun AccessSettings(
                 try {
                     Toast.makeText(context, "Выберите Runner в списке цифровых помощников", Toast.LENGTH_LONG).show()
                     context.startActivity(targetIntent)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     try {
                         context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         })
-                    } catch (e2: Exception) {
-                        Log.w("RunnerSettings", "не удалось открыть выбор приложения-помощника", e2)
-                    }
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -4466,8 +4434,43 @@ private fun AccessSettings(
             isAssistantActive = checkAssistantActive()
         }
 
-        SettingsGroup("Системный ассистент Android") {
+        var showAssistantBetaWarningDialog by remember { mutableStateOf(false) }
+
+        SettingsGroup(
+            title = "Системный ассистент Android",
+            badgeText = "БЕТА",
+            badgeColor = MaterialTheme.colorScheme.tertiary,
+            badgeContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+        ) {
             Column(modifier = Modifier.padding(14.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f),
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(16.dp).padding(top = 1.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Бета-версия: на некоторых прошивках (MIUI/HyperOS, ColorOS, OneUI) системный вызов ассистента жестом или скриншоты экрана могут работать нестабильно.",
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (isAssistantActive) Icons.Outlined.CheckCircle else Icons.Outlined.AutoAwesome,
@@ -4512,7 +4515,7 @@ private fun AccessSettings(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "1. Нажмите кнопку ниже\n2. В системном списке выберите «Runner»\n3. Подтвердите выбор для доступа к экрану",
+                                text = "1. Нажмите кнопку ниже\n2. Ознакомьтесь с предупреждением о бета-версии\n3. В системном списке выберите «Runner»",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.5.sp,
                                 lineHeight = 16.sp
@@ -4528,22 +4531,7 @@ private fun AccessSettings(
                         if (isAssistantActive) {
                             openSystemAssistantSettings()
                         } else {
-                            var launchedPrompt = false
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                val roleManager = context.getSystemService(RoleManager::class.java)
-                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
-                                    try {
-                                        val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                                        assistantRoleLauncher.launch(intent)
-                                        launchedPrompt = true
-                                    } catch (_: Exception) {
-                                        launchedPrompt = false
-                                    }
-                                }
-                            }
-                            if (!launchedPrompt) {
-                                openSystemAssistantSettings()
-                            }
+                            showAssistantBetaWarningDialog = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -4571,7 +4559,7 @@ private fun AccessSettings(
                 if (!isAssistantActive) {
                     Spacer(modifier = Modifier.height(6.dp))
                     TextButton(
-                        onClick = openSystemAssistantSettings,
+                        onClick = { showAssistantBetaWarningDialog = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
@@ -4584,12 +4572,104 @@ private fun AccessSettings(
             }
         }
 
-                // 5. Live-режим: Автопилот по экрану
-        SettingsGroup("Live-режим (Автопилот по экрану)") {
+        if (showAssistantBetaWarningDialog) {
+            AlertDialog(
+                onDismissRequest = { showAssistantBetaWarningDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Бета-версия ассистента",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Внимание: системный цифровой ассистент Runner находится на этапе бета-тестирования.\n\nНа некоторых устройствах и сторонних прошивках (MIUI/HyperOS, ColorOS, OneUI) вызов по жесту свайпа или захват экрана может работать нестабильно. Вы можете протестировать функцию сейчас или вернуться к штатному ассистенту в любой момент.",
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showAssistantBetaWarningDialog = false
+                            var launchedPrompt = false
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                val roleManager = context.getSystemService(RoleManager::class.java)
+                                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT) && !roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
+                                    try {
+                                        val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                                        assistantRoleLauncher.launch(intent)
+                                        launchedPrompt = true
+                                    } catch (_: Exception) {
+                                        launchedPrompt = false
+                                    }
+                                }
+                            }
+                            if (!launchedPrompt) {
+                                openSystemAssistantSettings()
+                            }
+                        }
+                    ) {
+                        Text("Продолжить", fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAssistantBetaWarningDialog = false }) {
+                        Text("Отмена")
+                    }
+                }
+            )
+        }
+
+        // 5. Live-режим: Автопилот по экрану (БЕТА)
+        var showFullAccessWarning by remember { mutableStateOf(false) }
+
+        SettingsGroup(
+            title = "Live-режим (Автопилот по экрану)",
+            badgeText = "БЕТА",
+            badgeColor = MaterialTheme.colorScheme.primary,
+            badgeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+        ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                val liveAccess = rememberLiveAccess()
-                val hasAccessibility = liveAccess.accessibility
-                val hasOverlay = liveAccess.overlay
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp).padding(top = 1.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Бета-версия: Live-режим позволяет агенту самостоятельно взаимодействовать с приложениями на экране через службу спецвозможностей. Не передавайте управление на экранах ввода паролей и платежных сервисов.",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val hasAccessibility = remember(context) { RunnerAccessibilityService.isEnabled(context) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
@@ -4599,7 +4679,7 @@ private fun AccessSettings(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (hasAccessibility) "Специальные возможности активны" else "Служба специальных возможностей отключена",
+                        text = if (hasAccessibility) "Служба спецвозможностей активна" else "Служба спецвозможностей отключена",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -4607,7 +4687,7 @@ private fun AccessSettings(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Позволяет агенту анализировать экран и отправлять физические жесты и тапы.",
+                    text = "Позволяет агенту анализировать экран и совершать физические нажатия и жесты.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -4615,6 +4695,7 @@ private fun AccessSettings(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                val hasOverlay = remember(context) { android.provider.Settings.canDrawOverlays(context) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
@@ -4645,15 +4726,11 @@ private fun AccessSettings(
                             if (!hasAccessibility) {
                                 try {
                                     context.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-                                } catch (e: Exception) {
-                                    Log.w("RunnerSettings", "не удалось открыть настройки спецвозможностей", e)
-                                }
+                                } catch (_: Exception) {}
                             } else if (!hasOverlay) {
                                 try {
                                     context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-                                } catch (e: Exception) {
-                                    Log.w("RunnerSettings", "не удалось открыть настройки наложения окон", e)
-                                }
+                                } catch (_: Exception) {}
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -4671,8 +4748,6 @@ private fun AccessSettings(
                 SettingsDivider()
                 Spacer(modifier = Modifier.height(10.dp))
 
-                var showFullAccessWarning by remember { mutableStateOf(false) }
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -4686,7 +4761,7 @@ private fun AccessSettings(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Выполнять рискованные действия (покупка, оплата, удаление) без запроса подтверждения на плавающей карточке.",
+                            text = "Выполнять рискованные действия без запроса подтверждения на плавающей карточке.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             lineHeight = 16.sp
@@ -4699,43 +4774,57 @@ private fun AccessSettings(
                             if (checked) {
                                 showFullAccessWarning = true
                             } else {
-                                viewModel.updateAppSettings { copy(liveFullAccess = false) }
-                            }
-                        }
-                    )
-                }
-
-                if (showFullAccessWarning) {
-                    AlertDialog(
-                        onDismissRequest = { showFullAccessWarning = false },
-                        title = {
-                            Text("Внимание: Полный доступ", fontWeight = FontWeight.Bold)
-                        },
-                        text = {
-                            Text(
-                                "Включение полного доступа позволяет агенту выполнять любые действия на экране, включая потенциально рискованные операции (нажатие кнопок «Купить», «Оплатить», «Удалить»), без показа карточки подтверждения.\n\nИспользуйте этот режим только если полностью доверяете выполняемой задаче.",
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    viewModel.updateAppSettings { copy(liveFullAccess = true) }
-                                    showFullAccessWarning = false
-                                }
-                            ) {
-                                Text("Включить", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                                viewModel.updateSettings(appSettings.copy(liveFullAccess = false))
                             }
                         },
-                        dismissButton = {
-                            TextButton(onClick = { showFullAccessWarning = false }) {
-                                Text("Отмена")
-                            }
-                        }
+                        colors = runnerSwitchColors()
                     )
                 }
             }
+        }
+
+        if (showFullAccessWarning) {
+            AlertDialog(
+                onDismissRequest = { showFullAccessWarning = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.WarningAmber,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Включить полный доступ?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "В режиме полного доступа агент сможет подтверждать диалоговые окна и совершать действия без ручного одобрения на экране. Используйте с осторожностью.",
+                        fontSize = 13.5.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.updateSettings(appSettings.copy(liveFullAccess = true))
+                            showFullAccessWarning = false
+                        }
+                    ) {
+                        Text("Включить", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showFullAccessWarning = false }) {
+                        Text("Отмена")
+                    }
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -4745,19 +4834,51 @@ private fun AccessSettings(
 @Composable
 private fun SettingsGroup(
     title: String? = null,
+    badgeText: String? = null,
+    badgeColor: Color = MaterialTheme.colorScheme.primary,
+    badgeContainerColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+    titleIcon: ImageVector? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column {
         if (title != null) {
-            Text(
-                text = title,
-                // TextSecondary вместо TextTertiary: на чистом чёрном Tertiary почти растворяется
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.2.sp,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-            )
+            ) {
+                if (titleIcon != null) {
+                    Icon(
+                        imageVector = titleIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.2.sp
+                )
+                if (badgeText != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = badgeContainerColor,
+                        border = BorderStroke(0.5.dp, badgeColor.copy(alpha = 0.45f))
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
         }
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -4837,7 +4958,7 @@ private fun SettingsDivider() {
 /**
  * Статус проверки связи + триггер в одном виджете: тап по плашке запускает
  * проверку заново. Состояния: ожидание (приглашение), тест (спиннер),
- * результат (цветной бейдж — успех/доступен/ошибка вроде 403).
+ * результат (цветной бейдж - успех/доступен/ошибка вроде 403).
  */
 @Composable
 private fun ConnectionStatusWidget(
@@ -5009,7 +5130,7 @@ private fun ThemeSettingsContent(
                 ColorSource.DYNAMIC to "Обои",
                 ColorSource.CUSTOM to "Свой цвет"
             ),
-            // Без Android 12+ «Обои» недоступны — показываем выбранным «Свой цвет».
+            // Без Android 12+ «Обои» недоступны - показываем выбранным «Свой цвет».
             selected = if (isDynamicAvailable) themeConfig.colorSource else ColorSource.CUSTOM,
             onSelect = onSourceChange,
             isEnabled = { it != ColorSource.DYNAMIC || isDynamicAvailable }

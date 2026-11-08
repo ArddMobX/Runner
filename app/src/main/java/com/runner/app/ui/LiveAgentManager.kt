@@ -1,23 +1,12 @@
 package com.runner.app.ui
 
 import android.content.Context
-import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
-
-/**
- * Сколько ждём ответа на подтверждение, прежде чем считать действие отклонённым.
- *
- * Пять минут — заведомо больше, чем нужно человеку, чтобы прочитать карточку
- * и нажать кнопку. Смысл не в строгости, а в том, чтобы задача не могла
- * остаться в вечном ожидании: подтверждение, которое некуда показать, — это
- * не «ждём пользователя», а зависший чат.
- */
-private const val CONFIRM_TIMEOUT_MS = 5 * 60 * 1000L
 
 /**
  * Координатор Live-режима (автопилота) агента.
@@ -28,6 +17,7 @@ object LiveAgentManager {
 
     data class State(
         val isExecuting: Boolean = false,
+        val isFinished: Boolean = false,
         val stepDescription: String = "",
         val stepIndex: Int = 0,
         val totalSteps: Int = 0,
@@ -40,27 +30,17 @@ object LiveAgentManager {
     val isExecuting: Boolean
         get() = _stateFlow.value.isExecuting
 
-    private var pendingContinuation: CancellableContinuation<Boolean>? = null
+    private var pendingContinuation: Continuation<Boolean>? = null
 
-    /**
-     * Что делать по «Стоп» в плавающей карточке.
-     *
-     * Хранится на сессию, а не в глобальной переменной: Live-режим может
-     * запустить и обычный чат, и плавающий ассистент со своей ViewModel.
-     * Глобальный колбэк перезаписывался тем, кто стартовал позже, и «Стоп»
-     * попадал в чужой (часто уже уничтоженный) экземпляр.
-     */
-    private var sessionStopHandler: (() -> Unit)? = null
+    @Volatile
+    var onStopRequested: ((String) -> Unit)? = null
 
-    fun start(context: Context, totalSteps: Int = 0, onStop: (() -> Unit)? = null) {
-        sessionStopHandler = onStop
+    fun start(context: Context, totalSteps: Int = 5) {
         _stateFlow.value = State(
             isExecuting = true,
+            isFinished = false,
             stepDescription = "Подготовка к выполнению...",
             stepIndex = 1,
-            // 0 — «сколько всего, неизвестно». Раньше здесь стояло 5, и оверлей
-            // уверенно показывал «Шаг 3 из 5» для задачи из двух шагов или из
-            // двадцати. Врать в индикаторе прогресса хуже, чем не показывать его.
             totalSteps = totalSteps
         )
         LiveFloatingOverlay.show(context)
@@ -79,78 +59,53 @@ object LiveAgentManager {
     /**
      * Приостанавливает выполнение и запрашивает подтверждение пользователя
      * на карточке плавающего оверлея.
-     *
-     * У ожидания есть предел: если оверлей так и не показался (нет разрешения
-     * на наложение, пользователь свернул приложение), подтверждение не придёт
-     * никогда, а задача встанет намертво — корутина шага ждёт continuation,
-     * `finally` не выполняется, `_isRunning` остаётся true, и чат залипает
-     * на кнопке «Стоп» до перезапуска приложения. По истечении таймаута
-     * считаем действие отклонённым — это безопасное направление.
      */
-    suspend fun requestConfirmation(
-        prompt: String,
-        timeoutMs: Long = CONFIRM_TIMEOUT_MS
-    ): Boolean {
+    suspend fun requestConfirmation(prompt: String): Boolean {
         _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = prompt)
-        return withTimeoutOrNull(timeoutMs) {
-            suspendCancellableCoroutine { continuation ->
-                pendingContinuation = continuation
-                continuation.invokeOnCancellation {
-                    // Таймаут или отмена корутины шага: ссылку надо снять,
-                    // иначе следующий запрос перезапишет её и потеряет.
-                    if (pendingContinuation === continuation) pendingContinuation = null
-                    _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
-                }
+        return suspendCancellableCoroutine { continuation ->
+            pendingContinuation = continuation
+            continuation.invokeOnCancellation {
+                pendingContinuation = null
             }
-        } ?: false
+        }
     }
 
     fun confirmPendingAction(approved: Boolean) {
         val continuation = pendingContinuation
         pendingContinuation = null
         _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
-        if (continuation != null && continuation.isActive) continuation.resume(approved)
-    }
-
-    /**
-     * Снимает висящее подтверждение, не трогая состояние выполнения.
-     *
-     * Нужен ровно в одном месте — в «Стоп»: ответ на диалог может ждать
-     * задача, которая Live-режим не запускала (оверлея нет, а подтверждение
-     * требуется), и тогда [stop] выходил по early return, оставляя корутину
-     * шага ждать вечно.
-     */
-    fun cancelPending() {
-        confirmPendingAction(false)
+        continuation?.resume(approved)
     }
 
     fun stop(reason: String = "Остановлено пользователем") {
-        // Снимаем ожидание ДО проверки isExecuting: подтверждение могло быть
-        // запрошено задачей, для которой Live-режим даже не стартовал.
-        confirmPendingAction(false)
         if (!isExecuting) return
 
+        confirmPendingAction(false)
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
+            isFinished = false,
             stepDescription = reason,
             confirmationPrompt = null
         )
-        val handler = sessionStopHandler
-        sessionStopHandler = null
-        handler?.invoke()
+        onStopRequested?.invoke(reason)
         LiveFloatingOverlay.dismiss()
     }
 
     fun finish(summary: String) {
         confirmPendingAction(false)
-        // Обработчик снимаем: сессия закончилась, держать ссылку на ViewModel
-        // незачем — она может быть уже уничтожена.
-        sessionStopHandler = null
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
+            isFinished = true,
             stepDescription = summary,
             confirmationPrompt = null
         )
+        // Не убираем оверлей автоматически: пользователь видит статус "Готово",
+        // карточку результата и может перейти в Runner или закрыть оверлей.
+    }
+
+    fun reset() {
+        confirmPendingAction(false)
+        _stateFlow.value = State()
         LiveFloatingOverlay.dismiss()
     }
 }

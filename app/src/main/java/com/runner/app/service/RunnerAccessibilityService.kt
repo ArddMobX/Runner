@@ -15,7 +15,6 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.runner.app.ui.LiveAgentManager
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -79,16 +78,12 @@ class RunnerAccessibilityService : AccessibilityService() {
         val pkg = root.packageName?.toString().orEmpty()
         lastExtractedPackage = pkg
 
-        // Проверка черного списка безопасности. Смотрим ВСЕ окна, а не только
-        // активное: банк может быть открыт вторым окном в split-screen, а сверху
-        // висеть браузер — и тогда проверка одного активного окна пропускала
-        // управление банковским приложением.
-        val sensitivePackage = sensitiveWindowPackage()
-        if (sensitivePackage != null) {
+        // Проверка черного списка безопасности
+        if (isSensitivePackage(pkg)) {
             root.recycle()
             return ScreenInspectionResult.SecurityBlocked(
-                "Блокировка безопасности: обнаружено чувствительное приложение " +
-                        "($sensitivePackage). В целях защиты данных Live-режим остановлен."
+                "Блокировка безопасности: обнаружено чувствительное приложение ($pkg). " +
+                        "В целях защиты данных Live-режим остановлен."
             )
         }
 
@@ -221,73 +216,53 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     private fun hasPasswordFields(root: AccessibilityNodeInfo): Boolean {
+        if (!root.isVisibleToUser) return false
+
+        val bounds = Rect()
+        root.getBoundsInScreen(bounds)
+        if (bounds.width() <= 0 || bounds.height() <= 0) return false
+
         if (root.isPassword) return true
+
         val inputType = root.inputType
-        val isPasswordType = (inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD) != 0 ||
-                (inputType and InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD) != 0 ||
-                (inputType and InputType.TYPE_NUMBER_VARIATION_PASSWORD) != 0
-        if (isPasswordType) return true
+        if (inputType != 0) {
+            val inputClass = inputType and InputType.TYPE_MASK_CLASS
+            val variation = inputType and InputType.TYPE_MASK_VARIATION
+            val isPasswordType = when (inputClass) {
+                InputType.TYPE_CLASS_TEXT -> {
+                    variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                            variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+                }
+                InputType.TYPE_CLASS_NUMBER -> {
+                    variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                }
+                else -> false
+            }
+            if (isPasswordType) return true
+        }
 
         val count = root.childCount
         for (i in 0 until count) {
             val child = root.getChild(i) ?: continue
-            if (hasPasswordFields(child)) {
-                child.recycle()
-                return true
-            }
+            val hasPass = hasPasswordFields(child)
             child.recycle()
+            if (hasPass) return true
         }
         return false
     }
 
-    /**
-     * Пакет любого видимого окна, который считается чувствительным, либо null.
-     *
-     * Дешёвая проверка: читаем только имя пакета корня окна, без обхода дерева
-     * (обход всех окон на каждом `ui_inspect` был бы слишком дорогим).
-     */
-    private fun sensitiveWindowPackage(): String? {
-        val windowList = try {
-            windows
-        } catch (e: Exception) {
-            null
-        } ?: return null
-
-        for (window in windowList) {
-            val windowRoot = try {
-                window.root
-            } catch (e: Exception) {
-                null
-            } ?: continue
-            try {
-                val name = windowRoot.packageName?.toString().orEmpty()
-                if (isSensitivePackage(name)) return name
-            } finally {
-                windowRoot.recycle()
-            }
-        }
-        return null
-    }
-
-    /**
-     * Пакет относится к чувствительному приложению?
-     *
-     * Сверяем по сегментам имени пакета: `ru.vtb24.mobilebanking` состоит из
-     * сегментов `ru`, `vtb24`, `mobilebanking`, и запись `vtb` должна совпасть
-     * с `vtb24`, но не с `com.example.vtbx.photo`. Раньше сравнение было
-     * подстрокой по всему имени: «vtb» находилось в любом пакете, где эти три
-     * буквы стоят рядом, а «sberbank» — в имени чужой игры.
-     *
-     * Совпадение по префиксу сегмента оставляет ложные срабатывания (пакет
-     * `vtbx` заблокируется), но это безопасное направление: лишний отказ
-     * лучше, чем управление банковским приложением.
-     */
     private fun isSensitivePackage(packageName: String): Boolean {
         if (packageName.isBlank()) return false
-        val segments = packageName.lowercase().split('.')
-        return SENSITIVE_PACKAGES.any { entry ->
-            segments.any { segment -> segment == entry || segment.startsWith(entry) }
+        val lower = packageName.lowercase()
+        if (lower.startsWith("com.runner.app") ||
+            lower.contains("telegram") ||
+            lower.contains("whatsapp") ||
+            lower.contains("viber") ||
+            lower.contains("chrome") ||
+            lower.contains("browser")) {
+            return false
         }
+        return SENSITIVE_PACKAGES.any { lower.contains(it) }
     }
 
     /**
@@ -466,7 +441,23 @@ class RunnerAccessibilityService : AccessibilityService() {
             moveTo(x, y)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, 60)
-        return dispatchGestureSafely(GestureDescription.Builder().addStroke(stroke).build())
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+        return suspendCancellableCoroutine { continuation ->
+            val callback = object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    if (continuation.isActive) continuation.resume(true)
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    if (continuation.isActive) continuation.resume(false)
+                }
+            }
+            val dispatched = dispatchGesture(gesture, callback, null)
+            if (!dispatched && continuation.isActive) {
+                continuation.resume(false)
+            }
+        }
     }
 
     private suspend fun dispatchSwipeGesture(
@@ -482,50 +473,28 @@ class RunnerAccessibilityService : AccessibilityService() {
             lineTo(endX, endY)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
-        return dispatchGestureSafely(GestureDescription.Builder().addStroke(stroke).build())
-    }
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
-    /**
-     * Отправляет жест и ждёт результата ограниченное время.
-     *
-     * Колбэк может не прийти вовсе: службу отключили между проверкой `instance`
-     * и вызовом, жест вытеснил другой жест, система не отдала событие. Без
-     * предела корутина шага ждала бы вечно, а вместе с ней и вся задача —
-     * именно так Live-режим и зависал. По таймауту считаем, что жест не удался.
-     */
-    private suspend fun dispatchGestureSafely(gesture: GestureDescription): Boolean {
-        val delivered = withTimeoutOrNull(GESTURE_TIMEOUT_MS) {
-            suspendCancellableCoroutine { continuation ->
-                val callback = object : GestureResultCallback() {
-                    override fun onCompleted(gestureDescription: GestureDescription?) {
-                        if (continuation.isActive) continuation.resume(true)
-                    }
-
-                    override fun onCancelled(gestureDescription: GestureDescription?) {
-                        if (continuation.isActive) continuation.resume(false)
-                    }
+        return suspendCancellableCoroutine { continuation ->
+            val callback = object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    if (continuation.isActive) continuation.resume(true)
                 }
-                val dispatched = dispatchGesture(gesture, callback, null)
-                if (!dispatched && continuation.isActive) {
-                    continuation.resume(false)
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    if (continuation.isActive) continuation.resume(false)
                 }
             }
+            val dispatched = dispatchGesture(gesture, callback, null)
+            if (!dispatched && continuation.isActive) {
+                continuation.resume(false)
+            }
         }
-        return delivered ?: false
     }
 
     companion object {
         @Volatile
         var instance: RunnerAccessibilityService? = null
-
-        /**
-         * Предел ожидания результата жеста.
-         *
-         * Сам жест длится не больше 300 мс, поэтому три секунды — заведомо
-         * щедрый запас. Нужен он не для скорости, а чтобы отсутствие колбэка
-         * не превращалось в вечно висящий шаг задачи.
-         */
-        private const val GESTURE_TIMEOUT_MS = 3_000L
 
         fun isEnabled(context: Context): Boolean {
             if (instance != null) return true
@@ -542,13 +511,6 @@ class RunnerAccessibilityService : AccessibilityService() {
             }
         }
 
-        /**
-         * Банки, госуслуги и хранилища паролей, которыми агент управлять не должен.
-         *
-         * Список — эвристика, а не гарантия: полноту даёт только белый список
-         * приложений. Сверяется по сегментам имени пакета (см.
-         * [isSensitivePackage]) и по ВСЕМ окнам (см. [sensitiveWindowPackage]).
-         */
         private val SENSITIVE_PACKAGES = setOf(
             "sberbank",
             "tinkoff",
@@ -561,7 +523,11 @@ class RunnerAccessibilityService : AccessibilityService() {
             "gazprombank",
             "sovcomcard",
             "gosuslugi",
-            "passwords",
+            "passwordmanager",
+            "1password",
+            "bitwarden",
+            "keepass",
+            "lastpass",
             "authenticator"
         )
     }

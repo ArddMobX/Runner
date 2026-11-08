@@ -16,9 +16,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,12 +73,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.runner.app.MainActivity
 import com.runner.app.ui.components.ChatInputBar
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.rememberChatInputState
@@ -238,11 +250,53 @@ private fun OverlayScreen(
         }
     }
 
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val dismissThresholdPx = remember(density) { density.density * 120f }
+    val offsetY = remember { Animatable(0f) }
+
+    val dragModifier = Modifier.pointerInput(Unit) {
+        detectVerticalDragGestures(
+            onDragEnd = {
+                scope.launch {
+                    if (offsetY.value > dismissThresholdPx) {
+                        offsetY.animateTo(
+                            targetValue = 1200f,
+                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                        )
+                        onDismiss()
+                    } else {
+                        offsetY.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                    }
+                }
+            },
+            onDragCancel = {
+                scope.launch {
+                    offsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                }
+            },
+            onVerticalDrag = { change, dragAmount ->
+                change.consume()
+                scope.launch {
+                    val newOffset = (offsetY.value + dragAmount).coerceAtLeast(0f)
+                    offsetY.snapTo(newOffset)
+                }
+            }
+        )
+    }
+
+    val backgroundAlpha = (1f - (offsetY.value / 600f)).coerceIn(0f, 1f) * 0.55f
+
     // Тёмный полупрозрачный фон с закрытием при тапе мимо карточки
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Color.Black.copy(alpha = backgroundAlpha))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -252,6 +306,7 @@ private fun OverlayScreen(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
+                .offset { IntOffset(0, offsetY.value.roundToInt().coerceAtLeast(0)) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -265,22 +320,30 @@ private fun OverlayScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp)
+                    .padding(top = 8.dp)
             ) {
-                // Индикатор смахивания (drag handle)
+                // Индикатор смахивания (drag handle) с увеличенной зоной касания и обработкой свайпа
                 Box(
                     modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .size(width = 36.dp, height = 4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.outlineVariant)
-                )
+                        .fillMaxWidth()
+                        .height(24.dp)
+                        .then(dragModifier),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 4.5.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.outlineVariant)
+                    )
+                }
 
-                // Шапка
+                // Шапка с поддержкой свайпа вниз
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .then(dragModifier)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -296,6 +359,20 @@ private fun OverlayScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "БЕТА",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                        )
+                    }
 
                     activeProvider?.let { p ->
                         Spacer(modifier = Modifier.width(6.dp))
