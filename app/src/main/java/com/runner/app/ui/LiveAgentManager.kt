@@ -31,11 +31,13 @@ object LiveAgentManager {
         get() = _stateFlow.value.isExecuting
 
     private var pendingContinuation: Continuation<Boolean>? = null
+    private var sessionStopHandler: (() -> Unit)? = null
 
     @Volatile
     var onStopRequested: ((String) -> Unit)? = null
 
-    fun start(context: Context, totalSteps: Int = 5) {
+    fun start(context: Context, totalSteps: Int = 5, onStop: (() -> Unit)? = null) {
+        sessionStopHandler = onStop
         _stateFlow.value = State(
             isExecuting = true,
             isFinished = false,
@@ -87,6 +89,8 @@ object LiveAgentManager {
             stepDescription = reason,
             confirmationPrompt = null
         )
+        sessionStopHandler?.invoke()
+        sessionStopHandler = null
         onStopRequested?.invoke(reason)
         LiveFloatingOverlay.dismiss()
     }
@@ -99,12 +103,14 @@ object LiveAgentManager {
             stepDescription = summary,
             confirmationPrompt = null
         )
+        sessionStopHandler = null
         // Не убираем оверлей автоматически: пользователь видит статус "Готово",
         // карточку результата и может перейти в Runner или закрыть оверлей.
     }
 
     fun reset() {
         confirmPendingAction(false)
+        sessionStopHandler = null
         _stateFlow.value = State()
         LiveFloatingOverlay.dismiss()
     }
