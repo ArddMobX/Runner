@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material3.Button
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.theme.GoogleSansCode
 import com.runner.app.ui.theme.SecondaryMint
+import com.runner.app.util.CrashReportManager
 
 const val DONATE_TON_ADDRESS = "UQBEzktkHEnVK8XTGztXfNcOWtdONyskFeb3u48lWfzZ-t6V"
 const val DONATE_TG_CHANNEL = "https://t.me/runner_agent"
@@ -266,6 +268,22 @@ fun SupportSheet(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     openExternalUrl(context, DONATE_GITHUB_REPO)
+                }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Карточка 4: Отчет о сбоях и диагностика
+            SupportItemCard(
+                title = "Отчет о сбоях и диагностика",
+                subtitle = "Сводка для разработчика",
+                description = "Скопировать в буфер информацию об устройстве, ошибках и последних системных событиях",
+                icon = Icons.Outlined.BugReport,
+                iconTint = Color(0xFFFFB74D),
+                actionIcon = Icons.Outlined.ContentCopy,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    CrashReportManager.copyReport(context, "Диагностический отчет из меню поддержки")
                 }
             )
 

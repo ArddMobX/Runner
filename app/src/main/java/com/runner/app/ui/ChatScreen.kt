@@ -57,6 +57,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -75,6 +76,7 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -138,6 +140,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.tools.TrashStore
+import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
@@ -607,6 +610,26 @@ fun ChatScreen(
                         }
                     }
                 }
+            }
+
+            var pendingCrashReport by remember { mutableStateOf(CrashReportManager.hasPendingCrashReport(context)) }
+            if (pendingCrashReport) {
+                CrashReportBanner(
+                    onCopy = {
+                        val report = CrashReportManager.getPendingCrashReport(context)
+                        if (report != null) {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчет о сбое Runner", report))
+                            Toast.makeText(context, "Отчет о сбое скопирован в буфер", Toast.LENGTH_SHORT).show()
+                        }
+                        CrashReportManager.clearPendingCrashReport(context)
+                        pendingCrashReport = false
+                    },
+                    onDismiss = {
+                        CrashReportManager.clearPendingCrashReport(context)
+                        pendingCrashReport = false
+                    }
+                )
             }
 
             if (!hasStoragePermission) {
@@ -1441,6 +1464,13 @@ private fun MessageItem(
                                     Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
                                 }
                             )
+                            if (message.isError) {
+                                MessageActionIcon(
+                                    icon = Icons.Outlined.BugReport,
+                                    label = "Отчет о сбое",
+                                    onClick = { CrashReportManager.copyReport(context, "Ответ ассистента с ошибкой: ${message.content}") }
+                                )
+                            }
                         }
 
                         if (hasStats) {
@@ -2381,19 +2411,98 @@ private fun NoticeBanner(
             }
         }
 
-        if (action != null) {
-            val label = when (action) {
-                MessageAction.OPEN_SETTINGS -> "Открыть настройки"
-                MessageAction.OPEN_MODELS -> "Выбрать модель"
-                MessageAction.GRANT_STORAGE -> "Разрешить доступ"
-                MessageAction.EXECUTE_DRY_RUN -> "Выполнить"
-            }
-            TextButton(
-                onClick = { onAction(action) },
-                modifier = Modifier.padding(start = 24.dp, top = 2.dp)
+        if (action != null || isError) {
+            val context = LocalContext.current
+            Row(
+                modifier = Modifier.padding(start = 24.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(label, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                if (action != null) {
+                    val label = when (action) {
+                        MessageAction.OPEN_SETTINGS -> "Открыть настройки"
+                        MessageAction.OPEN_MODELS -> "Выбрать модель"
+                        MessageAction.GRANT_STORAGE -> "Разрешить доступ"
+                        MessageAction.EXECUTE_DRY_RUN -> "Выполнить"
+                    }
+                    TextButton(onClick = { onAction(action) }) {
+                        Text(label, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                if (isError) {
+                    TextButton(
+                        onClick = { CrashReportManager.copyReport(context, "Системное уведомление: $text") }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Скопировать отчет", color = MaterialTheme.colorScheme.error, fontSize = 12.5.sp)
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f)), RoundedCornerShape(10.dp))
+            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.BugReport,
+            contentDescription = null,
+            tint = Color(0xFFEF4444),
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Предыдущий запуск завершился сбоем",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "Скопируйте отчет для передачи разработчику",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+        }
+        TextButton(
+            onClick = onCopy,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.ContentCopy,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Отчет", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+        }
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Закрыть",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
         }
     }
 }

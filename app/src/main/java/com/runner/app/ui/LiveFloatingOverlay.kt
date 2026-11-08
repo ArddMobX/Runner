@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.PauseCircleOutline
 import androidx.compose.material.icons.outlined.TouchApp
@@ -76,6 +77,7 @@ import com.runner.app.MainActivity
 import com.runner.app.service.TouchVisualizerOverlay
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.RunnerTheme
+import com.runner.app.util.CrashReportManager
 
 /**
  * Плавающий оверлей для управления Live-режимом (автопилотом) агента:
@@ -564,6 +566,35 @@ object LiveFloatingOverlay {
                             Spacer(modifier = Modifier.height(12.dp))
 
                             if (isFinished) {
+                                if (state.status == LiveAgentManager.StepStatus.ERROR || state.status == LiveAgentManager.StepStatus.STOPPED) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            CrashReportManager.copyReport(context, "Сбой в Live-режиме: ${state.stepDescription}")
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = Color(0xFFFCA5A5)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.ContentCopy,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Скопировать отчет о сбое",
+                                            fontFamily = GoogleSans,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
                                 // Действия по завершению задачи: Закрыть и Перейти в чат Runner
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

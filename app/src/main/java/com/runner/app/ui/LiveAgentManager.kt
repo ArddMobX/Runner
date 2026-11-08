@@ -1,6 +1,7 @@
 package com.runner.app.ui
 
 import android.content.Context
+import com.runner.app.util.CrashReportManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +47,7 @@ object LiveAgentManager {
 
     fun start(context: Context, totalSteps: Int = 5, onStop: (() -> Unit)? = null) {
         sessionStopHandler = onStop
+        CrashReportManager.log("LiveAgent", "Старт задачи, всего шагов: $totalSteps")
         _stateFlow.value = State(
             isExecuting = true,
             status = StepStatus.RUNNING,
@@ -59,6 +61,7 @@ object LiveAgentManager {
 
     fun updateStep(description: String, index: Int, total: Int = 0) {
         val current = _stateFlow.value
+        CrashReportManager.log("LiveAgent", "Шаг $index: $description")
         _stateFlow.value = current.copy(
             isExecuting = true,
             status = StepStatus.RUNNING,
@@ -102,6 +105,12 @@ object LiveAgentManager {
                 lower.contains("сбой") ||
                 lower.contains("недоступен")
 
+        if (isErr) {
+            CrashReportManager.setLastError("Live-режим остановлен с ошибкой: $reason")
+        } else {
+            CrashReportManager.log("LiveAgent", "Остановлено: $reason")
+        }
+
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
             status = if (isErr) StepStatus.ERROR else StepStatus.STOPPED,
@@ -118,6 +127,7 @@ object LiveAgentManager {
 
     fun finish(summary: String) {
         confirmPendingAction(false)
+        CrashReportManager.log("LiveAgent", "Успешно завершено: $summary")
         _stateFlow.value = _stateFlow.value.copy(
             isExecuting = false,
             status = StepStatus.SUCCESS,
