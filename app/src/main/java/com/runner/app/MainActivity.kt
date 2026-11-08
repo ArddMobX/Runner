@@ -45,6 +45,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.runner.app.ui.ChatScreen
+import com.runner.app.ui.LiveAgentManager
+import com.runner.app.ui.LiveFloatingOverlay
 import com.runner.app.ui.MainViewModel
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
@@ -137,6 +139,11 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Пользователь мог вернуться с системного экрана выдачи прав
         viewModel.checkAllPermissions()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        LiveFloatingOverlay.dismiss()
     }
 }
 
@@ -246,10 +253,12 @@ fun AppNavigation(viewModel: MainViewModel) {
                         snippets = searchSnippets,
                         onQueryChange = { viewModel.setSessionsQuery(it) },
                         onNewChat = {
+                            LiveAgentManager.reset()
                             viewModel.startNewChat()
                             scope.launch { drawerState.close() }
                         },
                         onOpenSession = { sessionId ->
+                            LiveAgentManager.reset()
                             viewModel.openSession(sessionId)
                             scope.launch { drawerState.close() }
                         },

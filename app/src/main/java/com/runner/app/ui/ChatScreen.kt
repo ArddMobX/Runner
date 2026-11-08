@@ -420,6 +420,7 @@ fun ChatScreen(
                         onClick = {
                             if (appSettings.liveModeEnabled) {
                                 viewModel.updateAppSettings { copy(liveModeEnabled = false) }
+                                LiveAgentManager.reset()
                             } else {
                                 val hasAccessibility = RunnerAccessibilityService.isEnabled(context)
                                 val hasOverlay = android.provider.Settings.canDrawOverlays(context)

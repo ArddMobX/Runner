@@ -1329,10 +1329,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(newSettings: AppSettings) {
+        val wasLive = _settings.value.liveModeEnabled
         _settings.value = newSettings
         settingsStore.save(newSettings)
         ToolDispatcher.defaultWorkingDir = newSettings.defaultWorkingDir
         voiceManager.setTtsParameters(newSettings.ttsSpeed, newSettings.ttsPitch, newSettings.ttsVoiceName)
+        if (wasLive && !newSettings.liveModeEnabled) {
+            LiveAgentManager.reset()
+        }
     }
 
     /** Выбрать активный профиль инструкций */
