@@ -155,12 +155,12 @@ object CrashReportManager {
 
         // Провайдер и модель без утечки API-ключа
         val activeProvider = try {
-            ProviderStore(context).getActiveProvider()
+            ProviderStore(context).activeProvider()
         } catch (_: Exception) {
             null
         }
         val providerInfo = if (activeProvider != null) {
-            "${activeProvider.name} (${activeProvider.type}) · Модель: ${activeProvider.activeModel}"
+            "${activeProvider.name} (${activeProvider.kind}) · Модель: ${activeProvider.activeModel}"
         } else {
             "Провайдер не выбран"
         }

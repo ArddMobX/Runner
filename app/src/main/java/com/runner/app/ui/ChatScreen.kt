@@ -2498,7 +2498,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
             modifier = Modifier.size(28.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Close,
+                imageVector = Icons.Outlined.Close,
                 contentDescription = "Закрыть",
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.outline
