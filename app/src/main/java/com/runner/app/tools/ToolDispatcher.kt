@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.core.content.ContextCompat
 import com.runner.app.util.ContactManager
+import com.runner.app.util.CrashReportManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -952,6 +953,7 @@ object ToolDispatcher {
         liveFullAccess: Boolean = false
     ): String = withContext(Dispatchers.IO) {
         val cleanToolName = toolName.substringAfterLast(":")
+        CrashReportManager.log("Tool", "Вызов: $cleanToolName")
         val args = try {
             if (argumentsJson.isBlank()) JSONObject() else JSONObject(argumentsJson)
         } catch (e: Exception) {
@@ -1190,6 +1192,7 @@ object ToolDispatcher {
                 else -> "Неизвестный инструмент: $cleanToolName"
             }
         } catch (e: Exception) {
+            CrashReportManager.setLastError("Ошибка при выполнении $cleanToolName: ${e.message}")
             "Ошибка при выполнении $cleanToolName: ${e.message}"
         }
 
@@ -3380,6 +3383,7 @@ object ToolDispatcher {
 
     fun describeCriticalAction(toolName: String, argsJson: String): CriticalActionInfo {
         val cleanToolName = toolName.substringAfterLast(":")
+        CrashReportManager.log("Tool", "Вызов: $cleanToolName")
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {
@@ -3593,6 +3597,7 @@ object ToolDispatcher {
     /** Человеческое название действия в настоящем времени: «Сканирую Download». */
     fun actionTitle(toolName: String, argsJson: String): String {
         val cleanToolName = toolName.substringAfterLast(":")
+        CrashReportManager.log("Tool", "Вызов: $cleanToolName")
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {

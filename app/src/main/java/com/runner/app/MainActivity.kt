@@ -48,6 +48,7 @@ import com.runner.app.ui.ChatScreen
 import com.runner.app.ui.LiveAgentManager
 import com.runner.app.ui.LiveFloatingOverlay
 import com.runner.app.ui.MainViewModel
+import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
 import com.runner.app.ui.components.DisclaimerDialog
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReportManager.init(applicationContext)
         handleIntent(intent)
         maybeRequestInitialPermissions()
         setContent {

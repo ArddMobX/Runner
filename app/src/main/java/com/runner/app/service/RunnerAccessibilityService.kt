@@ -14,6 +14,7 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.runner.app.ui.LiveAgentManager
+import com.runner.app.util.CrashReportManager
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -77,6 +78,7 @@ class RunnerAccessibilityService : AccessibilityService() {
             val root = rootInActiveWindow ?: return ScreenInspectionResult.Error("Экран недоступен или заблокирован")
             val pkg = root.packageName?.toString().orEmpty()
             lastExtractedPackage = pkg
+            CrashReportManager.setLastActivePackage(pkg)
 
             // Проверка черного списка безопасности
             if (isSensitivePackage(pkg)) {
