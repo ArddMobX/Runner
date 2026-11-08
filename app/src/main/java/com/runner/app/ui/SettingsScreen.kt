@@ -3,7 +3,13 @@ package com.runner.app.ui
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.ComponentName
+import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Article
+import com.runner.app.util.CrashReportManager
 import android.service.voice.VoiceInteractionService
 import com.runner.app.service.RunnerVoiceInteractionService
 import androidx.compose.runtime.DisposableEffect
@@ -299,6 +305,7 @@ private fun SettingsRoot(
     val connectionState by viewModel.connectionTestState.collectAsState()
     val themeConfig by viewModel.themeConfig.collectAsState()
     val context = LocalContext.current
+    var showReportPreviewDialog by remember { mutableStateOf(false) }
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -457,7 +464,33 @@ private fun SettingsRoot(
                 section = "Вибрация",
                 description = "Проверка тактильного отклика и силы импульса",
                 icon = Icons.Outlined.Tune,
-                onClick = { viewModel.testHaptic3Seconds(appSettings.hapticIntensity) }
+                onClick = {
+                    val hasVib = viewModel.hapticManager.hasVibrator()
+                    if (hasVib) {
+                        Toast.makeText(context, "Тест вибрации запущен (3 сек)...", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Внимание: вибромотор не обнаружен устройством", Toast.LENGTH_LONG).show()
+                    }
+                    viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
+                }
+            ),
+            SearchableSetting(
+                title = "Отчет о сбое и неполадках",
+                section = "Диагностика",
+                description = "Скопировать технический отчет о системе и ошибках в буфер",
+                icon = Icons.Outlined.BugReport,
+                onClick = {
+                    CrashReportManager.copyReport(context, "Отчет вызван пользователем через поиск настроек")
+                }
+            ),
+            SearchableSetting(
+                title = "Просмотр отчета диагностики",
+                section = "Диагностика",
+                description = "Посмотреть лог диагностики, статус разрешений и памяти",
+                icon = Icons.Outlined.Article,
+                onClick = {
+                    showReportPreviewDialog = true
+                }
             ),
             SearchableSetting(
                 title = "Reverse proxy",
@@ -1339,6 +1372,87 @@ private fun SettingsRoot(
                     fontSize = 11.5.sp
                 )
             }
+        }
+
+        SettingsGroup("Диагностика и отчет о сбоях") {
+            SettingsRow(
+                label = "Отчет о сбое и неполадках",
+                value = "Скопировать в буфер",
+                onClick = {
+                    CrashReportManager.copyReport(context, "Отчет вызван пользователем из настроек")
+                },
+                icon = Icons.Outlined.BugReport
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Просмотр отчета",
+                value = "Открыть текст",
+                onClick = {
+                    showReportPreviewDialog = true
+                },
+                icon = Icons.Outlined.Article
+            )
+        }
+
+        if (showReportPreviewDialog) {
+            val reportText = remember { CrashReportManager.buildReport(context, "Диагностический отчет") }
+            AlertDialog(
+                onDismissRequest = { showReportPreviewDialog = false },
+                title = {
+                    Text(
+                        text = "Диагностический отчет",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                            .padding(10.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                text = reportText,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчет о сбое Runner", reportText))
+                            Toast.makeText(context, "Отчет скопирован в буфер", Toast.LENGTH_SHORT).show()
+                            showReportPreviewDialog = false
+                        }
+                    ) {
+                        Text(
+                            text = "Скопировать",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showReportPreviewDialog = false }) {
+                        Text(
+                            text = "Закрыть",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(16.dp)
+            )
         }
 
         SettingsGroup("О проекте") {
@@ -3457,6 +3571,7 @@ private fun VibrationSettingsCard(
     viewModel: MainViewModel,
     appSettings: AppSettings
 ) {
+    val context = LocalContext.current
     SettingsGroup("Вибрация и тактильный отклик") {
         Row(
             modifier = Modifier
@@ -3527,6 +3642,12 @@ private fun VibrationSettingsCard(
                     } else {
                         if (!appSettings.hapticEnabled) {
                             viewModel.updateSettings(appSettings.copy(hapticEnabled = true))
+                        }
+                        val hasVib = viewModel.hapticManager.hasVibrator()
+                        if (hasVib) {
+                            Toast.makeText(context, "Тест вибрации запущен (3 сек)...", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Внимание: вибромотор не обнаружен устройством", Toast.LENGTH_LONG).show()
                         }
                         viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
                         isHapticTestRunning = true
