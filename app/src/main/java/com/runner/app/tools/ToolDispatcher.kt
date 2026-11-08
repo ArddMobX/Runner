@@ -789,18 +789,29 @@ object ToolDispatcher {
     )
 
     /**
-     * Инструменты Live-режима (автопилот по экрану через спецвозможности).
+     * Инструменты, которые существуют ТОЛЬКО в Live-режиме.
+     *
+     * Управление чужим экраном — не файловая операция, и без включённого
+     * Live-режима его не должно быть ни в схемах запроса, ни в исполнении.
+     * Отдельный набор нужен потому, что [LIVE_TOOL_NAMES] — это область
+     * инструментов для Live-режима, а в неё входит `open_app`, который
+     * прекрасно работает и в обычном чате.
      */
-    val LIVE_TOOL_NAMES: Set<String> = setOf(
+    val LIVE_ONLY_TOOL_NAMES: Set<String> = setOf(
         "ui_inspect",
         "ui_click",
         "ui_type",
         "ui_scroll",
         "ui_global_action",
-        "open_app",
         "ui_wait",
         "ui_finish"
     )
+
+    /**
+     * Инструменты Live-режима (автопилот по экрану через спецвозможности).
+     * Выводятся из [LIVE_ONLY_TOOL_NAMES], поэтому разойтись с ними не могут.
+     */
+    val LIVE_TOOL_NAMES: Set<String> = LIVE_ONLY_TOOL_NAMES + "open_app"
 
     /**
      * Имена всех настоящих инструментов. Выводятся из тех же схем, что уходят
@@ -819,23 +830,28 @@ object ToolDispatcher {
     /**
      * Схемы инструментов для запроса.
      *
-     * `null` — все инструменты (поведение по умолчанию, как было всегда).
+     * `null` в [names] — все инструменты, доступные в текущем режиме.
      * Набор — только перечисленные плюс, если попросили, [ENABLE_TOOLS].
+     *
+     * Инструменты из [LIVE_ONLY_TOOL_NAMES] при `liveMode = false` не попадают
+     * в запрос вообще, даже если названы явно: управление экраном без
+     * включённого Live-режима не должно быть моделью даже видно. Раньше они
+     * объявлялись всегда, и обычный чат мог тапнуть по чужому экрану.
      *
      * Пустой набор означает «инструменты не нужны»: вызывающий код на этом
      * основании вообще не кладёт поле `tools` в тело запроса.
      */
-    fun getToolsJson(names: Set<String>? = null): JSONArray {
+    fun getToolsJson(names: Set<String>? = null, liveMode: Boolean = false): JSONArray {
         val all = buildAllToolsJson()
-        if (names == null) return all
-
         val filtered = JSONArray()
         for (index in 0 until all.length()) {
             val item = all.optJSONObject(index) ?: continue
             val name = item.optJSONObject("function")?.optString("name").orEmpty()
-            if (name in names) filtered.put(item)
+            if (!liveMode && name in LIVE_ONLY_TOOL_NAMES) continue
+            if (names != null && name !in names) continue
+            filtered.put(item)
         }
-        if (ENABLE_TOOLS in names) filtered.put(createEnableToolsSchema())
+        if (names != null && ENABLE_TOOLS in names) filtered.put(createEnableToolsSchema())
         return filtered
     }
 
@@ -861,8 +877,11 @@ object ToolDispatcher {
      *
      * Каталог строится из тех же описаний, что и схемы, — берётся первое
      * предложение. Поэтому он не может разойтись с реальным набором инструментов.
+     *
+     * Инструменты Live-режима при `liveMode = false` в каталог не попадают:
+     * рекламировать то, что не подключится, — худший вид подсказки.
      */
-    fun toolScopeNote(active: Set<String>): String {
+    fun toolScopeNote(active: Set<String>, liveMode: Boolean = false): String {
         val all = buildAllToolsJson()
         val available = active.filter { it != ENABLE_TOOLS }.sorted()
         val rest = mutableListOf<String>()
@@ -872,6 +891,7 @@ object ToolDispatcher {
             val function = item.optJSONObject("function") ?: continue
             val name = function.optString("name")
             if (name.isBlank() || name in active) continue
+            if (!liveMode && name in LIVE_ONLY_TOOL_NAMES) continue
             rest.add("$name — ${firstSentence(function.optString("description"))}")
         }
 
@@ -1698,12 +1718,6 @@ object ToolDispatcher {
     // --- Запуск приложений и ссылок ---
 
     /**
-     * Частые приложения по пакету. Это ПОДСКАЗКА, а не приговор: если пакет
-     * не установлен (мод, форк, другая сборка), поиск продолжается обычным
-     * путём. Раньше алиас обрывал поиск, и «открой ютуб» с модифицированным
-     * YouTube возвращало «нет иконки в меню» вместо найденного приложения.
-     */
-    /**
      * Популярные сервисы и список всех известных пакетов: официальные, моды и форки.
      * Если у пользователя стоит неофициальный клиент (ReVanced, NewPipe, Telegram X,
      * Nekogram, VTosters, Kate Mobile и т.д.), мы находим и запускаем его сразу.
@@ -1859,6 +1873,12 @@ object ToolDispatcher {
         "music" to listOf("музыка", "spotify", "vimusic", "innertune", "yandex.music")
     )
 
+    /**
+     * Частые приложения по пакету. Это ПОДСКАЗКА, а не приговор: если пакет
+     * не установлен (мод, форк, другая сборка), поиск продолжается обычным
+     * путём. Раньше алиас обрывал поиск, и «открой ютуб» с модифицированным
+     * YouTube возвращало «нет иконки в меню» вместо найденного приложения.
+     */
     private val APP_ALIASES = mapOf(
         "youtube" to "com.google.android.youtube",
         "ютуб" to "com.google.android.youtube",
@@ -2069,10 +2089,15 @@ object ToolDispatcher {
             }.forEach { add(it.first, it.second, false) }
         }
 
-        // Последним проходом — среди ВСЕХ запускаемых приложений, включая те,
+        // Последним проходом - среди ВСЕХ запускаемых приложений, включая те,
         // у которых нет своей иконки в меню (моды и форки).
         allLaunchableApps(context)
-            .filter { it.first.lowercase().contains(needle) || it.second.lowercase().contains(needle) }
+            .filter { app ->
+                val l = app.first.lowercase()
+                val p = app.second.lowercase()
+                l.contains(needle) || p.contains(needle) ||
+                        modSynonyms.any { l.contains(it) || p.contains(it) }
+            }
             .forEach { add(it.first, it.second, false) }
 
         return out.values.toList()
@@ -3298,9 +3323,17 @@ object ToolDispatcher {
     )
 
     /**
-     * Операции, которые меняют данные на устройстве или запускают код.
-     * Единственный источник истины: и гейт подтверждения, и планировщик
-     * смотрят только сюда, отдельного списка «деструктивных» тулов больше нет.
+     * Операции, которые меняют данные на устройстве, чужой экран или звонят.
+     * Единственный источник истины: и гейт подтверждения, и планировщик,
+     * и режимы «только чтение» и «сухой прогон» смотрят только сюда.
+     * Отдельного списка «изменяющих» тулов нет и заводить его нельзя.
+     *
+     * Звонок и действия на экране попали сюда не для красоты: раньше их здесь
+     * не было, и в режиме «только чтение» агент мог нажать «Оплатить» на чужом
+     * экране или позвонить по номеру — README обещал обратное.
+     *
+     * `ui_inspect`, `ui_scroll`, `ui_wait` и `ui_finish` намеренно НЕ здесь:
+     * это чтение и навигация, они ничего не меняют.
      */
     val DANGEROUS_OPERATIONS: Set<String> = setOf(
         // удаление и перезапись
@@ -3317,7 +3350,13 @@ object ToolDispatcher {
         "run_shell_command",
         "clipboard_write",
         "open_app",
-        "open_url"
+        "open_url",
+        // телефонный вызов: исходящий звонок с реальными последствиями
+        "call_phone",
+        // действия на чужом экране: тап, ввод текста, системные кнопки
+        "ui_click",
+        "ui_type",
+        "ui_global_action"
     )
 
     /** Всегда требует подтверждения пользователя. */
@@ -3495,6 +3534,52 @@ object ToolDispatcher {
                     details = "Абонент: ${display.ifBlank { "номер не указан" }}",
                     warning = "Будет совершен исходящий телефонный вызов.",
                     preview = "Runner выполнит вызов через системное приложение."
+                )
+            }
+            // Действия на чужом экране. Заголовок и детали важны: это
+            // единственное, что пользователь видит перед тапом в чужом
+            // приложении, где никакой корзины и отмены не существует.
+            "ui_click" -> {
+                val label = args.optString("label", "").trim()
+                val elementId = if (args.has("element_id")) args.optInt("element_id") else null
+                val x = if (args.has("x")) args.optDouble("x") else null
+                val y = if (args.has("y")) args.optDouble("y") else null
+                val where = when {
+                    label.isNotBlank() -> "«$label»"
+                    elementId != null -> "элемент #$elementId"
+                    x != null && y != null -> "точка (${x.toInt()}, ${y.toInt()})"
+                    else -> "элемент без описания"
+                }
+                CriticalActionInfo(
+                    title = "Нажатие на экране",
+                    details = "Куда: $where",
+                    warning = "Агент нажмёт от вашего имени в другом приложении. " +
+                            "Отменить это действие нельзя.",
+                    preview = "Нажатие в приложении, которое сейчас открыто."
+                )
+            }
+            "ui_type" -> {
+                val text = args.optString("text", "")
+                val elementId = if (args.has("element_id")) args.optInt("element_id") else null
+                CriticalActionInfo(
+                    title = "Ввод текста на экране",
+                    details = buildString {
+                        append("Куда: ")
+                        append(if (elementId != null) "поле #$elementId" else "поле в фокусе")
+                        append("\nТекст: ")
+                        append(if (text.length <= 300) text else text.take(300) + "…")
+                    },
+                    warning = "Текст будет введён в чужое приложение от вашего имени.",
+                    preview = "Ввод в поле, которое сейчас в фокусе."
+                )
+            }
+            "ui_global_action" -> {
+                val action = args.optString("action", "back").trim()
+                CriticalActionInfo(
+                    title = "Системная кнопка",
+                    details = "Действие: $action",
+                    warning = "Агент нажмёт системную кнопку в другом приложении.",
+                    preview = "Back, Home, Recents или шторка уведомлений."
                 )
             }
             else -> CriticalActionInfo(
