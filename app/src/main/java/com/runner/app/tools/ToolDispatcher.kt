@@ -1454,6 +1454,12 @@ object ToolDispatcher {
                 return "resolved_path_src: ${src.absolutePath}\nresolved_path_dst: ${dest.absolutePath}\nОшибка: родительской папки нет: '${parent.absolutePath}'. Сначала создай её тулом create_dir."
             }
         }
+        if (dest.exists()) {
+            return "resolved_path_src: ${src.absolutePath}\n" +
+                    "resolved_path_dst: ${dest.absolutePath}\n" +
+                    "Цель уже существует. Перемещение не перезаписывает файлы и не " +
+                    "сливает папки: укажите другое имя."
+        }
 
         // Объявляем без начальных значений: обе ветки ниже присваивают обе
         // переменные, и пустой инициализатор компилятор считает лишним.
@@ -1461,16 +1467,29 @@ object ToolDispatcher {
         // в catch — компилятор не знает, успело ли присваивание произойти.
         var success: Boolean
         var message: String
+        var warning: String? = null
         try {
             if (src.renameTo(dest)) {
                 success = true
                 message = "Перемещено"
             } else {
-                // Cross-device fallback
-                src.copyTo(dest, overwrite = true)
-                src.delete()
-                success = true
-                message = "Перемещено (через копирование)"
+                // renameTo не сработал: другая ФС, запрет переименования и т.п.
+                // Копируем через временное имя — см. moveAcrossFilesystems.
+                when (val fallback = moveAcrossFilesystems(src, dest)) {
+                    FallbackMove.Moved -> {
+                        success = true
+                        message = "Перемещено (через копирование)"
+                    }
+                    is FallbackMove.MovedWithWarning -> {
+                        success = true
+                        warning = fallback.warning
+                        message = "Скопировано, источник не удалён"
+                    }
+                    is FallbackMove.Failed -> {
+                        success = false
+                        message = fallback.reason
+                    }
+                }
             }
         } catch (e: Exception) {
             success = false
@@ -1495,10 +1514,92 @@ object ToolDispatcher {
                 append(TrashStore.markerLine(entry.id, TrashStore.EntryKind.MOVE)).append("\n")
             }
             append("$message: '${src.name}' -> '${dest.absolutePath}'.")
+            warning?.let { append("\n⚠ $it") }
             if (entry != null) {
                 append("\nОткатить перемещение можно кнопкой «Отменить» в этом сообщении.")
             }
         }
+    }
+
+    /** Результат переноса через копирование. */
+    private sealed interface FallbackMove {
+        data object Moved : FallbackMove
+
+        /**
+         * Копия на месте, но источник удалить не удалось: данные целы,
+         * дубликат остался. Это честный частичный успех, а не «перемещено».
+         */
+        data class MovedWithWarning(val warning: String) : FallbackMove
+
+        data class Failed(val reason: String) : FallbackMove
+    }
+
+    /**
+     * Переносит файл или папку, когда renameTo не сработал (другая ФС,
+     * запрет переименования).
+     *
+     * Копия всегда идёт во временное имя рядом с целью и только потом
+     * переименовывается в итоговое: обрыв копирования не оставляет
+     * полузаписанный файл или папку под целевым именем. Существующую цель
+     * не перезаписываем и не сливаем — это другое действие, чем «переместить».
+     *
+     * Если источник не удалился, копию НЕ удаляем: deleteRecursively мог
+     * стереть часть исходника, и тогда копия — единственная полная версия.
+     */
+    private fun moveAcrossFilesystems(src: File, dest: File): FallbackMove {
+        val parent = dest.parentFile
+            ?: return FallbackMove.Failed("У целевого пути нет родительской папки.")
+        if (!parent.exists() && !parent.mkdirs()) {
+            return FallbackMove.Failed(
+                "Не удалось создать родительскую папку '${parent.absolutePath}'."
+            )
+        }
+        if (dest.exists()) {
+            return FallbackMove.Failed(
+                "Цель '${dest.absolutePath}' уже существует. Укажите другое имя " +
+                        "или удалите её: перезапись и слияние папок этим тулом не выполняются."
+            )
+        }
+
+        // Временное имя в том же каталоге, что и цель: rename в его пределах
+        // атомарен и не зависит от границы файловых систем.
+        val temp = File(parent, ".${dest.name}.moving-${System.nanoTime()}")
+        if (temp.exists()) temp.deleteRecursively()
+
+        val copied = try {
+            if (src.isDirectory) {
+                src.copyRecursively(temp, overwrite = false)
+            } else {
+                src.copyTo(temp, overwrite = false)
+                true
+            }
+        } catch (e: Exception) {
+            temp.deleteRecursively()
+            return FallbackMove.Failed("Ошибка копирования: ${e.localizedMessage}")
+        }
+        if (!copied) {
+            temp.deleteRecursively()
+            return FallbackMove.Failed("Не удалось скопировать '${src.name}' целиком.")
+        }
+
+        if (dest.exists() || !temp.renameTo(dest)) {
+            temp.deleteRecursively()
+            return FallbackMove.Failed("Не удалось закрепить копию по пути '${dest.absolutePath}'.")
+        }
+
+        val removed = try {
+            if (src.isDirectory) src.deleteRecursively() else src.delete()
+        } catch (_: Exception) {
+            false
+        }
+        if (!removed) {
+            return FallbackMove.MovedWithWarning(
+                "Источник '${src.absolutePath}' удалить не удалось (занят другим " +
+                        "приложением или нет прав). Полная копия лежит в " +
+                        "'${dest.absolutePath}', исходник мог остаться частично."
+            )
+        }
+        return FallbackMove.Moved
     }
 
     fun copyFile(rawSource: String, rawDest: String): String {
@@ -3408,7 +3509,6 @@ object ToolDispatcher {
 
     fun describeCriticalAction(toolName: String, argsJson: String): CriticalActionInfo {
         val cleanToolName = toolName.substringAfterLast(":")
-        CrashReportManager.log("Tool", "Вызов: $cleanToolName")
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {
@@ -3622,7 +3722,6 @@ object ToolDispatcher {
     /** Человеческое название действия в настоящем времени: «Сканирую Download». */
     fun actionTitle(toolName: String, argsJson: String): String {
         val cleanToolName = toolName.substringAfterLast(":")
-        CrashReportManager.log("Tool", "Вызов: $cleanToolName")
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {

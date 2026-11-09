@@ -18,8 +18,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
-import android.provider.DocumentsContract
 import android.widget.Toast
 import com.runner.app.util.StoragePathUtils
 import androidx.activity.compose.BackHandler
@@ -135,6 +133,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -3973,27 +3972,6 @@ private fun WorkingDirField(
     }
 }
 
-private fun uriToStoragePath(uri: Uri): String? {
-    return try {
-        val treeDocId = DocumentsContract.getTreeDocumentId(uri)
-        if (treeDocId.startsWith("primary:")) {
-            val subPath = treeDocId.removePrefix("primary:").trimStart('/')
-            val root = Environment.getExternalStorageDirectory().canonicalPath
-            if (subPath.isEmpty()) root else "$root/$subPath"
-        } else if (treeDocId.contains(":")) {
-            val parts = treeDocId.split(":", limit = 2)
-            val subPath = parts.getOrNull(1)?.trimStart('/').orEmpty()
-            val storageId = parts[0]
-            val basePath = "/storage/$storageId"
-            if (subPath.isEmpty()) basePath else "$basePath/$subPath"
-        } else {
-            null
-        }
-    } catch (_: Exception) {
-        null
-    }
-}
-
 /**
  * Компактный сегментный переключатель: равные сегменты, выбранный залит
  * сплошным primary с текстом onPrimary. Раньше активный отличался только
@@ -4279,6 +4257,40 @@ private class SecretHeadersVisualTransformation : VisualTransformation {
                 clean.endsWith("-key") || clean.endsWith("_key") || clean == "key" ||
                 clean.endsWith("-token") || clean.endsWith("_token") || clean == "token"
     }
+}
+
+/** Доступы, без которых Live-режим не работает. */
+private data class LiveAccess(
+    val accessibility: Boolean,
+    val overlay: Boolean
+)
+
+private fun readLiveAccess(context: Context): LiveAccess = LiveAccess(
+    accessibility = RunnerAccessibilityService.isEnabled(context),
+    overlay = android.provider.Settings.canDrawOverlays(context)
+)
+
+/**
+ * Статус доступов Live-режима, пересчитываемый при возврате из системных
+ * настроек: `remember(context)` считал его один раз, и экран продолжал
+ * показывать «служба отключена» после включения спецвозможностей.
+ */
+@Composable
+private fun rememberLiveAccess(): LiveAccess {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var access by remember { mutableStateOf(readLiveAccess(context)) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                access = readLiveAccess(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return access
 }
 
 @Composable
@@ -4790,7 +4802,8 @@ private fun AccessSettings(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                val hasAccessibility = remember(context) { RunnerAccessibilityService.isEnabled(context) }
+                val liveAccess = rememberLiveAccess()
+                val hasAccessibility = liveAccess.accessibility
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
@@ -4816,7 +4829,7 @@ private fun AccessSettings(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                val hasOverlay = remember(context) { android.provider.Settings.canDrawOverlays(context) }
+                val hasOverlay = liveAccess.overlay
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,

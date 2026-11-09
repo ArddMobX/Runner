@@ -384,7 +384,7 @@ class OpenAIClient {
                     // подпись, а для Gemini ещё и на любом повторе: раньше она уходила
                     // всегда, и отказываться от проверенного поведения сразу нельзя.
                     val fallback = signatureFallback || (isGemini && attempt > 0)
-                    executeStreaming(call, listener, fallback, metrics, maxTokens)
+                    executeStreaming(call, listener, fallback, metrics)
                 } else {
                     val fallback = signatureFallback || (isGemini && attempt > 0)
                     executeBlocking(call, fallback, metrics)
@@ -468,13 +468,11 @@ class OpenAIClient {
         call: Call,
         listener: StreamListener?,
         signatureFallback: Boolean,
-        metrics: GenerationMetrics?,
-        maxTokens: Int = 0
+        metrics: GenerationMetrics?
     ): AIResponseResult {
         val content = StringBuilder()
         val toolCallSlots = sortedMapOf<Int, ToolCallAccumulator>()
         var emitted = false
-        var currentTokens = 0
 
         call.execute().use { response ->
             if (!response.isSuccessful) {
@@ -508,7 +506,6 @@ class OpenAIClient {
                     val completion = usage.optInt("completion_tokens", 0)
                     if (completion > 0) {
                         metrics.completionTokens = completion
-                        currentTokens = completion
                     }
                 }
 
@@ -537,20 +534,6 @@ class OpenAIClient {
                     content.append(piece)
                     emitted = true
                     listener?.onTextDelta(piece)
-                    if (currentTokens == 0) {
-                        currentTokens = (content.length / 3.5).toInt()
-                    }
-                }
-
-                if (maxTokens > 0 && currentTokens >= maxTokens) {
-                    metrics?.finishReason = "length"
-                    if (metrics != null && metrics.completionTokens == null) {
-                        metrics.completionTokens = currentTokens
-                    }
-                    try {
-                        responseBody.close()
-                    } catch (_: Exception) {}
-                    break
                 }
 
                 val deltaExtra = delta.optJSONObject("extra_content")

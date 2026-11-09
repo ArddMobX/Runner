@@ -147,6 +147,9 @@ object ImageUtils {
             } ?: 0L
 
             if (bytesCopied > 0L && targetFile.exists() && targetFile.length() > 0L) {
+                // Скриншот или фото с камеры больше не нужны: в историю попала
+                // стабильная копия в chat_images.
+                deleteOwnedTempSource(context, sourceUri)
                 targetFile.absolutePath
             } else {
                 sourceUri.toString()
@@ -154,6 +157,38 @@ object ImageUtils {
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка копирования в кэш $sourceUri", e)
             sourceUri.toString()
+        }
+    }
+
+    /**
+     * Удаляет исходник, если он из нашего же временного кэша (скриншот или
+     * фото с камеры). Чужие content:// из галереи не трогаем.
+     */
+    private fun deleteOwnedTempSource(context: Context, sourceUri: Uri) {
+        if (sourceUri.scheme != "file") return
+        val path = sourceUri.path ?: return
+        val tempRoots = listOf(
+            File(context.cacheDir, "screenshots").absolutePath,
+            File(context.cacheDir, "camera").absolutePath
+        )
+        if (tempRoots.none { path.startsWith("$it/") }) return
+        runCatching { File(path).delete() }
+    }
+
+    /**
+     * Убирает старые файлы из временных каталогов приложения. Камера и
+     * скриншоты остаются в кэше, даже если отправку отменили, а chat_images
+     * копятся, если чат удалили на старой версии.
+     */
+    fun purgeCacheOlderThan(context: Context, maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000) {
+        val cutoff = System.currentTimeMillis() - maxAgeMs
+        listOf("chat_images", "screenshots", "camera").forEach { dirName ->
+            val dir = File(context.cacheDir, dirName)
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile && file.lastModified() < cutoff) {
+                    runCatching { file.delete() }
+                }
+            }
         }
     }
 

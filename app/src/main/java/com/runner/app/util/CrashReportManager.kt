@@ -16,8 +16,9 @@ import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.LiveAgentManager
 import java.io.PrintWriter
 import java.io.StringWriter
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -34,8 +35,10 @@ object CrashReportManager {
     private const val MAX_LOG_EVENTS = 50
 
     private val logEvents = ConcurrentLinkedQueue<String>()
-    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    private val fullDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    // DateTimeFormatter, в отличие от SimpleDateFormat, потокобезопасен:
+    // log() зовут и UI, и фоновые потоки инструментов.
+    private val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.getDefault())
+    private val fullDateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
     @Volatile
     private var lastActivePackage: String = ""
@@ -63,7 +66,7 @@ object CrashReportManager {
 
     fun log(tag: String, message: String) {
         val sanitized = sanitize(message)
-        val time = timeFormat.format(Date())
+        val time = LocalTime.now().format(timeFormat)
         val entry = "[$time] $tag: $sanitized"
         logEvents.add(entry)
         while (logEvents.size > MAX_LOG_EVENTS) {
@@ -178,7 +181,7 @@ object CrashReportManager {
 
         val sb = StringBuilder()
         sb.append("### ").append(title).append(" - Runner v").append(versionName).append(" (").append(versionCode).append(")\n")
-        sb.append("- **Дата и время:** ").append(fullDateFormat.format(Date())).append("\n")
+        sb.append("- **Дата и время:** ").append(LocalDateTime.now().format(fullDateFormat)).append("\n")
         sb.append("- **Устройство:** ").append(Build.MANUFACTURER.replaceFirstChar { it.uppercase() }).append(" ").append(Build.MODEL)
             .append(" (").append(Build.DEVICE).append(", Android ").append(Build.VERSION.RELEASE)
             .append(", API ").append(Build.VERSION.SDK_INT).append(")\n")

@@ -5,6 +5,7 @@ import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
 import kotlinx.coroutines.flow.Flow
+import java.io.File
 import java.util.UUID
 
 /**
@@ -59,6 +60,16 @@ class ChatRepository(private val dao: ChatDao) {
     }
 
     suspend fun deleteSession(sessionId: String) {
+        // Вместе с чатом убираем его картинки из кэша: иначе они остаются
+        // навсегда, хотя в истории на них уже никто не ссылается. Удаляем
+        // только файлы из собственного каталога chat_images.
+        dao.loadMessages(sessionId).forEach { message ->
+            message.imageUris
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.contains("/chat_images/") }
+                ?.forEach { path -> runCatching { File(path).delete() } }
+        }
         dao.deleteSessionCascade(sessionId)
     }
 

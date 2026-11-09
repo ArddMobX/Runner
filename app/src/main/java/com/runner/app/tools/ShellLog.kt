@@ -2,8 +2,8 @@ package com.runner.app.tools
 
 import android.content.Context
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -25,7 +25,8 @@ object ShellLog {
     private const val MAX_ENTRIES = 100
     private const val MAX_COMMAND_CHARS = 240
 
-    private val timeFormat = SimpleDateFormat("MM-dd HH:mm:ss", Locale.US)
+    // DateTimeFormatter потокобезопасен: append() зовут из фоновых потоков.
+    private val timeFormat = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss", Locale.US)
     private val lock = Any()
 
     /**
@@ -34,7 +35,7 @@ object ShellLog {
      */
     fun append(context: Context, status: String, command: String) {
         val line = buildString {
-            append(timeFormat.format(Date()))
+            append(LocalDateTime.now().format(timeFormat))
             append(" · ")
             append(status)
             append(" · ")

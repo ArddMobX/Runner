@@ -158,9 +158,11 @@ object TrashStore {
     // --- Чтение состояния ---
 
     /** Записи журнала, новые сверху. */
+    @Synchronized
     fun list(): List<TrashEntry> = readManifest().sortedByDescending { it.at }
 
     /** Сколько места занимает корзина. Записи о перемещениях не считаются. */
+    @Synchronized
     fun totalBytes(): Long = readManifest().sumOf { it.totalBytes }
 
     // --- Запись операций ---
@@ -172,6 +174,7 @@ object TrashStore {
      * объект занят другим приложением, остальные всё равно попадут в корзину,
      * а пользователь увидит, что именно не удалось.
      */
+    @Synchronized
     fun moveToTrash(files: List<File>): TrashResult {
         val failed = files.filterNot { it.exists() }.map { it.name }.toMutableList()
         val candidates = files.filter { it.exists() }
@@ -254,6 +257,7 @@ object TrashStore {
      *
      * [pairs] — пары «исходное расположение → новое расположение».
      */
+    @Synchronized
     fun recordMove(pairs: List<Pair<File, File>>): TrashEntry? {
         // Пишем только то, что действительно уехало: если перемещение не удалось,
         // откатывать нечего, а запись с недостоверным «куда» только запутала бы.
@@ -301,6 +305,7 @@ object TrashStore {
      * не копируются ([OVERWRITE_BACKUP_LIMIT_BYTES]), а объект остаётся
      * неоткатываемым. Неудачную запись журнала тоже не маскируем.
      */
+    @Synchronized
     fun recordOverwrite(file: File): TrashEntry? {
         if (!file.isFile) return null
         if (file.length() > OVERWRITE_BACKUP_LIMIT_BYTES) return null
@@ -349,6 +354,7 @@ object TrashStore {
     // --- Откат ---
 
     /** Возвращает объекты записи на исходные места. */
+    @Synchronized
     fun restore(entryId: String): RestoreOutcome {
         val manifest = readManifest()
         val entry = manifest.firstOrNull { it.id == entryId }
@@ -467,6 +473,7 @@ object TrashStore {
     }
 
     /** Откатывает все записи журнала. Возвращает число возвращённых объектов. */
+    @Synchronized
     fun restoreAll(): RestoreOutcome {
         var restored = 0
         var failed = 0
@@ -489,6 +496,7 @@ object TrashStore {
      * не мусор. Теряется только возможность откатить эти перемещения.
      * Возвращает освобождённые байты.
      */
+    @Synchronized
     fun empty(): Long {
         val freed = totalBytes()
         File(root(), ITEMS_DIR).deleteRecursively()
@@ -504,6 +512,7 @@ object TrashStore {
      * У просроченного удаления объекты стираются с диска, у просроченного
      * перемещения — только запись: сам файл остаётся там, куда его положили.
      */
+    @Synchronized
     fun purgeExpired(retentionDays: Int): Int {
         sweepOrphans()
         if (retentionDays <= 0) return 0
@@ -536,6 +545,7 @@ object TrashStore {
      * Нормальный путь появления сирот закрыт: при неудавшейся записи журнала
      * [moveToTrash] возвращает объекты на место сам.
      */
+    @Synchronized
     fun sweepOrphans(): Int {
         val itemsDir = File(root(), ITEMS_DIR)
         val dirs = itemsDir.listFiles()?.filter { it.isDirectory } ?: return 0
@@ -766,14 +776,30 @@ object TrashStore {
             )
         }
 
-        // Пишем через временный файл: обрыв записи не должен оставить
-        // журнал в состоянии, из которого нельзя прочитать корзину.
+        // Пишем через временный файл и переносим его атомарно: обрыв записи
+        // не должен оставить журнал в состоянии, из которого нельзя прочитать
+        // корзину. Раньше target сначала удалялся, и сбой rename оставлял
+        // корзину без манифеста.
         return try {
             val tmp = File(dir, "$MANIFEST.tmp")
             tmp.writeText(array.toString())
             val target = File(dir, MANIFEST)
-            if (target.exists()) target.delete()
-            tmp.renameTo(target)
+            try {
+                java.nio.file.Files.move(
+                    tmp.toPath(),
+                    target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: Exception) {
+                // ATOMIC_MOVE поддерживается не всеми файловыми системами.
+                java.nio.file.Files.move(
+                    tmp.toPath(),
+                    target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+            true
         } catch (e: Exception) {
             false
         }

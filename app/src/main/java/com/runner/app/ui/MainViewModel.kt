@@ -1064,6 +1064,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Уборка корзины при запуске: срок хранения, выставленный в настройках,
         // иначе оставался бы только обещанием в интерфейсе.
         purgeTrashOnStart()
+        // Старые скриншоты, фото камеры и картинки удалённых чатов.
+        viewModelScope.launch(Dispatchers.IO) {
+            ImageUtils.purgeCacheOlderThan(getApplication())
+        }
         // Кнопка «Стоп» в уведомлении должна останавливать ЖИВУЮ ViewModel.
         // Обработчик регистрируется под своим идентификатором: у плавающего
         // ассистента своя ViewModel, и общая переменная перезаписывалась ею.
@@ -1850,15 +1854,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Ищем с конца: при повторе одного и того же сообщения (кнопка «Заново»)
      * поиск с начала обрезал бы историю не по тому месту и ломал диалог.
      */
+    /**
+     * Текст пользовательского сообщения независимо от формы content:
+     * обычная строка или мультимодальный массив с текстовой частью.
+     */
+    private fun userMessageText(item: JSONObject): String {
+        return when (val content = item.opt("content")) {
+            is String -> content
+            is JSONArray -> {
+                for (i in 0 until content.length()) {
+                    val part = content.optJSONObject(i) ?: continue
+                    if (part.optString("type") == "text") {
+                        return part.optString("text")
+                    }
+                }
+                ""
+            }
+            else -> ""
+        }
+    }
+
     private fun trimContextToUser(text: String) {
         var lastMatch = -1
         for (i in 0 until conversationJson.length()) {
             val item = conversationJson.optJSONObject(i) ?: continue
-            if (item.optString("role") == "user") {
-                val strContent = item.optString("content")
-                if (strContent == text || (item.has("content") && item.get("content").toString().contains(text))) {
-                    lastMatch = i
-                }
+            if (item.optString("role") != "user") continue
+            // Сравниваем сам текст, а не сериализованный JSON: у сообщений
+            // с картинками content — массив, а переводы строк и кавычки
+            // в JSON экранированы, и поиск подстрокой промахивался.
+            if (userMessageText(item) == text) {
+                lastMatch = i
             }
         }
         if (lastMatch < 0) return
