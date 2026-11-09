@@ -924,6 +924,11 @@ private fun SettingsRoot(
 
             SettingsDivider()
 
+            val notificationsPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -937,8 +942,17 @@ private fun SettingsRoot(
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "Системное уведомление, если приложение свёрнуто или требуется подтверждение",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = when {
+                            !appSettings.notifyOnCompletion -> "Уведомления выключены"
+                            !notificationsPermissionGranted ->
+                                "Включены, но разрешение не выдано: уведомления не придут"
+                            else -> "Системное уведомление, если приложение свёрнуто или требуется подтверждение"
+                        },
+                        color = if (appSettings.notifyOnCompletion && !notificationsPermissionGranted) {
+                            StatusWarning
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         fontSize = 11.5.sp
                     )
                 }

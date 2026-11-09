@@ -800,18 +800,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun maybeNotifyTaskCompleted(sessionId: String) {
-        if (!isAppInForeground && _settings.value.notifyOnCompletion && !stopRequested) {
-            val lastAssistantMsg = _messages.value.lastOrNull { it.role == MessageRole.ASSISTANT }?.content
-            val sessionTitle = _currentSessionTitle.value.ifBlank {
-                sessions.value.firstOrNull { it.id == sessionId }?.title
-            }
-            TaskNotificationManager.notifyTaskCompleted(
+        if (isAppInForeground || !_settings.value.notifyOnCompletion || stopRequested) return
+
+        val sessionTitle = _currentSessionTitle.value.ifBlank {
+            sessions.value.firstOrNull { it.id == sessionId }?.title
+        }
+        val error = lastRunError
+        if (error != null) {
+            TaskNotificationManager.notifyTaskFailed(
                 getApplication(),
                 sessionId = sessionId,
                 sessionTitle = sessionTitle,
-                previewText = lastAssistantMsg
+                errorText = error
             )
+            return
         }
+
+        val lastAssistantMsg = _messages.value.lastOrNull { it.role == MessageRole.ASSISTANT }?.content
+        TaskNotificationManager.notifyTaskCompleted(
+            getApplication(),
+            sessionId = sessionId,
+            sessionTitle = sessionTitle,
+            previewText = lastAssistantMsg
+        )
     }
 
     private val _pendingConfirmation = MutableStateFlow<ConfirmationRequest?>(null)
@@ -1051,6 +1062,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     @Volatile
     private var stopRequested = false
+
+    /**
+     * Текст последней ошибки хода. Нужен уведомлению в фоне: иначе на упавшую
+     * задачу приходит «Задача выполнена» с последним ответом ассистента.
+     */
+    @Volatile
+    private var lastRunError: String? = null
 
     /** First-run диалог «Выдать разрешения»: показывается один раз при входе без прав. */
     private val _showStoragePrompt = MutableStateFlow(false)
@@ -1609,6 +1627,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         stopRequested = false
+        lastRunError = null
         approvedPlanSteps = null
         untrustedLines = emptySet()
         // Состояние сухого прогона и область инструментов - на один ход.
@@ -1641,7 +1660,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Обработчик «Стоп» привязан к этой сессии Live-режима, а не
             // к глобальной переменной: иначе его перезапишет ViewModel
             // плавающего ассистента, и кнопка остановит не ту задачу.
-            LiveAgentManager.start(getApplication(), onStop = { stopGeneration() })
+            LiveAgentManager.start(getApplication(), onStop = { stopGeneration() }, sessionId = sessionId)
         }
         _streamingText.value = ""
 
@@ -1802,6 +1821,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _messages.value = _messages.value.take(index + 1)
         stopRequested = false
+        lastRunError = null
         approvedPlanSteps = null
         untrustedLines = emptySet()
         // Область инструментов - на один ход: при повторе план заново не
@@ -1814,7 +1834,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AgentExecutionService.start(getApplication(), "Повтор задачи...")
         if (_settings.value.liveModeEnabled) {
             // Повтор в Live-режиме тоже должен показывать плавающую карточку.
-            LiveAgentManager.start(getApplication(), onStop = { stopGeneration() })
+            LiveAgentManager.start(getApplication(), onStop = { stopGeneration() }, sessionId = sessionId)
         }
 
         viewModelScope.launch {
@@ -2122,10 +2142,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _streamingText.value = ""
                 }
                 hapticManager.onError(_settings.value)
-                appendSystemInfo(
-                    "Достигнут лимит токенов на задачу ($currentTaskTokens из ${currentSettings.maxTaskTokens}). Выполнение приостановлено для экономии баланса.",
-                    null
-                )
+                val budgetMessage = "Достигнут лимит токенов на задачу " +
+                        "($currentTaskTokens из ${currentSettings.maxTaskTokens}). " +
+                        "Выполнение приостановлено для экономии баланса."
+                lastRunError = budgetMessage
+                appendSystemInfo(budgetMessage, null)
                 attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
                 return
             }
@@ -2140,6 +2161,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is AIResponseResult.Error -> {
                     turnAssistantId = finalizeStreamedText(sessionId, stopped = false) ?: turnAssistantId
                     hapticManager.onError(_settings.value)
+                    lastRunError = result.message
                     val action = when {
                         result.message.contains("401") || result.message.contains("API-ключ") -> MessageAction.OPEN_SETTINGS
                         result.message.contains("400") || result.message.contains("404") || result.message.contains("модел") -> MessageAction.OPEN_MODELS
@@ -2226,13 +2248,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     if (loopDetected) {
-                        appendSystemInfo(
-                            "Обнаружено зацикливание: модель $repeatedCalls-й раз подряд " +
-                                    "вызывает '$loopToolName' с теми же аргументами. " +
-                                    "Задача остановлена, чтобы не выжигать лимит запросов. " +
-                                    "Переформулируйте запрос или уточните, что именно нужно.",
-                            null
-                        )
+                        val loopMessage = "Обнаружено зацикливание: модель $repeatedCalls-й раз подряд " +
+                                "вызывает '$loopToolName' с теми же аргументами. " +
+                                "Задача остановлена, чтобы не выжигать лимит запросов. " +
+                                "Переформулируйте запрос или уточните, что именно нужно."
+                        lastRunError = loopMessage
+                        appendSystemInfo(loopMessage, null)
                         attachTurnStats(
                             sessionId, turnStartedAt, totalPromptTokens,
                             totalCompletionTokens, trackStats, turnAssistantId

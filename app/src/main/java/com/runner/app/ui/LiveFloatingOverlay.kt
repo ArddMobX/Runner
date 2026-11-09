@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -376,6 +377,14 @@ object LiveFloatingOverlay {
         val state by LiveAgentManager.stateFlow.collectAsState()
         val context = LocalContext.current
 
+        // Вопрос не должен висеть в свёрнутом кружке: разворачиваем карточку
+        // сами, иначе подтверждение выглядит как зависшая задача.
+        LaunchedEffect(state.confirmationPrompt) {
+            if (state.confirmationPrompt != null && !isExpandedState.value) {
+                toggleExpand()
+            }
+        }
+
         val visuals = when (state.status) {
             LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
                 color = Color(0xFF34D399),
@@ -507,11 +516,33 @@ object LiveFloatingOverlay {
                             if (!isFinished && state.stepIndex > 0) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Шаг ${state.stepIndex} из ${state.totalSteps.coerceAtLeast(state.stepIndex)}",
+                                    // «из N» показываем только когда N реально известно.
+                                    text = if (state.totalSteps > 0) {
+                                        "Шаг ${state.stepIndex} из ${state.totalSteps}"
+                                    } else {
+                                        "Шаг ${state.stepIndex}"
+                                    },
                                     fontFamily = GoogleSans,
                                     fontSize = 12.sp,
                                     color = Color.White.copy(alpha = 0.6f)
                                 )
+                            }
+
+                            // История предыдущих действий: по карточке видно,
+                            // что агент уже сделал, а не только текущий шаг.
+                            val previousSteps = state.recentSteps.dropLast(1)
+                            if (!isFinished && previousSteps.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                previousSteps.forEach { recent ->
+                                    Text(
+                                        text = "· $recent",
+                                        fontFamily = GoogleSans,
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.45f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
 
                             // Блок подтверждения действия, если агент запросил подтверждение
@@ -614,6 +645,9 @@ object LiveFloatingOverlay {
                                             try {
                                                 val intent = Intent(context, MainActivity::class.java).apply {
                                                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                    if (state.sessionId.isNotBlank()) {
+                                                        putExtra("SESSION_ID", state.sessionId)
+                                                    }
                                                 }
                                                 context.startActivity(intent)
                                             } catch (_: Exception) {}

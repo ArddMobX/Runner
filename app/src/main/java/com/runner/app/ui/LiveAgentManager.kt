@@ -38,7 +38,11 @@ object LiveAgentManager {
         val stepDescription: String = "",
         val stepIndex: Int = 0,
         val totalSteps: Int = 0,
-        val confirmationPrompt: String? = null
+        val confirmationPrompt: String? = null,
+        /** Последние действия — для истории в развёрнутой карточке. */
+        val recentSteps: List<String> = emptyList(),
+        /** Сессия, из которой запущена задача: нужна кнопке «В Runner». */
+        val sessionId: String = ""
     )
 
     private val _stateFlow = MutableStateFlow(State())
@@ -53,7 +57,12 @@ object LiveAgentManager {
     @Volatile
     var onStopRequested: ((String) -> Unit)? = null
 
-    fun start(context: Context, totalSteps: Int = 5, onStop: (() -> Unit)? = null) {
+    fun start(
+        context: Context,
+        totalSteps: Int = 0,
+        onStop: (() -> Unit)? = null,
+        sessionId: String = ""
+    ) {
         sessionStopHandler = onStop
         CrashReportManager.log("LiveAgent", "Старт задачи, всего шагов: $totalSteps")
         _stateFlow.value = State(
@@ -62,7 +71,8 @@ object LiveAgentManager {
             isFinished = false,
             stepDescription = "Подготовка к выполнению...",
             stepIndex = 1,
-            totalSteps = totalSteps
+            totalSteps = totalSteps,
+            sessionId = sessionId
         )
         LiveFloatingOverlay.show(context)
     }
@@ -76,7 +86,8 @@ object LiveAgentManager {
             stepDescription = description,
             stepIndex = index,
             totalSteps = if (total > 0) total else current.totalSteps,
-            confirmationPrompt = null
+            confirmationPrompt = null,
+            recentSteps = (current.recentSteps + description).takeLast(3)
         )
     }
 

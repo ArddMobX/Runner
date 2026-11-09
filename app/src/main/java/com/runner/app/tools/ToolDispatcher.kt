@@ -1142,7 +1142,10 @@ object ToolDispatcher {
                     }
                     com.runner.app.ui.LiveAgentManager.updateStep(stepDesc, com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
 
-                    if (!liveFullAccess && isRiskyAction(label)) {
+                    if (!liveFullAccess && (
+                                elementId == null || isRiskyAction(label)
+                                )
+                    ) {
                         val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation("Подтвердите действие: $stepDesc")
                         if (!approved) {
                             return@withContext "Действие отменено пользователем."
@@ -1170,6 +1173,17 @@ object ToolDispatcher {
                     val clearFirst = args.optBoolean("clear_first", false)
 
                     com.runner.app.ui.LiveAgentManager.updateStep("Ввод текста \"$text\"", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
+                    if (!liveFullAccess) {
+                        // Ввод в чужое приложение — такое же действие от имени
+                        // пользователя, как тап: показываем текст на карточке.
+                        val preview = if (text.length <= 120) text else text.take(120) + "…"
+                        val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation(
+                            "Подтвердите ввод текста: \"$preview\""
+                        )
+                        if (!approved) {
+                            return@withContext "Действие отменено пользователем."
+                        }
+                    }
                     val res = service.inputText(elementId, text, clearFirst)
                     when (res) {
                         is com.runner.app.service.RunnerAccessibilityService.ActionResult.Success -> res.message
