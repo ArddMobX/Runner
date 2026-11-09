@@ -52,6 +52,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -1074,9 +1076,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
-            val empty = repository.getRecentEmptySession()
-            val session = empty ?: repository.observeSessions().first().firstOrNull() ?: repository.createSession()
-            loadSession(session.id)
+            sessionSwitchLock.withLock {
+                // Пока читали БД, мог прийти явный запрос: deep link из
+                // уведомления или старт плавающего ассистента. Он важнее
+                // стартовой сессии — второй чат поверх него открывать нельзя.
+                if (explicitSessionRequest != null || assistantSessionRequested) return@withLock
+                val empty = repository.getRecentEmptySession()
+                val session = empty ?: repository.observeSessions().first().firstOrNull() ?: repository.createSession()
+                loadSession(session.id)
+            }
         }
     }
 
@@ -1137,13 +1145,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Сессии ---
 
+    /**
+     * Сериализует переключение сессий.
+     *
+     * Стартовая загрузка из init и параллельный запрос (deep link из
+     * уведомления, оверлей ассистента) раньше гоняли loadSession: «побеждал»
+     * тот, кто последним дошёл до записи полей, и оверлей мог открыть
+     * основной чат пользователя, а deep link — потеряться.
+     */
+    private val sessionSwitchLock = Mutex()
+
+    /** Сессия, которую попросили открыть явно: init не должен её перебить. */
+    @Volatile
+    private var explicitSessionRequest: String? = null
+
+    /** Оверлей уже запросил изолированную сессию ассистента. */
+    @Volatile
+    private var assistantSessionRequested = false
+
     fun setSessionsQuery(query: String) {
         _sessionsQuery.value = query
     }
 
     fun openSession(sessionId: String) {
         if (_isRunning.value) return
-        viewModelScope.launch { loadSession(sessionId) }
+        explicitSessionRequest = sessionId
+        viewModelScope.launch {
+            sessionSwitchLock.withLock {
+                loadSession(sessionId)
+                if (explicitSessionRequest == sessionId) explicitSessionRequest = null
+            }
+        }
     }
 
     fun startNewChat() {
@@ -1165,10 +1197,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun startAssistantSession() {
         if (_isRunning.value) return
+        assistantSessionRequested = true
         viewModelScope.launch {
-            val emptySession = repository.getRecentEmptySession()
-            val session = emptySession ?: repository.createSession("Быстрый ассистент")
-            loadSession(session.id)
+            sessionSwitchLock.withLock {
+                val emptySession = repository.getRecentEmptySession()
+                val session = emptySession ?: repository.createSession("Быстрый ассистент")
+                loadSession(session.id)
+            }
         }
     }
 
@@ -1176,9 +1211,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.deleteSession(sessionId)
             if (_currentSessionId.value == sessionId) {
-                val remaining = repository.observeSessions().first()
-                val next = remaining.firstOrNull() ?: repository.createSession()
-                loadSession(next.id)
+                sessionSwitchLock.withLock {
+                    val remaining = repository.observeSessions().first()
+                    val next = remaining.firstOrNull() ?: repository.createSession()
+                    loadSession(next.id)
+                }
             }
         }
     }
@@ -1693,7 +1730,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Задача завершилась: служба гасится только если других задач
                 // не осталось (в оверлее ассистента может идти своя).
                 AgentExecutionService.release(getApplication())
-                LiveAgentManager.finish("Завершено")
+                // Live-карточку завершаем только если задача действительно
+                // ещё идёт: stop() и ui_finish() уже выставили собственный
+                // статус (ошибка, остановка, итоговый отчёт), и перезаписывать
+                // его зелёным «Готово» нельзя. Без Live-режима менеджер вообще
+                // не стартовал.
+                if (_settings.value.liveModeEnabled) {
+                    LiveAgentManager.finishIfRunning("Завершено")
+                }
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
                 }
@@ -1754,6 +1798,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _streamingText.value = ""
         _isRunning.value = true
         AgentExecutionService.start(getApplication(), "Повтор задачи...")
+        if (_settings.value.liveModeEnabled) {
+            // Повтор в Live-режиме тоже должен показывать плавающую карточку.
+            LiveAgentManager.start(getApplication(), onStop = { stopGeneration() })
+        }
 
         viewModelScope.launch {
             try {
@@ -1771,7 +1819,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Задача завершилась: служба гасится только если других задач
                 // не осталось (в оверлее ассистента может идти своя).
                 AgentExecutionService.release(getApplication())
-                LiveAgentManager.finish("Завершено")
+                // Live-карточку завершаем только если задача действительно
+                // ещё идёт: stop() и ui_finish() уже выставили собственный
+                // статус (ошибка, остановка, итоговый отчёт), и перезаписывать
+                // его зелёным «Готово» нельзя. Без Live-режима менеджер вообще
+                // не стартовал.
+                if (_settings.value.liveModeEnabled) {
+                    LiveAgentManager.finishIfRunning("Завершено")
+                }
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
                 }
@@ -2680,7 +2735,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun persistContext(sessionId: String) {
-        repository.updateContext(sessionId, conversationJson.toString())
+        repository.updateContext(sessionId, contextForStorage().toString())
+    }
+
+    /**
+     * Копия контекста для записи в Room.
+     *
+     * data:image/...;base64,... — сотни килобайт на кадр. Несколько фото в
+     * одном ходе превышают лимит CursorWindow (~2 МБ на строку), и чтение
+     * sessions падает с SQLiteBlobTooBigException: список чатов и открытие
+     * сессии перестают работать. В БД кладём текстовую пометку вместо
+     * картинки; в памяти на время текущего хода base64 остаётся, поэтому
+     * модель видит изображения в этом запросе.
+     */
+    private fun contextForStorage(): JSONArray {
+        val out = JSONArray()
+        for (i in 0 until conversationJson.length()) {
+            val source = conversationJson.optJSONObject(i) ?: continue
+            // Глубокая копия: JSONObject(String) заново разбирает вложенные массивы.
+            val message = JSONObject(source.toString())
+            val content = message.opt("content")
+            if (content is JSONArray) {
+                val rebuilt = JSONArray()
+                for (j in 0 until content.length()) {
+                    val raw = content.opt(j)
+                    val part = raw as? JSONObject
+                    if (part == null) {
+                        rebuilt.put(raw)
+                        continue
+                    }
+                    val url = part.optJSONObject("image_url")?.optString("url").orEmpty()
+                    if (part.optString("type") == "image_url" && url.startsWith("data:")) {
+                        rebuilt.put(JSONObject().apply {
+                            put("type", "text")
+                            put("text", "[Изображение было приложено в этом сообщении; в сохранённом контексте не передаётся]")
+                        })
+                    } else {
+                        rebuilt.put(part)
+                    }
+                }
+                message.put("content", rebuilt)
+            }
+            out.put(message)
+        }
+        return out
     }
 
     private fun freshContext(): JSONArray = JSONArray().apply {

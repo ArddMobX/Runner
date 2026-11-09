@@ -2,11 +2,12 @@ package com.runner.app.ui
 
 import android.content.Context
 import com.runner.app.util.CrashReportManager
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.Continuation
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -15,6 +16,13 @@ import kotlin.coroutines.resume
  * запросом подтверждения рискованных действий и обработкой аварийной остановки.
  */
 object LiveAgentManager {
+
+    /**
+     * Предел ожидания ответа на подтверждение в плавающей карточке.
+     * Оверлей мог не показаться (нет разрешения на наложение) или быть
+     * закрыт пользователем — задача не должна ждать ответа вечно.
+     */
+    private const val CONFIRM_TIMEOUT_MS = 120_000L
 
     enum class StepStatus {
         RUNNING,
@@ -39,7 +47,7 @@ object LiveAgentManager {
     val isExecuting: Boolean
         get() = _stateFlow.value.isExecuting
 
-    private var pendingContinuation: Continuation<Boolean>? = null
+    private var pendingContinuation: CancellableContinuation<Boolean>? = null
     private var sessionStopHandler: (() -> Unit)? = null
 
     @Volatile
@@ -78,25 +86,39 @@ object LiveAgentManager {
      */
     suspend fun requestConfirmation(prompt: String): Boolean {
         _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = prompt)
-        return suspendCancellableCoroutine { continuation ->
-            pendingContinuation = continuation
-            continuation.invokeOnCancellation {
-                pendingContinuation = null
+        val approved = withTimeoutOrNull(CONFIRM_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation ->
+                pendingContinuation = continuation
+                continuation.invokeOnCancellation {
+                    if (pendingContinuation === continuation) pendingContinuation = null
+                    _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
+                }
             }
         }
+        if (approved == null) {
+            // Оверлея нет, разрешение на наложение отозвали или пользователь
+            // закрыл карточку. Ждать вечно нельзя: задача залипла бы на «Стоп»
+            // до перезапуска, а finally не выполнился бы. Безопасное
+            // направление — считать действие отклонённым.
+            pendingContinuation = null
+            _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
+            return false
+        }
+        return approved
     }
 
     fun confirmPendingAction(approved: Boolean) {
         val continuation = pendingContinuation
         pendingContinuation = null
         _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
-        continuation?.resume(approved)
+        if (continuation != null && continuation.isActive) continuation.resume(approved)
     }
 
     fun stop(reason: String = "Остановлено пользователем", isError: Boolean = false) {
-        if (!isExecuting) return
-
+        // Снимаем висящее подтверждение ДО проверки isExecuting: ответ на
+        // диалог могла ждать задача, для которой Live-режим не стартовал.
         confirmPendingAction(false)
+        if (!isExecuting) return
         val lower = reason.lowercase()
         val isErr = isError ||
                 lower.contains("ошибка") ||
@@ -138,6 +160,19 @@ object LiveAgentManager {
         sessionStopHandler = null
         // Не убираем оверлей автоматически: пользователь видит статус "Готово",
         // карточку результата и может перейти в Runner или закрыть оверлей.
+    }
+
+    /**
+     * Завершает задачу только если она ещё выполняется.
+     *
+     * Вызывается из finally агентского цикла. stop() и ui_finish() уже
+     * выставили собственный статус (ошибка, остановка, итоговый отчёт),
+     * и перезаписывать его зелёным «Готово» нельзя: пользователь не увидит
+     * причину сбоя, а кнопка отчёта о сбое исчезнет.
+     */
+    fun finishIfRunning(summary: String = "Завершено") {
+        if (!_stateFlow.value.isExecuting) return
+        finish(summary)
     }
 
     fun reset() {

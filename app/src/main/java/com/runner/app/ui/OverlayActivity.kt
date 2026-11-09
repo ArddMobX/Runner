@@ -55,12 +55,14 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,6 +77,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -136,6 +139,19 @@ class OverlayActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Оверлей — тоже передний план: иначе подтверждение и завершение
+        // задачи в нём не дают системного уведомления, а isAppInForeground
+        // остаётся true после сворачивания.
+        viewModel.setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.setAppInForeground(false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -585,6 +601,100 @@ private fun OverlayScreen(
                 )
             }
         }
+    }
+
+    // План и подтверждения должны быть доступны и из плавающего окна:
+    // без них задача с опасным шагом ждала ответа, которого некуда прийти,
+    // и висела до таймаута.
+    OverlayTaskApprovalDialogs(viewModel)
+}
+
+@Composable
+private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
+    val pendingConfirmation by viewModel.pendingConfirmation.collectAsState()
+    val pendingPlan by viewModel.pendingPlan.collectAsState()
+
+    pendingConfirmation?.let { request ->
+        AlertDialog(
+            onDismissRequest = { viewModel.resolveConfirmation(false) },
+            title = { Text(request.title) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = request.details,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (request.preview.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = request.preview,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = request.warning,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.resolveConfirmation(true) }) {
+                    Text("Разрешить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.resolveConfirmation(false) }) {
+                    Text("Отклонить")
+                }
+            }
+        )
+    }
+
+    pendingPlan?.let { plan ->
+        AlertDialog(
+            onDismissRequest = { viewModel.resolvePlan(false) },
+            title = { Text("План действий") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    plan.steps.forEachIndexed { index, step ->
+                        Text(
+                            text = "${index + 1}. $step",
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp
+                        )
+                    }
+                    if (plan.steps.isEmpty()) {
+                        Text(
+                            text = plan.rawText,
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.resolvePlan(true) }) {
+                    Text("Утвердить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.resolvePlan(false) }) {
+                    Text("Без плана")
+                }
+            }
+        )
     }
 }
 
