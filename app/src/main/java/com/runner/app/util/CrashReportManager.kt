@@ -197,12 +197,12 @@ object CrashReportManager {
         val effectiveContext = customContext ?: lastErrorDetail
         if (effectiveContext.isNotBlank()) {
             sb.append("\n#### Контекст проблемы:\n")
-            sb.append(effectiveContext.trim()).append("\n")
+            sb.append(sanitize(effectiveContext).trim()).append("\n")
         }
 
         if (!stackTrace.isNullOrBlank()) {
             sb.append("\n#### Стек ошибки:\n```\n")
-            sb.append(stackTrace.trim()).append("\n```\n")
+            sb.append(sanitize(stackTrace).trim()).append("\n```\n")
         }
 
         val recentLogs = logEvents.toList()
@@ -240,8 +240,17 @@ object CrashReportManager {
 
     private fun sanitize(input: String): String {
         if (input.isBlank()) return ""
-        // Маскирование OpenAI / Anthropic / Groq ключей
+        // Маскирование ключей: OpenAI/Anthropic (sk-), Groq (gsk_),
+        // Google Gemini (AIza...). Без последних двух ключ уезжал в отчёт
+        // как есть, а отчёт копируется в буфер и уходит разработчику.
         var result = input.replace(Regex("""sk-[a-zA-Z0-9_\-]{16,}"""), "sk-...***")
+        result = result.replace(Regex("""gsk_[a-zA-Z0-9_\-]{16,}"""), "gsk_...***")
+        result = result.replace(Regex("""AIza[0-9A-Za-z_\-]{20,}"""), "AIza...***")
+        // Заголовок Gemini, если он попал в текст ошибки или журнал.
+        result = result.replace(
+            Regex("""x-goog-api-key["']?\s*[:=]\s*["']?[^\s"',}]+""", RegexOption.IGNORE_CASE),
+            "x-goog-api-key: ***"
+        )
         // Маскирование Bearer токенов
         result = result.replace(Regex("""Bearer\s+[a-zA-Z0-9_\-\.]{16,}""", RegexOption.IGNORE_CASE), "Bearer ...***")
         // Маскирование паролей

@@ -144,6 +144,15 @@ object ToolDispatcher {
     private val SHELL_PATH_TOKEN = Regex("""/[A-Za-z0-9_./*?-]+""")
 
     /**
+     * Относительные цели «удалить всё»: звёздочка, `.`, `./`, `..` и `./`
+     * со звёздочкой. У них нет ведущего слэша, поэтому [SHELL_PATH_TOKEN]
+     * их не видит.
+     */
+    private val SHELL_RELATIVE_DELETE_ALL = Regex(
+        """(?:^|[\s;&|"'(])(?:\.\.?/?|\*|\./\*|\.\./\*)(?=[\s;&|"')]|$)"""
+    )
+
+    /**
      * Запрошена ли команда от root. Нужна и гейту подтверждения, и исполнителю.
      */
     fun isRootShellCommand(command: String): Boolean =
@@ -165,10 +174,17 @@ object ToolDispatcher {
      */
     private fun shellDataRefusal(command: String): String? {
         if (!SHELL_DELETE_ACTION.containsMatchIn(command)) return null
+
+        // '..' в команде удаления — попытка выйти из текущего каталога.
+        // Разобрать относительный путь без знания рабочего каталога нельзя,
+        // поэтому консервативно отклоняем.
+        if (command.contains("..")) {
+            return "путь с '..' в команде удаления"
+        }
+
+        var sawAbsolutePath = false
         for (token in SHELL_PATH_TOKEN.findAll(command).map { it.value }) {
-            if (token.contains("..")) {
-                return "путь с '..' в команде удаления ($token)"
-            }
+            sawAbsolutePath = true
             val normalized = token.trimEnd('/')
             if (normalized.isEmpty() || normalized == "/") {
                 return "удаление корня системы ($token)"
@@ -188,6 +204,15 @@ object ToolDispatcher {
                 if (!segments.contains("cache")) {
                     return "удаление данных приложения ($token)"
                 }
+            }
+        }
+
+        // Относительные адресаты удаления (`rm -rf *`, `find . -delete`):
+        // под ними может оказаться весь текущий каталог, в том числе корень
+        // памяти. Абсолютных токенов у таких команд нет.
+        if (!sawAbsolutePath) {
+            SHELL_RELATIVE_DELETE_ALL.find(command)?.let { match ->
+                return "удаление всего в текущем каталоге (${match.value.trim()})"
             }
         }
         return null

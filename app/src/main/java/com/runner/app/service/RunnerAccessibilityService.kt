@@ -65,6 +65,7 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     fun clearNodeCache() {
+        cachedNodes.values.forEach { runCatching { it.recycle() } }
         cachedNodes.clear()
         cachedBounds.clear()
     }
@@ -76,21 +77,29 @@ class RunnerAccessibilityService : AccessibilityService() {
         return try {
             clearNodeCache()
 
+            // Проверяем ВСЕ окна, а не только активное: банк может быть
+            // открыт вторым окном в split-screen, а сверху висеть браузер.
+            // Делаем это до получения rootInActiveWindow, чтобы recycle()
+            // корней окон не задел тот же объект.
+            val sensitivePackage = sensitiveWindowPackage()
+
             val root = rootInActiveWindow ?: return ScreenInspectionResult.Error("Экран недоступен или заблокирован")
             val pkg = root.packageName?.toString().orEmpty()
             lastExtractedPackage = pkg
             CrashReportManager.setLastActivePackage(pkg)
 
             // Проверка черного списка безопасности
-            if (isSensitivePackage(pkg)) {
+            if (sensitivePackage != null || isSensitivePackage(pkg)) {
+                root.recycle()
                 return ScreenInspectionResult.SecurityBlocked(
-                    "Блокировка безопасности: обнаружено чувствительное приложение ($pkg). " +
-                            "В целях защиты данных Live-режим остановлен."
+                    "Блокировка безопасности: обнаружено чувствительное приложение " +
+                            "(${sensitivePackage ?: pkg}). В целях защиты данных Live-режим остановлен."
                 )
             }
 
             // Проверка наличия полей ввода пароля
             if (hasPasswordFields(root)) {
+                root.recycle()
                 return ScreenInspectionResult.SecurityBlocked(
                     "Блокировка безопасности: на экране обнаружено поле ввода пароля. " +
                             "В целях защиты конфиденциальности Live-режим остановлен."
@@ -106,7 +115,10 @@ class RunnerAccessibilityService : AccessibilityService() {
 
             fun traverse(node: AccessibilityNodeInfo?) {
                 if (node == null) return
-                if (!node.isVisibleToUser) return
+                if (!node.isVisibleToUser) {
+                    runCatching { node.recycle() }
+                    return
+                }
 
                 val bounds = Rect()
                 node.getBoundsInScreen(bounds)
@@ -115,6 +127,7 @@ class RunnerAccessibilityService : AccessibilityService() {
                 if (bounds.width() <= 0 || bounds.height() <= 0 ||
                     bounds.bottom < 0 || bounds.right < 0 ||
                     bounds.left > screenWidth || bounds.top > screenHeight) {
+                    runCatching { node.recycle() }
                     return
                 }
 
@@ -152,6 +165,12 @@ class RunnerAccessibilityService : AccessibilityService() {
                 val childCount = node.childCount
                 for (i in 0 until childCount) {
                     traverse(node.getChild(i))
+                }
+                // Неинтерактивный узел после обхода детей больше не нужен.
+                // Кэшированные meaningful-узлы не трогаем: на них ссылаются
+                // clickElement/inputText до следующего ui_inspect.
+                if (!isMeaningful) {
+                    runCatching { node.recycle() }
                 }
             }
 
@@ -236,23 +255,55 @@ class RunnerAccessibilityService : AccessibilityService() {
         for (i in 0 until count) {
             val child = root.getChild(i) ?: continue
             val hasPass = hasPasswordFields(child)
+            runCatching { child.recycle() }
             if (hasPass) return true
         }
         return false
     }
 
+    /**
+     * Пакет любого видимого окна, который считается чувствительным, либо null.
+     * Читаем только имя пакета корня окна, без обхода дерева: обход всех
+     * окон на каждом ui_inspect был бы слишком дорогим.
+     */
+    private fun sensitiveWindowPackage(): String? {
+        val windowList = try {
+            windows
+        } catch (_: Exception) {
+            null
+        } ?: return null
+
+        for (window in windowList) {
+            val windowRoot = try {
+                window.root
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            try {
+                val name = windowRoot.packageName?.toString().orEmpty()
+                if (isSensitivePackage(name)) return name
+            } finally {
+                runCatching { windowRoot.recycle() }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Пакет относится к чувствительному приложению?
+     *
+     * Сверяем по сегментам имени пакета: `ru.vtb24.mobilebanking` состоит из
+     * сегментов `ru`, `vtb24`, `mobilebanking`, и запись `vtb` должна совпасть
+     * с `vtb24`, но не с `com.example.vtbx.photo`. Сравнение подстрокой по
+     * всему имени находило «vtb» где угодно; заодно убран allowlist браузеров,
+     * который мог скрыть банк, открытый под именем браузера.
+     */
     private fun isSensitivePackage(packageName: String): Boolean {
         if (packageName.isBlank()) return false
-        val lower = packageName.lowercase()
-        if (lower.startsWith("com.runner.app") ||
-            lower.contains("telegram") ||
-            lower.contains("whatsapp") ||
-            lower.contains("viber") ||
-            lower.contains("chrome") ||
-            lower.contains("browser")) {
-            return false
+        val segments = packageName.lowercase().split('.')
+        return SENSITIVE_PACKAGES.any { entry ->
+            segments.any { segment -> segment == entry || segment.startsWith(entry) }
         }
-        return SENSITIVE_PACKAGES.any { lower.contains(it) }
     }
 
     /**

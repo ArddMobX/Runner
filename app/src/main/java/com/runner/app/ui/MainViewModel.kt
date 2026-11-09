@@ -1366,12 +1366,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(newSettings: AppSettings) {
+        // Автономный режим без рабочей папки означал бы «вся память без
+        // подтверждений»: сбрасываем флаг вместе с последней папкой, иначе
+        // крестик «Сбросить папку» тихо снимал бы защиту со всех операций.
+        val safeSettings = if (newSettings.defaultWorkingDir.isBlank() &&
+            newSettings.autoApproveInWorkingDir
+        ) {
+            newSettings.copy(autoApproveInWorkingDir = false)
+        } else {
+            newSettings
+        }
         val wasLive = _settings.value.liveModeEnabled
-        _settings.value = newSettings
-        settingsStore.save(newSettings)
-        ToolDispatcher.defaultWorkingDir = newSettings.defaultWorkingDir
-        voiceManager.setTtsParameters(newSettings.ttsSpeed, newSettings.ttsPitch, newSettings.ttsVoiceName)
-        if (wasLive && !newSettings.liveModeEnabled) {
+        _settings.value = safeSettings
+        settingsStore.save(safeSettings)
+        ToolDispatcher.defaultWorkingDir = safeSettings.defaultWorkingDir
+        voiceManager.setTtsParameters(safeSettings.ttsSpeed, safeSettings.ttsPitch, safeSettings.ttsVoiceName)
+        if (wasLive && !safeSettings.liveModeEnabled) {
             LiveAgentManager.reset()
         }
     }
@@ -2425,22 +2435,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val confirmDangerous = _settings.value.confirmDangerous
         val isInsideWorkingDir = if (_settings.value.autoApproveInWorkingDir) {
             if (_settings.value.defaultWorkingDir.isBlank()) {
-                // По умолчанию вся память: опасные операции не требуют подтверждения
-                true
+                // Автономный режим без папки не имеет области: «вся память
+                // без подтверждений» — это не автономия, а снятая защита.
+                // updateSettings такой набор сбрасывает, здесь — страховка.
+                false
             } else {
                 val workingDirFile = try { java.io.File(_settings.value.defaultWorkingDir).canonicalFile } catch (_: Exception) { null }
                 if (workingDirFile != null) {
                     if (isShellCall) {
-                        // Shell-команда: внутри рабочей папки, если не обращается явно к путям вне её
-                        val rootPath = try { Environment.getExternalStorageDirectory().canonicalPath } catch (_: Exception) { "/storage/emulated/0" }
-                        val pathTokens = Regex("""/[A-Za-z0-9_./*?-]+""").findAll(commandLine).map { it.value }.toList()
-                        val outside = pathTokens.any { token ->
-                            try {
-                                val f = java.io.File(token).canonicalFile
-                                f.canonicalPath.startsWith(rootPath) && !f.canonicalPath.startsWith(workingDirFile.canonicalPath)
-                            } catch (_: Exception) { false }
+                        // Shell-команда считается «внутри папки», только если
+                        // она не поднимается по '..', не использует домашний
+                        // каталог и подстановки и все абсолютные пути ведут
+                        // в рабочую папку. Раньше проверялись лишь токены
+                        // с ведущим '/', поэтому `cd ..` и пути /data при
+                        // «Shell вне памяти» проходили без подтверждения.
+                        val unsafeEscapes = commandLine.contains("..") ||
+                                commandLine.contains('~') ||
+                                commandLine.contains('$') ||
+                                commandLine.contains('`')
+                        if (unsafeEscapes) {
+                            false
+                        } else {
+                            val pathTokens = Regex("""/[A-Za-z0-9_./*?@=+-]+""")
+                                .findAll(commandLine)
+                                .map { it.value }
+                                .toList()
+                            pathTokens.all { token ->
+                                try {
+                                    val canonical = java.io.File(token).canonicalPath
+                                    canonical == workingDirFile.canonicalPath ||
+                                            canonical.startsWith("${workingDirFile.canonicalPath}/")
+                                } catch (_: Exception) {
+                                    // Путь не разобрался — не рискуем, спросим.
+                                    false
+                                }
+                            }
                         }
-                        !outside
                     } else {
                         val argsObj = try { JSONObject(call.arguments) } catch (_: Exception) { null }
                         val targetPaths = mutableListOf<String>()
