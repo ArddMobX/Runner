@@ -276,6 +276,7 @@ private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
     // и любое нажатие. Именно так уже было с clipboard_write.
     "call_phone" to listOf("phone_number", "contact_name", "target"),
     "ui_click" to listOf("label"),
+    "ui_long_click" to listOf("label"),
     "ui_type" to listOf("text"),
     "ui_global_action" to listOf("action")
 )

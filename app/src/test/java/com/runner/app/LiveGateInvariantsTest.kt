@@ -27,8 +27,8 @@ class LiveGateInvariantsTest {
     fun liveOnlySetIsExactlyScreenControl() {
         assertEquals(
             setOf(
-                "ui_inspect", "ui_click", "ui_type", "ui_scroll",
-                "ui_global_action", "ui_wait", "ui_finish"
+                "ui_inspect", "ui_click", "ui_long_click", "ui_type", "ui_scroll",
+                "ui_global_action", "ui_wait", "ui_wait_for", "ui_target", "ui_finish"
             ),
             liveOnly
         )
@@ -44,6 +44,7 @@ class LiveGateInvariantsTest {
     @Test
     fun screenActionsThatChangeStateAreDangerous() {
         assertTrue(ToolDispatcher.isCriticalOperation("ui_click"))
+        assertTrue(ToolDispatcher.isCriticalOperation("ui_long_click"))
         assertTrue(ToolDispatcher.isCriticalOperation("ui_type"))
         assertTrue(ToolDispatcher.isCriticalOperation("ui_global_action"))
         assertTrue(ToolDispatcher.isCriticalOperation("call_phone"))
@@ -55,6 +56,8 @@ class LiveGateInvariantsTest {
         assertFalse(ToolDispatcher.isCriticalOperation("ui_inspect"))
         assertFalse(ToolDispatcher.isCriticalOperation("ui_scroll"))
         assertFalse(ToolDispatcher.isCriticalOperation("ui_wait"))
+        assertFalse(ToolDispatcher.isCriticalOperation("ui_wait_for"))
+        assertFalse(ToolDispatcher.isCriticalOperation("ui_target"))
         assertFalse(ToolDispatcher.isCriticalOperation("ui_finish"))
         assertFalse(ToolDispatcher.isCriticalOperation("read_file"))
         assertFalse(ToolDispatcher.isCriticalOperation("list_dir"))
@@ -63,13 +66,13 @@ class LiveGateInvariantsTest {
     @Test
     fun dangerousSetCoversFilesAndDevice() {
         val dangerous = ToolDispatcher.DANGEROUS_OPERATIONS
-        assertEquals(15, dangerous.size)
+        assertEquals(16, dangerous.size)
         // Файловые операции и shell — на месте: список расширяли, а не заменяли.
         assertTrue(dangerous.containsAll(setOf("delete_file", "write_file", "run_shell_command")))
         // Действия на экране, меняющие состояние, входят целиком.
         assertTrue(
             dangerous.containsAll(
-                setOf("ui_click", "ui_type", "ui_global_action", "call_phone")
+                setOf("ui_click", "ui_long_click", "ui_type", "ui_global_action", "call_phone")
             )
         )
     }
@@ -78,6 +81,6 @@ class LiveGateInvariantsTest {
     fun toolNamesAreNormalizedByName() {
         // Модель иногда присылает имя с префиксом: "namespace:tool".
         assertTrue(ToolDispatcher.isCriticalOperation("functions:ui_click"))
-        assertEquals(7, liveOnly.size)
+        assertEquals(10, liveOnly.size)
     }
 }

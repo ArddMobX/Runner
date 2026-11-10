@@ -712,6 +712,31 @@ object ToolDispatcher {
             }
         ))
 
+        // 20b. ui_long_click
+        tools.put(createToolFunction(
+            name = "ui_long_click",
+            description = "Выполняет долгое нажатие на элементе (#ID из ui_inspect) или по координатам. " +
+                    "Нужно для контекстных меню, выделения и перетаскивания.",
+            properties = JSONObject().apply {
+                put("element_id", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Идентификатор элемента из вывода ui_inspect.")
+                })
+                put("x", JSONObject().apply {
+                    put("type", "number")
+                    put("description", "X-координата, если element_id не указан.")
+                })
+                put("y", JSONObject().apply {
+                    put("type", "number")
+                    put("description", "Y-координата, если element_id не указан.")
+                })
+                put("label", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Короткая подпись элемента для карточки подтверждения.")
+                })
+            }
+        ))
+
         // 21. ui_type
         tools.put(createToolFunction(
             name = "ui_type",
@@ -729,6 +754,10 @@ object ToolDispatcher {
                     put("type", "boolean")
                     put("description", "Очистить поле перед вводом (по умолчанию false).")
                 })
+                put("submit", JSONObject().apply {
+                    put("type", "boolean")
+                    put("description", "Нажать Enter/Search после ввода. Работает на Android 11+.")
+                })
             },
             required = listOf("text")
         ))
@@ -736,12 +765,16 @@ object ToolDispatcher {
         // 22. ui_scroll
         tools.put(createToolFunction(
             name = "ui_scroll",
-            description = "Прокручивает текущий экран в указанном направлении ('down', 'up', 'left', 'right').",
+            description = "Прокручивает экран или конкретный прокручиваемый контейнер в указанном направлении ('down', 'up', 'left', 'right').",
             properties = JSONObject().apply {
                 put("direction", JSONObject().apply {
                     put("type", "string")
                     put("enum", JSONArray(listOf("down", "up", "left", "right")))
                     put("description", "Направление скролла: 'down' (вниз), 'up' (вверх), 'left', 'right'.")
+                })
+                put("element_id", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "ID прокручиваемого контейнера из ui_inspect. Если не указан, ищется первый scrollable.")
                 })
             },
             required = listOf("direction")
@@ -769,6 +802,40 @@ object ToolDispatcher {
                 put("duration_ms", JSONObject().apply {
                     put("type", "integer")
                     put("description", "Время ожидания в миллисекундах (от 300 до 5000, по умолчанию 1000).")
+                })
+            }
+        ))
+
+        // 24b. ui_wait_for
+        tools.put(createToolFunction(
+            name = "ui_wait_for",
+            description = "Ждёт появления текста на экране или нужного приложения. Надёжнее фиксированного ui_wait.",
+            properties = JSONObject().apply {
+                put("text", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Текст или часть текста, который должен появиться.")
+                })
+                put("package", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Имя пакета приложения, которое должно быть на экране.")
+                })
+                put("timeout_ms", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Таймаут в миллисекундах, от 1000 до 15000. По умолчанию 5000.")
+                })
+            }
+        ))
+
+        // 24c. ui_target
+        tools.put(createToolFunction(
+            name = "ui_target",
+            description = "Задаёт приложение, с которым работает Live-задача. Пока на экране другое приложение, " +
+                    "ui_click/ui_long_click/ui_type/ui_scroll блокируются. open_app выставляет цель автоматически. " +
+                    "Пустой package снимает ограничение.",
+            properties = JSONObject().apply {
+                put("package", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Имя пакета, например com.google.android.youtube. Пусто - снять ограничение.")
                 })
             }
         ))
@@ -826,10 +893,13 @@ object ToolDispatcher {
     val LIVE_ONLY_TOOL_NAMES: Set<String> = setOf(
         "ui_inspect",
         "ui_click",
+        "ui_long_click",
         "ui_type",
         "ui_scroll",
         "ui_global_action",
         "ui_wait",
+        "ui_wait_for",
+        "ui_target",
         "ui_finish"
     )
 
@@ -1128,6 +1198,7 @@ object ToolDispatcher {
                 "ui_click" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    service.targetMismatchReason()?.let { return@withContext it }
                     val elementId = if (args.has("element_id")) args.optInt("element_id") else null
                     val x = if (args.has("x")) args.optDouble("x").toFloat() else null
                     val y = if (args.has("y")) args.optDouble("y").toFloat() else null
@@ -1165,12 +1236,52 @@ object ToolDispatcher {
                     }
                 }
 
+                "ui_long_click" -> {
+                    val service = com.runner.app.service.RunnerAccessibilityService.instance
+                        ?: return@withContext "Служба специальных возможностей не активна."
+                    service.targetMismatchReason()?.let { return@withContext it }
+                    val elementId = if (args.has("element_id")) args.optInt("element_id") else null
+                    val x = if (args.has("x")) args.optDouble("x").toFloat() else null
+                    val y = if (args.has("y")) args.optDouble("y").toFloat() else null
+                    val label = args.optString("label", "")
+
+                    val stepDesc = if (label.isNotBlank()) {
+                        "Долгое нажатие \"$label\""
+                    } else if (elementId != null) {
+                        "Долгое нажатие на элемент #$elementId"
+                    } else {
+                        "Долгое нажатие ($x, $y)"
+                    }
+                    com.runner.app.ui.LiveAgentManager.updateStep(stepDesc, com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
+
+                    if (!liveFullAccess) {
+                        val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation("Подтвердите действие: $stepDesc")
+                        if (!approved) {
+                            return@withContext "Действие отменено пользователем."
+                        }
+                    }
+
+                    val res = if (elementId != null) {
+                        service.longClickElement(elementId)
+                    } else if (x != null && y != null) {
+                        service.longClickCoordinates(x, y)
+                    } else {
+                        com.runner.app.service.RunnerAccessibilityService.ActionResult.Error("Не указан element_id или координаты x, y")
+                    }
+                    when (res) {
+                        is com.runner.app.service.RunnerAccessibilityService.ActionResult.Success -> res.message
+                        is com.runner.app.service.RunnerAccessibilityService.ActionResult.Error -> res.message
+                    }
+                }
+
                 "ui_type" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    service.targetMismatchReason()?.let { return@withContext it }
                     val text = args.optString("text", "")
                     val elementId = if (args.has("element_id")) args.optInt("element_id") else null
                     val clearFirst = args.optBoolean("clear_first", false)
+                    val submit = args.optBoolean("submit", false)
 
                     com.runner.app.ui.LiveAgentManager.updateStep("Ввод текста \"$text\"", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
                     if (!liveFullAccess) {
@@ -1184,7 +1295,7 @@ object ToolDispatcher {
                             return@withContext "Действие отменено пользователем."
                         }
                     }
-                    val res = service.inputText(elementId, text, clearFirst)
+                    val res = service.inputText(elementId, text, clearFirst, submit)
                     when (res) {
                         is com.runner.app.service.RunnerAccessibilityService.ActionResult.Success -> res.message
                         is com.runner.app.service.RunnerAccessibilityService.ActionResult.Error -> res.message
@@ -1194,9 +1305,11 @@ object ToolDispatcher {
                 "ui_scroll" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    service.targetMismatchReason()?.let { return@withContext it }
                     val direction = args.optString("direction", "down")
+                    val elementId = if (args.has("element_id")) args.optInt("element_id") else null
                     com.runner.app.ui.LiveAgentManager.updateStep("Прокрутка $direction", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
-                    val res = service.scrollScreen(direction)
+                    val res = service.scrollScreen(direction, elementId)
                     when (res) {
                         is com.runner.app.service.RunnerAccessibilityService.ActionResult.Success -> res.message
                         is com.runner.app.service.RunnerAccessibilityService.ActionResult.Error -> res.message
@@ -1218,8 +1331,65 @@ object ToolDispatcher {
                 "ui_wait" -> {
                     val durationMs = args.optLong("duration_ms", 1000L).coerceIn(300L, 5000L)
                     com.runner.app.ui.LiveAgentManager.updateStep("Ожидание (${durationMs}мс)", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex)
-                    kotlinx.coroutines.delay(durationMs)
-                    "Ожидание $durationMs мс завершено. Экран готов к обновлению."
+                    val service = com.runner.app.service.RunnerAccessibilityService.instance
+                    if (service != null) {
+                        // Ждём не «сколько сказали», а пока экран не успокоится.
+                        val deadline = System.currentTimeMillis() + durationMs
+                        while (System.currentTimeMillis() < deadline && !service.isScreenIdle(350L)) {
+                            kotlinx.coroutines.delay(100)
+                        }
+                        "Экран стабилен. Ожидание завершено."
+                    } else {
+                        kotlinx.coroutines.delay(durationMs)
+                        "Ожидание $durationMs мс завершено. Экран готов к обновлению."
+                    }
+                }
+
+                "ui_wait_for" -> {
+                    val service = com.runner.app.service.RunnerAccessibilityService.instance
+                        ?: return@withContext "Служба специальных возможностей не активна."
+                    val text = args.optString("text", "").trim()
+                    val pkg = args.optString("package", "").trim()
+                    val timeoutMs = args.optLong("timeout_ms", 5000L).coerceIn(1000L, 15_000L)
+                    if (text.isBlank() && pkg.isBlank()) {
+                        return@withContext "Укажи text или package."
+                    }
+                    com.runner.app.ui.LiveAgentManager.updateStep(
+                        "Жду ${text.ifBlank { pkg }}",
+                        com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex
+                    )
+                    val startedAt = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - startedAt < timeoutMs) {
+                        val pkgOk = pkg.isBlank() || service.currentPackageName().startsWith(pkg)
+                        val textOk = text.isBlank() || service.screenContainsText(text)
+                        if (pkgOk && textOk) {
+                            val spent = System.currentTimeMillis() - startedAt
+                            return@withContext "Дождался за $spent мс: " +
+                                    listOfNotNull(
+                                        pkg.takeIf { it.isNotBlank() }?.let { "приложение $it" },
+                                        text.takeIf { it.isNotBlank() }?.let { "текст \"$it\"" }
+                                    ).joinToString(", ")
+                        }
+                        kotlinx.coroutines.delay(150)
+                    }
+                    "Таймаут ${timeoutMs} мс. Не дождался: " +
+                            listOfNotNull(
+                                pkg.takeIf { it.isNotBlank() }?.let { "приложение $it" },
+                                text.takeIf { it.isNotBlank() }?.let { "текст \"$it\"" }
+                            ).joinToString(", ")
+                }
+
+                "ui_target" -> {
+                    val service = com.runner.app.service.RunnerAccessibilityService.instance
+                        ?: return@withContext "Служба специальных возможностей не активна."
+                    val pkg = args.optString("package", "").trim()
+                    com.runner.app.ui.LiveAgentManager.setTargetPackage(pkg)
+                    val current = service.currentPackageName().ifBlank { "неизвестно" }
+                    if (pkg.isBlank()) {
+                        "Ограничение по приложению снято. Сейчас на экране: $current."
+                    } else {
+                        "Ожидаемое приложение: $pkg. Сейчас на экране: $current."
+                    }
                 }
 
                 "ui_finish" -> {
@@ -1235,7 +1405,13 @@ object ToolDispatcher {
             "Ошибка при выполнении $cleanToolName: ${e.message}"
         }
 
-        truncateOutput(rawOutput)
+        // ui_inspect отдаёт дерево экрана и не должен резаться общим лимитом
+        // в 35 строк: иначе модель просто не видит нужную кнопку.
+        if (cleanToolName == "ui_inspect") {
+            truncateOutput(rawOutput, maxBytes = 24_000, maxLines = 180)
+        } else {
+            truncateOutput(rawOutput)
+        }
     }
 
     // --- File read/write ---
@@ -2262,6 +2438,9 @@ object ToolDispatcher {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             return try {
                 context.startActivity(intent)
+                // Live-задача теперь знает, в каком приложении работать:
+                // действия в чужом окне будут блокироваться.
+                com.runner.app.ui.LiveAgentManager.setTargetPackage(pkg)
                 "Открыл ${label ?: pkg}."
             } catch (e: Exception) {
                 "Не удалось открыть '$pkg': ${e.localizedMessage}"
@@ -2493,6 +2672,9 @@ object ToolDispatcher {
 
         try {
             context.startActivity(intent)
+            // Фиксируем приложение, которое реально откроет ссылку.
+            val resolved = intent.resolveActivity(context.packageManager)?.packageName
+            com.runner.app.ui.LiveAgentManager.setTargetPackage(resolved.orEmpty())
             "Открыл $target"
         } catch (e: ActivityNotFoundException) {
             "Ни одно приложение на устройстве не берётся открывать такую ссылку."
@@ -3496,8 +3678,9 @@ object ToolDispatcher {
         "open_url",
         // телефонный вызов: исходящий звонок с реальными последствиями
         "call_phone",
-        // действия на чужом экране: тап, ввод текста, системные кнопки
+        // действия на чужом экране: тап, долгое нажатие, ввод текста, системные кнопки
         "ui_click",
+        "ui_long_click",
         "ui_type",
         "ui_global_action"
     )
@@ -3701,6 +3884,17 @@ object ToolDispatcher {
                     preview = "Нажатие в приложении, которое сейчас открыто."
                 )
             }
+            "ui_long_click" -> {
+                val label = args.optString("label", "").trim()
+                val where = if (label.isNotBlank()) "«$label»" else "элемент на экране"
+                CriticalActionInfo(
+                    title = "Долгое нажатие на экране",
+                    details = "Куда: $where",
+                    warning = "Агент удержит палец на элементе в другом приложении. " +
+                            "Это может открыть контекстное меню или запустить перетаскивание.",
+                    preview = "Долгое нажатие в приложении, которое сейчас открыто."
+                )
+            }
             "ui_type" -> {
                 val text = args.optString("text", "")
                 val elementId = if (args.has("element_id")) args.optInt("element_id") else null
@@ -3790,6 +3984,10 @@ object ToolDispatcher {
                 val label = args.optString("label", "").trim()
                 if (label.isNotBlank()) "Нажимаю «$label»" else "Нажатие на экране"
             }
+            "ui_long_click" -> {
+                val label = args.optString("label", "").trim()
+                if (label.isNotBlank()) "Долгое нажатие «$label»" else "Долгое нажатие на экране"
+            }
             "ui_type" -> {
                 val text = args.optString("text", "").trim()
                 if (text.isNotBlank()) "Ввожу «$text»" else "Ввожу текст"
@@ -3797,6 +3995,19 @@ object ToolDispatcher {
             "ui_scroll" -> "Прокручиваю экран"
             "ui_global_action" -> "Системное действие"
             "ui_wait" -> "Ожидаю обновления экрана"
+            "ui_wait_for" -> {
+                val text = args.optString("text", "").trim()
+                val pkg = args.optString("package", "").trim()
+                when {
+                    text.isNotBlank() -> "Жду «$text»"
+                    pkg.isNotBlank() -> "Жду приложение $pkg"
+                    else -> "Жду экран"
+                }
+            }
+            "ui_target" -> {
+                val pkg = args.optString("package", "").trim()
+                if (pkg.isNotBlank()) "Целевое приложение: $pkg" else "Снимаю ограничение приложения"
+            }
             "ui_finish" -> "Завершение Live-задачи"
             else -> cleanToolName
         }

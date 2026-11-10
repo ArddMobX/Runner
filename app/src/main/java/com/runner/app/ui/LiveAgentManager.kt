@@ -42,7 +42,9 @@ object LiveAgentManager {
         /** Последние действия — для истории в развёрнутой карточке. */
         val recentSteps: List<String> = emptyList(),
         /** Сессия, из которой запущена задача: нужна кнопке «В Runner». */
-        val sessionId: String = ""
+        val sessionId: String = "",
+        /** Ожидаемое приложение Live-задачи. Пусто - без ограничения. */
+        val expectedPackage: String = ""
     )
 
     private val _stateFlow = MutableStateFlow(State())
@@ -53,6 +55,20 @@ object LiveAgentManager {
 
     private var pendingContinuation: CancellableContinuation<Boolean>? = null
     private var sessionStopHandler: (() -> Unit)? = null
+
+    /**
+     * Приложение, с которым должна работать Live-задача. Пока на экране
+     * другое приложение, ui_click/ui_type/ui_scroll блокируются. Пусто -
+     * без ограничения. open_app и open_url выставляют цель сами.
+     */
+    @Volatile
+    var targetPackage: String = ""
+        private set
+
+    fun setTargetPackage(packageName: String) {
+        targetPackage = packageName.trim()
+        _stateFlow.value = _stateFlow.value.copy(expectedPackage = targetPackage)
+    }
 
     @Volatile
     var onStopRequested: ((String) -> Unit)? = null
@@ -189,6 +205,7 @@ object LiveAgentManager {
     fun reset() {
         confirmPendingAction(false)
         sessionStopHandler = null
+        targetPackage = ""
         _stateFlow.value = State()
         LiveFloatingOverlay.dismiss()
     }
