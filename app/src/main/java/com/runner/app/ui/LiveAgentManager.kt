@@ -35,6 +35,7 @@ object LiveAgentManager {
         val isExecuting: Boolean = false,
         val status: StepStatus = StepStatus.RUNNING,
         val isFinished: Boolean = false,
+        val isPaused: Boolean = false,
         val stepDescription: String = "",
         val stepIndex: Int = 0,
         val totalSteps: Int = 0,
@@ -107,6 +108,28 @@ object LiveAgentManager {
         )
     }
 
+    fun pause() {
+        if (!isExecuting || _stateFlow.value.isPaused) return
+        _stateFlow.value = _stateFlow.value.copy(isPaused = true)
+    }
+
+    fun resumeExecution() {
+        if (!_stateFlow.value.isPaused) return
+        _stateFlow.value = _stateFlow.value.copy(isPaused = false)
+    }
+
+    /**
+     * Ждёт снятия паузы. Возвращает false, если задачу успели остановить.
+     * Вызывается перед каждым действием на экране, поэтому пауза
+     * срабатывает между шагами, а не посреди жеста.
+     */
+    suspend fun awaitResume(): Boolean {
+        while (isExecuting && _stateFlow.value.isPaused) {
+            kotlinx.coroutines.delay(200)
+        }
+        return isExecuting
+    }
+
     /**
      * Приостанавливает выполнение и запрашивает подтверждение пользователя
      * на карточке плавающего оверлея.
@@ -164,6 +187,7 @@ object LiveAgentManager {
             isExecuting = false,
             status = if (isErr) StepStatus.ERROR else StepStatus.STOPPED,
             isFinished = false,
+            isPaused = false,
             stepDescription = reason,
             confirmationPrompt = null
         )
@@ -181,6 +205,7 @@ object LiveAgentManager {
             isExecuting = false,
             status = StepStatus.SUCCESS,
             isFinished = true,
+            isPaused = false,
             stepDescription = summary,
             confirmationPrompt = null
         )

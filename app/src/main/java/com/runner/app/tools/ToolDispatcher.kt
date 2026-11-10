@@ -1045,7 +1045,9 @@ object ToolDispatcher {
         allowRootShell: Boolean = false
         ,
         /** Полный доступ в Live-режиме: выполнять действия без подтверждения на карточке. */
-        liveFullAccess: Boolean = false
+        liveFullAccess: Boolean = false,
+        /** Live: подтверждать каждое действие, а не только рискованные. */
+        liveConfirmEveryStep: Boolean = false
     ): String = withContext(Dispatchers.IO) {
         val cleanToolName = toolName.substringAfterLast(":")
         CrashReportManager.log("Tool", "Вызов: $cleanToolName")
@@ -1198,6 +1200,9 @@ object ToolDispatcher {
                 "ui_click" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    if (!com.runner.app.ui.LiveAgentManager.awaitResume()) {
+                        return@withContext "Задача остановлена."
+                    }
                     service.targetMismatchReason()?.let { return@withContext it }
                     val elementId = if (args.has("element_id")) args.optInt("element_id") else null
                     val x = if (args.has("x")) args.optDouble("x").toFloat() else null
@@ -1214,7 +1219,7 @@ object ToolDispatcher {
                     com.runner.app.ui.LiveAgentManager.updateStep(stepDesc, com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
 
                     if (!liveFullAccess && (
-                                elementId == null || isRiskyAction(label)
+                                liveConfirmEveryStep || elementId == null || isRiskyAction(label)
                                 )
                     ) {
                         val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation("Подтвердите действие: $stepDesc")
@@ -1239,6 +1244,9 @@ object ToolDispatcher {
                 "ui_long_click" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    if (!com.runner.app.ui.LiveAgentManager.awaitResume()) {
+                        return@withContext "Задача остановлена."
+                    }
                     service.targetMismatchReason()?.let { return@withContext it }
                     val elementId = if (args.has("element_id")) args.optInt("element_id") else null
                     val x = if (args.has("x")) args.optDouble("x").toFloat() else null
@@ -1277,6 +1285,9 @@ object ToolDispatcher {
                 "ui_type" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    if (!com.runner.app.ui.LiveAgentManager.awaitResume()) {
+                        return@withContext "Задача остановлена."
+                    }
                     service.targetMismatchReason()?.let { return@withContext it }
                     val text = args.optString("text", "")
                     val elementId = if (args.has("element_id")) args.optInt("element_id") else null
@@ -1305,9 +1316,20 @@ object ToolDispatcher {
                 "ui_scroll" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    if (!com.runner.app.ui.LiveAgentManager.awaitResume()) {
+                        return@withContext "Задача остановлена."
+                    }
                     service.targetMismatchReason()?.let { return@withContext it }
                     val direction = args.optString("direction", "down")
                     val elementId = if (args.has("element_id")) args.optInt("element_id") else null
+                    if (!liveFullAccess && liveConfirmEveryStep) {
+                        val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation(
+                            "Подтвердите прокрутку экрана: $direction"
+                        )
+                        if (!approved) {
+                            return@withContext "Действие отменено пользователем."
+                        }
+                    }
                     com.runner.app.ui.LiveAgentManager.updateStep("Прокрутка $direction", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
                     val res = service.scrollScreen(direction, elementId)
                     when (res) {
@@ -1319,7 +1341,18 @@ object ToolDispatcher {
                 "ui_global_action" -> {
                     val service = com.runner.app.service.RunnerAccessibilityService.instance
                         ?: return@withContext "Служба специальных возможностей не активна."
+                    if (!com.runner.app.ui.LiveAgentManager.awaitResume()) {
+                        return@withContext "Задача остановлена."
+                    }
                     val action = args.optString("action", "back")
+                    if (!liveFullAccess && liveConfirmEveryStep) {
+                        val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation(
+                            "Подтвердите системное действие: $action"
+                        )
+                        if (!approved) {
+                            return@withContext "Действие отменено пользователем."
+                        }
+                    }
                     com.runner.app.ui.LiveAgentManager.updateStep("Кнопка $action", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex + 1)
                     val res = service.performSystemAction(action)
                     when (res) {

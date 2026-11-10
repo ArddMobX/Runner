@@ -214,6 +214,18 @@ private fun shouldPlan(text: String): Boolean {
     return PLAN_ACTION_HINTS.any { clean.contains(it) }
 }
 
+/**
+ * В Live-режиме план нужен почти любой задаче, но приветствия и болтовню
+ * планировщиком гонять бессмысленно.
+ */
+private fun shouldPlanLive(text: String): Boolean {
+    val clean = text.trim().lowercase().replace(Regex("[!?.…]+$"), "").trim()
+    if (clean.isEmpty()) return false
+    if (clean in NO_PLAN_EXACT) return false
+    if (clean.length <= 20 && NO_PLAN_CONTAINS.any { clean.contains(it) }) return false
+    return true
+}
+
 /** Действия, требующие предварительного планирования и подтверждения. */
 private val PLAN_ACTION_HINTS = listOf(
     "план", "спланируй", "пошагово", "по шагам",
@@ -305,7 +317,10 @@ private val KNOWN_PLAN_TOOLS: Set<String> = setOf(
     "create_dir", "move_file", "copy_file", "search_files", "create_archive",
     "extract_archive", "organize_downloads", "get_storage_summary",
     "find_largest_files", "find_junk_files", "clipboard_read", "clipboard_write",
-    "run_shell_command", "open_app", "open_url"
+    "run_shell_command", "open_app", "open_url",
+    // Live-инструменты: план Live-задачи тоже состоит из именованных шагов.
+    "ui_inspect", "ui_click", "ui_long_click", "ui_type", "ui_scroll",
+    "ui_global_action", "ui_wait", "ui_wait_for", "ui_target", "ui_finish"
 )
 
 /**
@@ -590,6 +605,21 @@ private const val PLAN_SYSTEM_PROMPT = """
 - Пути указывай абсолютные от корня /storage/emulated/0, а для run_shell_command - саму команду целиком.
 - Никаких вступлений, пояснений и заключений.
 - Если задача решается одним текстовым ответом без инструментов, выведи одну строку: БЕЗ_ИНСТРУМЕНТОВ.
+"""
+
+/**
+ * План для Live-задачи. Отличается от обычного: перечисляет инструменты
+ * экрана и требует критерий успеха, по которому потом проверяется финиш.
+ */
+private const val LIVE_PLAN_SYSTEM_PROMPT = """
+Ты планировщик Live-задачи мобильного агента Runner. Агент управляет экраном Android через специальные возможности.
+Доступные инструменты: ui_inspect, ui_click, ui_long_click, ui_type, ui_scroll, ui_global_action, ui_wait, ui_wait_for, ui_target, open_app, open_url, ui_finish.
+Правила вывода:
+- Выведи 3-5 шагов, по одному на строку: "1. имя_инструмента - что сделать".
+- Не выдумывай элементы экрана: сначала ui_inspect, потом действие.
+- Для поиска и открытия предпочитай open_app или open_url с готовой ссылкой.
+- Последней строкой выведи: "Критерий успеха: ..." - как проверить, что задача выполнена.
+- Никаких вступлений и пояснений.
 """
 
 data class ChatMessage(
@@ -1399,12 +1429,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             newSettings
         }
+        // Полный доступ и подтверждение каждого шага взаимоисключающие:
+        // если настройки пришли в конфликте, побеждает более безопасный режим.
+        val liveSettings = if (safeSettings.liveFullAccess && safeSettings.liveConfirmEveryStep) {
+            safeSettings.copy(liveFullAccess = false)
+        } else {
+            safeSettings
+        }
         val wasLive = _settings.value.liveModeEnabled
-        _settings.value = safeSettings
-        settingsStore.save(safeSettings)
-        ToolDispatcher.defaultWorkingDir = safeSettings.defaultWorkingDir
-        voiceManager.setTtsParameters(safeSettings.ttsSpeed, safeSettings.ttsPitch, safeSettings.ttsVoiceName)
-        if (wasLive && !safeSettings.liveModeEnabled) {
+        _settings.value = liveSettings
+        settingsStore.save(liveSettings)
+        ToolDispatcher.defaultWorkingDir = liveSettings.defaultWorkingDir
+        voiceManager.setTtsParameters(liveSettings.ttsSpeed, liveSettings.ttsPitch, liveSettings.ttsVoiceName)
+        if (wasLive && !liveSettings.liveModeEnabled) {
             LiveAgentManager.reset()
         }
     }
@@ -1729,9 +1766,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // На приветствия и смолл-ток планировщик не триггерим вообще.
                 // Во время сухого прогона план не нужен: сам прогон и есть предпросмотр,
                 // а лишний запрос расходует тот же лимит.
+                val shouldRequestPlan = if (_settings.value.liveModeEnabled) {
+                    shouldPlanLive(effectiveText)
+                } else {
+                    shouldPlan(effectiveText)
+                }
                 val planNote = if (!dryRunActive &&
                     _settings.value.planningEnabled &&
-                    shouldPlan(effectiveText)
+                    shouldRequestPlan
                 ) {
                     requestPlanApproval(sessionId, provider, model)
                 } else {
@@ -1932,7 +1974,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             put(
                 JSONObject().apply {
                     put("role", "system")
-                    put("content", PLAN_SYSTEM_PROMPT)
+                    put(
+                        "content",
+                        if (_settings.value.liveModeEnabled) LIVE_PLAN_SYSTEM_PROMPT else PLAN_SYSTEM_PROMPT
+                    )
                 }
             )
             val start = maxOf(0, conversationJson.length() - PLAN_HISTORY_TAIL)
@@ -1977,6 +2022,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (planText.isBlank()) return null
         if (planText.contains(NO_TOOLS_MARKER)) return null
 
+        // Критерий успеха нужен Live-задаче: по нему модель проверяет,
+        // что результат действительно достигнут, прежде чем вызвать ui_finish.
+        val successCriteria = planText.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.contains("Критерий успеха", ignoreCase = true) }
+            ?.substringAfter(':', "")
+            ?.trim()
+            .orEmpty()
+
         val stepLines = extractPlanStepLines(planText)
         // План не распознан: в чат ничего не выводим, исполняемся напрямую.
         if (stepLines.isEmpty()) {
@@ -2004,6 +2058,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         fun planNoteText(): String = buildString {
             append("План по шагам (не пропускай шаги, не выдумывай свои инструменты):\n")
             stepLines.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
+            if (successCriteria.isNotBlank()) {
+                append("Критерий успеха: $successCriteria\n")
+            }
         }
 
         // В автономном режиме (autoApproveInWorkingDir) сформированный план передаётся на исполнение сразу
@@ -2042,6 +2099,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 append("Утверждённый пользователем план, строго следуй ему по шагам ")
                 append("(не пропускай шаги, не выдумывай свои инструменты):\n")
                 stepLines.forEachIndexed { i, step -> append("${i + 1}. $step\n") }
+                if (successCriteria.isNotBlank()) {
+                    append("Критерий успеха: $successCriteria\n")
+                }
             }
         } else {
             null
@@ -2394,7 +2454,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             getApplication(),
             _settings.value.shellOutsideStorage,
             _settings.value.allowRootShell,
-            _settings.value.liveFullAccess
+            _settings.value.liveFullAccess,
+            _settings.value.liveConfirmEveryStep
         )
     }
 
@@ -2669,7 +2730,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 getApplication(),
                 _settings.value.shellOutsideStorage,
                 _settings.value.allowRootShell,
-                _settings.value.liveFullAccess
+                _settings.value.liveFullAccess,
+                _settings.value.liveConfirmEveryStep
             )
             toolDurationMs = System.currentTimeMillis() - startedAt
             result

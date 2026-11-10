@@ -659,6 +659,14 @@ private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
     }
 
     pendingPlan?.let { plan ->
+        val criteria = remember(plan.rawText) {
+            plan.rawText.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.contains("Критерий успеха", ignoreCase = true) }
+                ?.substringAfter(':', "")
+                ?.trim()
+                .orEmpty()
+        }
         AlertDialog(
             onDismissRequest = { viewModel.resolvePlan(false) },
             title = { Text("План действий") },
@@ -680,6 +688,14 @@ private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
                             text = plan.rawText,
                             fontSize = 12.5.sp,
                             lineHeight = 18.sp
+                        )
+                    }
+                    if (criteria.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Критерий успеха: $criteria",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }

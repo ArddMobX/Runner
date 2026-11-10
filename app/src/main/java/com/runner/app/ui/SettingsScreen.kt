@@ -4902,6 +4902,44 @@ private fun AccessSettings(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
+                            text = "Подтверждать каждый шаг",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Спрашивать перед каждым тапом, вводом и прокруткой. Несовместимо с полным доступом.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = appSettings.liveConfirmEveryStep,
+                        onCheckedChange = { checked ->
+                            viewModel.updateSettings(
+                                appSettings.copy(
+                                    liveConfirmEveryStep = checked,
+                                    liveFullAccess = if (checked) false else appSettings.liveFullAccess
+                                )
+                            )
+                        },
+                        colors = runnerSwitchColors()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                SettingsDivider()
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
                             text = "Полный доступ (без подтверждений)",
                             color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
@@ -4960,7 +4998,12 @@ private fun AccessSettings(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            viewModel.updateSettings(appSettings.copy(liveFullAccess = true))
+                            viewModel.updateSettings(
+                                appSettings.copy(
+                                    liveFullAccess = true,
+                                    liveConfirmEveryStep = false
+                                )
+                            )
                             showFullAccessWarning = false
                         }
                     ) {

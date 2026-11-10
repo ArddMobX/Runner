@@ -37,7 +37,9 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PauseCircleOutline
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedButton
@@ -46,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -144,6 +147,8 @@ object LiveFloatingOverlay {
                     RunnerTheme {
                         FloatingOverlayContent(
                             onToggleExpand = { toggleExpand() },
+                            onPause = { LiveAgentManager.pause() },
+                            onResume = { LiveAgentManager.resumeExecution() },
                             onStop = {
                                 LiveAgentManager.stop("Остановлено пользователем")
                             },
@@ -369,6 +374,8 @@ object LiveFloatingOverlay {
     @Composable
     private fun FloatingOverlayContent(
         onToggleExpand: () -> Unit,
+        onPause: () -> Unit,
+        onResume: () -> Unit,
         onStop: () -> Unit,
         onConfirmAction: () -> Unit,
         onCancelAction: () -> Unit
@@ -385,23 +392,28 @@ object LiveFloatingOverlay {
             }
         }
 
-        val visuals = when (state.status) {
-            LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
+        val visuals = when {
+            state.status == LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
                 color = Color(0xFF34D399),
                 icon = Icons.Outlined.Check,
                 title = "Готово"
             )
-            LiveAgentManager.StepStatus.STOPPED -> StatusVisuals(
+            state.status == LiveAgentManager.StepStatus.STOPPED -> StatusVisuals(
                 color = Color(0xFFFBBF24),
                 icon = Icons.Outlined.PauseCircleOutline,
                 title = "Остановлено"
             )
-            LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
+            state.status == LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
                 color = Color(0xFFF87171),
                 icon = Icons.Outlined.ErrorOutline,
                 title = "Ошибка"
             )
-            LiveAgentManager.StepStatus.RUNNING -> StatusVisuals(
+            state.isPaused -> StatusVisuals(
+                color = Color(0xFFFBBF24),
+                icon = Icons.Outlined.PauseCircleOutline,
+                title = "Пауза"
+            )
+            else -> StatusVisuals(
                 color = MaterialTheme.colorScheme.primary,
                 icon = Icons.Outlined.TouchApp,
                 title = "Runner Live"
@@ -671,30 +683,66 @@ object LiveFloatingOverlay {
                                     }
                                 }
                             } else {
-                                // Кнопка Стоп (аварийная остановка)
-                                ElevatedButton(
-                                    onClick = onStop,
-                                    colors = ButtonDefaults.elevatedButtonColors(
-                                        containerColor = Color(0xFF381A1A),
-                                        contentColor = Color(0xFFFF6B6B)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(38.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Stop,
-                                        contentDescription = "Стоп",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Стоп",
-                                        fontFamily = GoogleSans,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
+                                    OutlinedButton(
+                                        onClick = if (state.isPaused) onResume else onPause,
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(38.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (state.isPaused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (state.isPaused) "Продолжить" else "Пауза",
+                                            fontFamily = GoogleSans,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                    ElevatedButton(
+                                        onClick = onStop,
+                                        colors = ButtonDefaults.elevatedButtonColors(
+                                            containerColor = Color(0xFF381A1A),
+                                            contentColor = Color(0xFFFF6B6B)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(38.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Stop,
+                                            contentDescription = "Стоп",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Стоп",
+                                            fontFamily = GoogleSans,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                                if (!state.isPaused) {
+                                    TextButton(
+                                        onClick = {
+                                            LiveAgentManager.stop("Управление передано пользователю")
+                                        }
+                                    ) {
+                                        Text(
+                                            text = "Забрать управление",
+                                            fontFamily = GoogleSans,
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 }
                             }
                         }

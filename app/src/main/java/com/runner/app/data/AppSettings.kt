@@ -166,7 +166,9 @@ data class AppSettings(
     /** Live-режим: выполнение действий через специальные возможности на экране. */
     val liveModeEnabled: Boolean = false,
     /** Полный доступ в Live-режиме: выполнять действия без подтверждения на карточке. */
-    val liveFullAccess: Boolean = false
+    val liveFullAccess: Boolean = false,
+    /** Live: подтверждать каждое действие, а не только рискованные. */
+    val liveConfirmEveryStep: Boolean = false
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -283,6 +285,8 @@ data class AppSettings(
                     "прокрути экран и снова вызови ui_inspect. " +
                     "Для поиска и открытия сначала используй open_app или open_url с готовой ссылкой, " +
                     "ручную навигацию оставляй на случай, когда без неё нельзя. " +
+                    "Готовые ссылки: YouTube https://www.youtube.com/results?search_query=..., " +
+                    "веб https://www.google.com/search?q=..., карты geo:0,0?q=... . " +
                     "open_app задаёт ожидаемое приложение. Пока на экране другое приложение, действия блокируются; " +
                     "если это системный диалог или клавиатура, вызови ui_target с текущим пакетом. " +
                     "Если открылось не то приложение или экран непонятен, остановись и сообщи пользователю. " +
@@ -533,7 +537,8 @@ class SettingsStore(context: Context) {
             showPromptSuggestions = prefs.getBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, true),
             customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null)),
             liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false),
-            liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false)
+            liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false),
+            liveConfirmEveryStep = prefs.getBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, false)
         )
     }
 
@@ -599,6 +604,7 @@ class SettingsStore(context: Context) {
             .putString(KEY_CUSTOM_SUGGESTIONS, JSONArray(settings.customPromptSuggestions).toString())
             .putBoolean(KEY_LIVE_MODE_ENABLED, settings.liveModeEnabled)
             .putBoolean(KEY_LIVE_FULL_ACCESS, settings.liveFullAccess)
+            .putBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, settings.liveConfirmEveryStep)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -662,6 +668,7 @@ class SettingsStore(context: Context) {
         const val KEY_CUSTOM_SUGGESTIONS = "custom_prompt_suggestions_json"
         const val KEY_LIVE_MODE_ENABLED = "live_mode_enabled"
         const val KEY_LIVE_FULL_ACCESS = "live_full_access"
+        const val KEY_LIVE_CONFIRM_EVERY_STEP = "live_confirm_every_step"
 
         private fun parseCustomSuggestions(json: String?): List<String> {
             if (json.isNullOrBlank()) return emptyList()

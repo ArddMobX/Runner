@@ -1721,6 +1721,14 @@ private fun PlanCard(
 ) {
     val haptic = LocalHapticFeedback.current
     val steps = remember(message.content) { parsePlanStepsUi(message.content) }
+    val successCriteria = remember(message.content) {
+        message.content.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.contains("Критерий успеха", ignoreCase = true) }
+            ?.substringAfter(':', "")
+            ?.trim()
+            .orEmpty()
+    }
 
     // Пока план ждёт решения — раскрыт, иначе его нельзя осознанно утвердить.
     // После решения сворачивается в одну строку, чтобы не занимать пол-экрана.
@@ -1817,6 +1825,16 @@ private fun PlanCard(
                             )
                         }
                     }
+                }
+
+                if (successCriteria.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Критерий успеха: $successCriteria",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
                 }
             }
 
