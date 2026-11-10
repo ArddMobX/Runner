@@ -2234,7 +2234,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 is AIResponseResult.TextResult -> {
-                    val reply = result.text.ifBlank { "Готово." }
+                    // Некоторые провайдеры возвращают в ответе кусок своей
+                    // системной инструкции. В чат это попадать не должно.
+                    val cleanedReply = stripLeakedSystemPrompt(result.text)
+                    if (cleanedReply.isBlank() && result.text.isNotBlank()) {
+                        _streamingText.value = ""
+                        appendSystemInfo(
+                            "Модель вернула служебную инструкцию вместо ответа. Повторите запрос.",
+                            null
+                        )
+                        attachTurnStats(
+                            sessionId, turnStartedAt, totalPromptTokens,
+                            totalCompletionTokens, trackStats, turnAssistantId
+                        )
+                        return
+                    }
+                    val reply = cleanedReply.ifBlank { "Готово." }
                     turnAssistantId = saveAssistantMessage(
                         sessionId = sessionId,
                         text = reply,
@@ -2846,6 +2861,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         persistContext(sessionId)
         return id
+    }
+
+    /**
+     * Убирает из ответа куски системных инструкций, которые некоторые
+     * провайдеры возвращают в тексте. Это не контент ответа.
+     */
+    private fun stripLeakedSystemPrompt(text: String): String {
+        val markers = listOf(
+            "If no function call is necessary",
+            "provide a direct prose answer",
+            "Continue the conversation above and reply as the Assistant"
+        )
+        if (markers.none { text.contains(it, ignoreCase = true) }) return text
+        return text.lineSequence()
+            .filterNot { line -> markers.any { line.contains(it, ignoreCase = true) } }
+            .joinToString("\n")
+            .trim()
     }
 
     private suspend fun saveAssistantMessage(

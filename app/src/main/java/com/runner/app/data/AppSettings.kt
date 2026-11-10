@@ -32,7 +32,7 @@ data class AppSettings(
     val textScale: Float = 1f,
     val showToolDetails: Boolean = true,
     /** Показывать тайминги, токены и скорость генерации. */
-    val showStats: Boolean = true,
+    val showStats: Boolean = false,
     /** Планирование: модель сначала составляет план шагов, исполнение — после подтверждения. */
     val planningEnabled: Boolean = true,
     /**
@@ -161,6 +161,8 @@ data class AppSettings(
     val terminalAmbientEnabled: Boolean = true,
     /** Отображать плавающие подсказки-сценарии над строкой ввода. */
     val showPromptSuggestions: Boolean = true,
+    /** Показывать контекстные подсказки под последним ответом. */
+    val showFollowUpSuggestions: Boolean = false,
     /** Пользовательские подсказки-сценарии. */
     val customPromptSuggestions: List<String> = emptyList(),
     /** Live-режим: выполнение действий через специальные возможности на экране. */
@@ -493,7 +495,7 @@ class SettingsStore(context: Context) {
             customHeaders = customHeaders,
             textScale = prefs.getFloat(KEY_TEXT_SCALE, 1f),
             showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
-            showStats = prefs.getBoolean(KEY_SHOW_STATS, true),
+            showStats = prefs.getBoolean(KEY_SHOW_STATS, false),
             disclaimerAccepted = prefs.getBoolean(KEY_DISCLAIMER_ACCEPTED, false),
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false),
@@ -535,6 +537,7 @@ class SettingsStore(context: Context) {
             hapticOnError = prefs.getBoolean(KEY_HAPTIC_ON_ERROR, true),
             terminalAmbientEnabled = prefs.getBoolean(KEY_TERMINAL_AMBIENT, true),
             showPromptSuggestions = prefs.getBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, true),
+            showFollowUpSuggestions = prefs.getBoolean(KEY_SHOW_FOLLOW_UP_SUGGESTIONS, false),
             customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null)),
             liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false),
             liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false),
@@ -601,6 +604,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_HAPTIC_ON_ERROR, settings.hapticOnError)
             .putBoolean(KEY_TERMINAL_AMBIENT, settings.terminalAmbientEnabled)
             .putBoolean(KEY_SHOW_PROMPT_SUGGESTIONS, settings.showPromptSuggestions)
+            .putBoolean(KEY_SHOW_FOLLOW_UP_SUGGESTIONS, settings.showFollowUpSuggestions)
             .putString(KEY_CUSTOM_SUGGESTIONS, JSONArray(settings.customPromptSuggestions).toString())
             .putBoolean(KEY_LIVE_MODE_ENABLED, settings.liveModeEnabled)
             .putBoolean(KEY_LIVE_FULL_ACCESS, settings.liveFullAccess)
@@ -665,6 +669,7 @@ class SettingsStore(context: Context) {
         const val KEY_HAPTIC_ON_ERROR = "haptic_on_error"
         const val KEY_TERMINAL_AMBIENT = "terminal_ambient_enabled"
         const val KEY_SHOW_PROMPT_SUGGESTIONS = "show_prompt_suggestions"
+        const val KEY_SHOW_FOLLOW_UP_SUGGESTIONS = "show_follow_up_suggestions"
         const val KEY_CUSTOM_SUGGESTIONS = "custom_prompt_suggestions_json"
         const val KEY_LIVE_MODE_ENABLED = "live_mode_enabled"
         const val KEY_LIVE_FULL_ACCESS = "live_full_access"

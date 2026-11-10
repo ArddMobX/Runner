@@ -466,10 +466,10 @@ fun ChatScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
-            if (appSettings.terminalAmbientEnabled) {
+            if (appSettings.terminalAmbientEnabled && isEmptyChat && !appSettings.liveModeEnabled) {
                 TerminalAmbientBackground(
                     enabled = true,
-                    isLiveMode = appSettings.liveModeEnabled,
+                    isLiveMode = false,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -536,7 +536,9 @@ fun ChatScreen(
                         val lastAssistantMessageId = remember(messages) {
                             messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.content.isNotBlank() }?.id
                         }
-                        val canShowFollowUps = !isRunning && streamingText.isNullOrBlank() && pendingPlan == null && pendingConfirmation == null
+                        val canShowFollowUps = !isRunning && streamingText.isNullOrBlank() &&
+                                pendingPlan == null && pendingConfirmation == null &&
+                                appSettings.showFollowUpSuggestions
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
@@ -1590,12 +1592,19 @@ private fun ResponseStats(
 ) {
     val parts = buildList {
         message.durationMs?.let { add("⏱ ${formatDuration(it)}") }
-        val prompt = message.promptTokens
-        val completion = message.completionTokens
-        if (prompt != null || completion != null) {
-            add("${prompt ?: 0}→${completion ?: 0} ток")
+        // Провайдеры иногда отдают usage, который не сходится с реальным
+        // ответом: 17k completion-токенов на пару строк и 9000 т/с.
+        // Такие цифры не показываем, иначе статистика выглядит как бред.
+        val prompt = message.promptTokens?.takeIf { it in 1..2_000_000 }
+        val completion = message.completionTokens?.takeIf { tokens ->
+            tokens in 1..100_000 && tokens <= maxOf(512, message.content.length)
         }
-        message.tokensPerSecond?.let { add("%.0f т/с".format(it)) }
+        if (prompt != null && completion != null) {
+            add("$prompt→$completion ток")
+        }
+        message.tokensPerSecond
+            ?.takeIf { it in 0.1..300.0 }
+            ?.let { add("%.0f т/с".format(it)) }
     }
 
     if (parts.isEmpty()) return
@@ -3005,18 +3014,12 @@ object SmartFollowUpGenerator {
                 suggestions.add("Расскажи подробнее")
                 suggestions.add("Предложи другой вариант")
             }
-            else -> {
-                suggestions.add("Расскажи подробнее")
-                suggestions.add("Приведи пример из практики")
-                suggestions.add("Какие есть альтернативы?")
-            }
         }
 
         return suggestions.distinct().take(3)
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SmartFollowUpRow(
     suggestions: List<String>,
@@ -3025,60 +3028,30 @@ private fun SmartFollowUpRow(
     if (suggestions.isEmpty()) return
 
     val haptic = LocalHapticFeedback.current
-    val primaryColor = MaterialTheme.colorScheme.primary
 
-    Column(
+    LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 4.dp)
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.AutoAwesome,
-                contentDescription = null,
-                tint = primaryColor,
-                modifier = Modifier.size(13.dp)
-            )
-            Text(
-                text = "Возможные следующие шаги",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.outline
-            )
-        }
-
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            suggestions.forEach { suggestion ->
-                Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSelect(suggestion)
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = suggestion,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
+        items(suggestions) { suggestion ->
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelect(suggestion)
+                },
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+            ) {
+                Text(
+                    text = suggestion,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
             }
         }
     }

@@ -513,13 +513,36 @@ object LiveFloatingOverlay {
 
                             Spacer(modifier = Modifier.height(10.dp))
 
+                            if (state.expectedPackage.isNotBlank()) {
+                                Text(
+                                    text = "Приложение: ${state.expectedPackage}",
+                                    fontFamily = GoogleSans,
+                                    fontSize = 10.5.sp,
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
+
+                            if (!isFinished) {
+                                Text(
+                                    text = if (state.isPaused) "Пауза" else "Сейчас",
+                                    fontFamily = GoogleSans,
+                                    fontSize = 10.sp,
+                                    color = Color.White.copy(alpha = 0.4f)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
+
                             // Описание текущего действия / отчет
                             Text(
                                 text = state.stepDescription.ifEmpty {
                                     if (isFinished) "Задача завершена" else "Выполнение задачи..."
                                 },
                                 fontFamily = GoogleSans,
-                                fontSize = 14.sp,
+                                fontSize = 15.sp,
+                                fontWeight = if (isFinished) FontWeight.Normal else FontWeight.Medium,
                                 color = Color.White,
                                 maxLines = 4,
                                 overflow = TextOverflow.Ellipsis

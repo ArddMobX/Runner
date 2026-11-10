@@ -1037,6 +1037,35 @@ private fun SettingsRoot(
                 )
             }
 
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Подсказки после ответа",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Контекстные чипы под последним ответом. По умолчанию выключены.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.showFollowUpSuggestions,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(showFollowUpSuggestions = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
             if (appSettings.showPromptSuggestions) {
                 SettingsDivider()
                 CustomSuggestionsManager(
