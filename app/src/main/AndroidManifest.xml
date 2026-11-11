@@ -47,6 +47,7 @@
         android:fullBackupContent с исключением файла runner_secure.
     -->
     <application
+        android:name=".RunnerApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

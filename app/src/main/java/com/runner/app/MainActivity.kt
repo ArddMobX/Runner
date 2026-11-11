@@ -2,8 +2,12 @@ package com.runner.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Typeface
 import android.util.Log
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -11,6 +15,8 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -75,6 +81,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReportManager.init(applicationContext)
+
+        // Если прошлый запуск упал, показываем стек нативным диалогом,
+        // а не запускаем Compose: иначе приложение упадёт на том же месте
+        // и пользователь не успеет скопировать отчёт.
+        val pendingCrash = CrashReportManager.getPendingCrashReport(this)
+        if (pendingCrash != null) {
+            showCrashReportDialog(pendingCrash)
+            return
+        }
+
         handleIntent(intent)
         maybeRequestInitialPermissions()
         setContent {
@@ -146,6 +162,62 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         LiveFloatingOverlay.dismiss()
+    }
+
+    /**
+     * Нативный диалог с прошлым стеком. Специально без Compose и без
+     * кастомных шрифтов: если падение связано с ними, экран всё равно
+     * должен открыться и дать скопировать отчёт.
+     */
+    private fun showCrashReportDialog(report: String) {
+        val text = TextView(this).apply {
+            text = report
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setPadding(32, 24, 32, 24)
+        }
+        val scroll = ScrollView(this).apply { addView(text) }
+        var finished = false
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Runner упал в прошлый раз")
+            .setView(scroll)
+            .setPositiveButton("Скопировать") { _, _ ->
+                finished = true
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Runner crash", report))
+                CrashReportManager.clearPendingCrashReport(this)
+                recreate()
+            }
+            .setNeutralButton("Поделиться") { _, _ ->
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, report)
+                }
+                startActivity(Intent.createChooser(send, "Отправить отчёт"))
+            }
+            .setNegativeButton("Продолжить") { _, _ ->
+                finished = true
+                CrashReportManager.clearPendingCrashReport(this)
+                recreate()
+            }
+            .setOnCancelListener {
+                finished = true
+                CrashReportManager.clearPendingCrashReport(this)
+                recreate()
+            }
+            .create()
+
+        // «Поделиться» закрывает диалог, но приложение не должно остаться
+        // на пустом экране: после отправки перезапускаем уже обычный UI.
+        dialog.setOnDismissListener {
+            if (!finished) {
+                CrashReportManager.clearPendingCrashReport(this)
+                recreate()
+            }
+        }
+        dialog.show()
     }
 }
 
