@@ -47,14 +47,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -95,6 +87,7 @@ import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.ScreenCaptureManager
 import kotlinx.coroutines.launch
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Плавающее окно-ассистент поверх всех приложений (Quick Assist Overlay).
@@ -363,7 +356,7 @@ private fun OverlayScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.AutoAwesome,
+                        imageVector = RunnerIcons.AutoAwesome,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
@@ -408,7 +401,7 @@ private fun OverlayScreen(
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                            imageVector = RunnerIcons.OpenInNew,
                             contentDescription = "Открыть в чате",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
@@ -421,7 +414,7 @@ private fun OverlayScreen(
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Close,
+                            imageVector = RunnerIcons.Close,
                             contentDescription = "Закрыть",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
@@ -460,7 +453,7 @@ private fun OverlayScreen(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = Icons.Outlined.CameraAlt,
+                                    imageVector = RunnerIcons.CameraAlt,
                                     contentDescription = null,
                                     tint = if (capturedScreenshotUri != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(14.dp)
@@ -546,7 +539,7 @@ private fun OverlayScreen(
                                         modifier = Modifier.size(28.dp)
                                     ) {
                                         @Suppress("DEPRECATION")
-                                        val volIcon = if (isCurSpeaking) Icons.Outlined.Stop else Icons.Outlined.VolumeUp
+                                        val volIcon = if (isCurSpeaking) RunnerIcons.Stop else RunnerIcons.VolumeUp
                                         Icon(
                                             imageVector = volIcon,
                                             contentDescription = "Озвучить",
@@ -563,7 +556,7 @@ private fun OverlayScreen(
                                         modifier = Modifier.size(28.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Outlined.ContentCopy,
+                                            imageVector = RunnerIcons.ContentCopy,
                                             contentDescription = "Копировать",
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(15.dp)

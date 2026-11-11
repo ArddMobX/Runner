@@ -7,8 +7,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.Article
 import com.runner.app.util.CrashReportManager
 import android.service.voice.VoiceInteractionService
 import com.runner.app.service.RunnerVoiceInteractionService
@@ -61,39 +59,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.CheckCircleOutline
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.FolderSpecial
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.RestartAlt
-import androidx.compose.material.icons.outlined.Restore
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SmartToy
-import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
-import androidx.compose.material.icons.outlined.VpnKey
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -232,7 +197,7 @@ fun SettingsScreen(
                         modifier = Modifier.bounceClick { goBack() }
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                            imageVector = RunnerIcons.ArrowBack,
                             contentDescription = "Назад",
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
@@ -321,55 +286,54 @@ private fun SettingsRoot(
         }
     }
 
-    val searchableItems = remember(providers, activeProvider, appSettings, allPermissionsGranted) {
-        listOf(
+    val searchableItems = listOf(
             SearchableSetting(
                 title = "Провайдеры и ключи",
                 section = "Провайдеры",
                 description = "Ключей: ${providers.count { it.apiKey.isNotBlank() }} · Активен: ${activeProvider?.name ?: "не выбран"}",
-                icon = Icons.Outlined.VpnKey,
+                icon = RunnerIcons.VpnKey,
                 route = SettingsRoute.Providers
             ),
             SearchableSetting(
                 title = "Модель",
                 section = "Провайдеры",
                 description = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
-                icon = Icons.Outlined.SmartToy,
+                icon = RunnerIcons.SmartToy,
                 route = SettingsRoute.Providers
             ),
             SearchableSetting(
                 title = "Профили инструкций",
                 section = "Агент",
                 description = "Пресеты системного промпта («Стандартный», «Краткий», «Подробный», «Осторожный»)",
-                icon = Icons.Outlined.Terminal,
+                icon = RunnerIcons.Terminal,
                 route = SettingsRoute.Agent
             ),
             SearchableSetting(
                 title = "Температура и шаги",
                 section = "Агент",
                 description = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
-                icon = Icons.Outlined.Tune,
+                icon = RunnerIcons.Tune,
                 route = SettingsRoute.Agent
             ),
             SearchableSetting(
                 title = "Рабочая папка проекта",
                 section = "Агент",
                 description = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() } ?: "Вся память",
-                icon = Icons.Outlined.FolderSpecial,
+                icon = RunnerIcons.FolderSpecial,
                 route = SettingsRoute.Agent
             ),
             SearchableSetting(
                 title = "Разрешения и доступы",
                 section = "Доступы",
                 description = if (allPermissionsGranted) "Все разрешения выданы" else "Требуется настройка",
-                icon = Icons.Outlined.FolderOpen,
+                icon = RunnerIcons.FolderOpen,
                 route = SettingsRoute.Access
             ),
             SearchableSetting(
                 title = "Скрывать в недавних (FLAG_SECURE)",
                 section = "Безопасность",
                 description = if (appSettings.secureScreenMode) "Включено (скриншоты заблокированы)" else "Выключено",
-                icon = Icons.Outlined.VisibilityOff,
+                icon = RunnerIcons.VisibilityOff,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(secureScreenMode = !appSettings.secureScreenMode))
                 }
@@ -378,19 +342,19 @@ private fun SettingsRoot(
                 title = "Тема оформления и AMOLED",
                 section = "Тема",
                 description = "Тёмная/светлая тема, динамический цвет, чистый чёрный AMOLED",
-                icon = Icons.Outlined.AutoAwesome
+                icon = RunnerIcons.AutoAwesome
             ),
             SearchableSetting(
                 title = "Масштаб текста",
                 section = "Интерфейс",
                 description = "${(appSettings.textScale * 100).roundToInt()}%",
-                icon = Icons.Outlined.Tune
+                icon = RunnerIcons.Tune
             ),
             SearchableSetting(
                 title = "Детали вызовов инструментов",
                 section = "Интерфейс",
                 description = if (appSettings.showToolDetails) "Показываются аргументы и вывод" else "Скрыты",
-                icon = Icons.Outlined.Terminal,
+                icon = RunnerIcons.Terminal,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(showToolDetails = !appSettings.showToolDetails))
                 }
@@ -399,7 +363,7 @@ private fun SettingsRoot(
                 title = "Время генерации и статистика",
                 section = "Интерфейс",
                 description = if (appSettings.showStats) "Показывается под сообщениями" else "Скрыта",
-                icon = Icons.Outlined.Tune,
+                icon = RunnerIcons.Tune,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(showStats = !appSettings.showStats))
                 }
@@ -408,7 +372,7 @@ private fun SettingsRoot(
                 title = "Планирование шагов",
                 section = "Интерфейс",
                 description = if (appSettings.planningEnabled) "Включено: составление плана перед выполнением" else "Выключено",
-                icon = Icons.Outlined.CheckCircle,
+                icon = RunnerIcons.CheckCircle,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(planningEnabled = !appSettings.planningEnabled))
                 }
@@ -417,7 +381,7 @@ private fun SettingsRoot(
                 title = "Не гасить экран во время работы",
                 section = "Интерфейс",
                 description = if (appSettings.keepScreenOnWhileRunning) "Экран всегда включён во время задачи" else "Стандартный таймаут экрана",
-                icon = Icons.Outlined.Visibility,
+                icon = RunnerIcons.Visibility,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(keepScreenOnWhileRunning = !appSettings.keepScreenOnWhileRunning))
                 }
@@ -426,7 +390,7 @@ private fun SettingsRoot(
                 title = "Enter отправляет сообщение",
                 section = "Интерфейс",
                 description = if (appSettings.sendOnEnter) "Enter отправляет, Shift+Enter переносит" else "Enter переносит строку",
-                icon = Icons.Outlined.Edit,
+                icon = RunnerIcons.Edit,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(sendOnEnter = !appSettings.sendOnEnter))
                 }
@@ -435,7 +399,7 @@ private fun SettingsRoot(
                 title = "Уведомления о завершении задач",
                 section = "Интерфейс",
                 description = if (appSettings.notifyOnCompletion) "Уведомления включены" else "Выключены",
-                icon = Icons.Outlined.SmartToy,
+                icon = RunnerIcons.SmartToy,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(notifyOnCompletion = !appSettings.notifyOnCompletion))
                 }
@@ -444,7 +408,7 @@ private fun SettingsRoot(
                 title = "Озвучка ответов голосом (TTS)",
                 section = "Озвучка и речь",
                 description = if (appSettings.autoSpeakResponses) "Автоозвучка включена (${appSettings.ttsSpeed}x)" else "Автоозвучка отключена",
-                icon = Icons.AutoMirrored.Outlined.VolumeUp,
+                icon = RunnerIcons.VolumeUp,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(autoSpeakResponses = !appSettings.autoSpeakResponses))
                 }
@@ -453,7 +417,7 @@ private fun SettingsRoot(
                 title = "Тактильный отклик (вибрация)",
                 section = "Вибрация",
                 description = if (appSettings.hapticEnabled) "Вибрация включена (${appSettings.hapticIntensity})" else "Вибрация отключена",
-                icon = Icons.Outlined.Tune,
+                icon = RunnerIcons.Tune,
                 onClick = {
                     viewModel.updateSettings(appSettings.copy(hapticEnabled = !appSettings.hapticEnabled))
                 }
@@ -462,7 +426,7 @@ private fun SettingsRoot(
                 title = "Тест вибрации (3 сек)",
                 section = "Вибрация",
                 description = "Проверка тактильного отклика и силы импульса",
-                icon = Icons.Outlined.Tune,
+                icon = RunnerIcons.Tune,
                 onClick = {
                     val hasVib = viewModel.hapticManager.hasVibrator()
                     if (hasVib) {
@@ -477,7 +441,7 @@ private fun SettingsRoot(
                 title = "Отчет о сбое и неполадках",
                 section = "Диагностика",
                 description = "Скопировать технический отчет о системе и ошибках в буфер",
-                icon = Icons.Outlined.BugReport,
+                icon = RunnerIcons.BugReport,
                 onClick = {
                     CrashReportManager.copyReport(context, "Отчет вызван пользователем через поиск настроек")
                 }
@@ -486,7 +450,7 @@ private fun SettingsRoot(
                 title = "Просмотр отчета диагностики",
                 section = "Диагностика",
                 description = "Посмотреть лог диагностики, статус разрешений и памяти",
-                icon = Icons.Outlined.Article,
+                icon = RunnerIcons.Article,
                 onClick = {
                     showReportPreviewDialog = true
                 }
@@ -495,20 +459,20 @@ private fun SettingsRoot(
                 title = "Reverse proxy",
                 section = "Сеть и прокси",
                 description = proxyUrl.ifBlank { "Прямое подключение к Base URL" },
-                icon = Icons.Outlined.Refresh
+                icon = RunnerIcons.Refresh
             ),
             SearchableSetting(
                 title = "Проверка связи",
                 section = "Сеть и прокси",
                 description = "Тестирование пинга до API",
-                icon = Icons.Outlined.CheckCircle,
+                icon = RunnerIcons.CheckCircle,
                 onClick = { viewModel.testConnection() }
             ),
             SearchableSetting(
                 title = "Таймауты сети",
                 section = "Сеть и прокси",
                 description = "Подключение ${appSettings.connectTimeoutSeconds}с · Ответ ${appSettings.responseTimeoutSeconds}с",
-                icon = Icons.Outlined.Tune
+                icon = RunnerIcons.Tune
             ),
             SearchableSetting(
                 title = "Бюджет контекста",
@@ -517,26 +481,26 @@ private fun SettingsRoot(
                     appSettings.contextBudgetChars >= 1_000_000 -> "${appSettings.contextBudgetChars / 1_000_000}M символов"
                     else -> "${appSettings.contextBudgetChars / 1000}K символов"
                 },
-                icon = Icons.Outlined.Tune
+                icon = RunnerIcons.Tune
             ),
             SearchableSetting(
                 title = "Кастомные заголовки (Headers)",
                 section = "Сеть и прокси",
                 description = if (appSettings.customHeaders.isNotBlank()) "Заданы (${appSettings.customHeaders.lines().size} строк)" else "Не заданы",
-                icon = Icons.Outlined.Terminal
+                icon = RunnerIcons.Terminal
             ),
             SearchableSetting(
                 title = "Корзина удалённых файлов",
                 section = "Опасные действия",
                 description = "Восстановление файлов, удалённых агентом",
-                icon = Icons.Outlined.Restore,
+                icon = RunnerIcons.Undo,
                 route = SettingsRoute.Trash
             ),
             SearchableSetting(
                 title = "Поддержать проект",
                 section = "О проекте",
                 description = "TON и Telegram Stars",
-                icon = Icons.Outlined.FavoriteBorder,
+                icon = RunnerIcons.Favorite,
                 onClick = onOpenSupport
             ),
             SearchableSetting(
@@ -550,10 +514,9 @@ private fun SettingsRoot(
                 title = "Сбросить все настройки",
                 section = "Сброс",
                 description = "К заводским значениям",
-                icon = Icons.Outlined.RestartAlt
+                icon = RunnerIcons.RestartAlt
             )
         )
-    }
 
     Column(
         modifier = Modifier
@@ -586,7 +549,7 @@ private fun SettingsRoot(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Search,
+                        imageVector = RunnerIcons.Search,
                         contentDescription = "Поиск",
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(18.dp)
@@ -608,7 +571,7 @@ private fun SettingsRoot(
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Close,
+                                imageVector = RunnerIcons.Close,
                                 contentDescription = "Очистить",
                                 tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(16.dp)
@@ -669,7 +632,7 @@ private fun SettingsRoot(
                     label = "Провайдеры и ключи",
                     value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "не выбран"}",
                     onClick = { onNavigate(SettingsRoute.Providers) },
-                    icon = Icons.Outlined.VpnKey
+                    icon = RunnerIcons.VpnKey
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -677,7 +640,7 @@ private fun SettingsRoot(
                     // Показываем человеческое имя, технический ID живёт в списке выбора
                     value = formatModelName(activeProvider?.activeModel.orEmpty()),
                     onClick = { onNavigate(SettingsRoute.Providers) },
-                    icon = Icons.Outlined.SmartToy
+                    icon = RunnerIcons.SmartToy
                 )
             }
 
@@ -687,14 +650,14 @@ private fun SettingsRoot(
                     label = "Профиль инструкций",
                     value = "${activeProfile?.title ?: "Стандартный"} · ${appSettings.effectiveInstructions.trim().takeIf { it.isNotEmpty() }?.let { "${it.length} симв." } ?: "Без промпта"}",
                     onClick = { onNavigate(SettingsRoute.Agent) },
-                    icon = Icons.Outlined.Terminal
+                    icon = RunnerIcons.Terminal
                 )
                 SettingsDivider()
                 SettingsRow(
                     label = "Температура и шаги",
                     value = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
                     onClick = { onNavigate(SettingsRoute.Agent) },
-                    icon = Icons.Outlined.Tune
+                    icon = RunnerIcons.Tune
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -704,7 +667,7 @@ private fun SettingsRoot(
                         if (name.isNotEmpty()) name else it
                     } ?: "Вся память",
                     onClick = { onNavigate(SettingsRoute.Agent) },
-                    icon = Icons.Outlined.FolderSpecial
+                    icon = RunnerIcons.FolderSpecial
                 )
             }
 
@@ -714,7 +677,7 @@ private fun SettingsRoot(
                 value = if (allPermissionsGranted) "все выданы" else "настроить",
                 valueColor = if (allPermissionsGranted) StatusSuccess else StatusWarning,
                 onClick = { onNavigate(SettingsRoute.Access) },
-                icon = Icons.Outlined.FolderOpen
+                icon = RunnerIcons.FolderOpen
             )
         }
 
@@ -1155,7 +1118,7 @@ private fun SettingsRoot(
                                 modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.ContentPaste,
+                                    imageVector = RunnerIcons.ContentPaste,
                                     contentDescription = "Вставить из буфера",
                                     tint = MaterialTheme.colorScheme.outline,
                                     modifier = Modifier.size(15.dp)
@@ -1340,7 +1303,7 @@ private fun SettingsRoot(
                             modifier = Modifier.size(30.dp)
                         ) {
                             Icon(
-                                imageVector = if (showSecrets) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                imageVector = if (showSecrets) RunnerIcons.VisibilityOff else RunnerIcons.Visibility,
                                 contentDescription = if (showSecrets) "Скрыть секреты" else "Показать секреты",
                                 tint = if (showSecrets) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(16.dp)
@@ -1358,7 +1321,7 @@ private fun SettingsRoot(
                             modifier = Modifier.size(30.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.ContentPaste,
+                                imageVector = RunnerIcons.ContentPaste,
                                 contentDescription = "Вставить заголовки из буфера",
                                 tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(15.dp)
@@ -1423,7 +1386,7 @@ private fun SettingsRoot(
                 onClick = {
                     CrashReportManager.copyReport(context, "Отчет вызван пользователем из настроек")
                 },
-                icon = Icons.Outlined.BugReport
+                icon = RunnerIcons.BugReport
             )
             SettingsDivider()
             SettingsRow(
@@ -1432,7 +1395,7 @@ private fun SettingsRoot(
                 onClick = {
                     showReportPreviewDialog = true
                 },
-                icon = Icons.Outlined.Article
+                icon = RunnerIcons.Article
             )
         }
 
@@ -1502,7 +1465,7 @@ private fun SettingsRoot(
                 label = "Поддержать проект",
                 value = "TON · Telegram",
                 onClick = onOpenSupport,
-                icon = Icons.Outlined.FavoriteBorder
+                icon = RunnerIcons.Favorite
             )
             SettingsDivider()
             SettingsRow(
@@ -1528,7 +1491,7 @@ private fun SettingsRoot(
                 value = "К заводским значениям",
                 valueColor = MaterialTheme.colorScheme.error,
                 onClick = { showResetDialog = true },
-                icon = Icons.Outlined.RestartAlt
+                icon = RunnerIcons.RestartAlt
             )
 
             if (showResetDialog) {
@@ -1612,7 +1575,7 @@ private fun ApiQuickGuideCard() {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.AutoAwesome,
+                        imageVector = RunnerIcons.AutoAwesome,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
@@ -1633,7 +1596,7 @@ private fun ApiQuickGuideCard() {
                     )
                 }
                 Icon(
-                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    imageVector = RunnerIcons.KeyboardArrowDown,
                     contentDescription = if (isExpanded) "Свернуть" else "Развернуть",
                     tint = MaterialTheme.colorScheme.outline,
                     modifier = Modifier
@@ -1663,7 +1626,7 @@ private fun ApiQuickGuideCard() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Key,
+                            imageVector = RunnerIcons.Key,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
@@ -1689,7 +1652,7 @@ private fun ApiQuickGuideCard() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Public,
+                            imageVector = RunnerIcons.Public,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
@@ -1727,7 +1690,7 @@ private fun ApiQuickGuideCard() {
                                     Text("Получить ключ", fontSize = 11.5.sp)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                        imageVector = RunnerIcons.OpenInNew,
                                         contentDescription = null,
                                         modifier = Modifier.size(12.dp)
                                     )
@@ -1767,7 +1730,7 @@ private fun ApiQuickGuideCard() {
                                     Text("Получить ключ", fontSize = 11.5.sp)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                        imageVector = RunnerIcons.OpenInNew,
                                         contentDescription = null,
                                         modifier = Modifier.size(12.dp)
                                     )
@@ -1807,7 +1770,7 @@ private fun ApiQuickGuideCard() {
                                     Text("Получить ключ", fontSize = 11.5.sp)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                                        imageVector = RunnerIcons.OpenInNew,
                                         contentDescription = null,
                                         modifier = Modifier.size(12.dp)
                                     )
@@ -1829,7 +1792,7 @@ private fun ApiQuickGuideCard() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.CheckCircleOutline,
+                            imageVector = RunnerIcons.CheckCircle,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
@@ -1906,7 +1869,7 @@ private fun ProvidersList(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = providerLogo ?: Icons.Outlined.AutoAwesome,
+                            imageVector = providerLogo ?: RunnerIcons.AutoAwesome,
                             contentDescription = null,
                             tint = if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
@@ -1967,7 +1930,7 @@ private fun ProvidersList(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        imageVector = RunnerIcons.KeyboardArrowRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(17.dp)
@@ -2002,7 +1965,7 @@ private fun ProvidersList(
             horizontalArrangement = Arrangement.Center
         ) {
             Icon(
-                imageVector = Icons.Outlined.Add,
+                imageVector = RunnerIcons.Add,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
@@ -2266,7 +2229,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         verticalAlignment = Alignment.Top
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.WarningAmber,
+                            imageVector = RunnerIcons.Warning,
                             contentDescription = null,
                             tint = StatusWarning,
                             modifier = Modifier
@@ -2636,7 +2599,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 label = "Журнал команд",
                 value = "выполненные и отклонённые",
                 onClick = { onNavigate(SettingsRoute.ShellLog) },
-                icon = Icons.Outlined.Terminal
+                icon = RunnerIcons.Terminal
             )
         }
 
@@ -2674,7 +2637,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
         ) {
             Row(modifier = Modifier.padding(11.dp), verticalAlignment = Alignment.Top) {
                 Icon(
-                    imageVector = Icons.Outlined.WarningAmber,
+                    imageVector = RunnerIcons.Warning,
                     contentDescription = null,
                     tint = StatusWarning,
                     modifier = Modifier.size(16.dp)
@@ -2695,7 +2658,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.DeleteOutline,
+                        imageVector = RunnerIcons.Delete,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
@@ -2743,7 +2706,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     PluralUtils.pluralize(trash.count, "запись", "записи", "записей")
                 },
                 onClick = { onNavigate(SettingsRoute.Trash) },
-                icon = Icons.Outlined.Restore
+                icon = RunnerIcons.Undo
             )
 
             SettingsDivider()
@@ -2789,7 +2752,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Restore,
+                        imageVector = RunnerIcons.Undo,
                         contentDescription = null,
                         modifier = Modifier.size(15.dp)
                     )
@@ -3289,7 +3252,7 @@ private fun InstructionProfilesField(
                         )
                         if (!profile.isBuiltIn && isSelected) {
                             Icon(
-                                imageVector = Icons.Outlined.Close,
+                                imageVector = RunnerIcons.Close,
                                 contentDescription = "Удалить профиль",
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier
@@ -3316,7 +3279,7 @@ private fun InstructionProfilesField(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Add,
+                        imageVector = RunnerIcons.Add,
                         contentDescription = "Новый профиль",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp)
@@ -3597,7 +3560,7 @@ private fun TtsSettingsCard(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+                    imageVector = RunnerIcons.VolumeUp,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp)
                 )
@@ -3866,7 +3829,7 @@ private fun WorkingDirField(
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Close,
+                        imageVector = RunnerIcons.Close,
                         contentDescription = "Сбросить папку",
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(18.dp)
@@ -3888,7 +3851,7 @@ private fun WorkingDirField(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.FolderOpen,
+                    imageVector = RunnerIcons.FolderOpen,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.primary
@@ -3908,7 +3871,7 @@ private fun WorkingDirField(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Edit,
+                    imageVector = RunnerIcons.Edit,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -4363,9 +4326,9 @@ private fun AccessSettings(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasStorage) {
-                            Icons.Outlined.CheckCircle
+                            RunnerIcons.CheckCircle
                         } else {
-                            Icons.Outlined.ErrorOutline
+                            RunnerIcons.Error
                         },
                         contentDescription = null,
                         tint = if (hasStorage) StatusSuccess else StatusWarning,
@@ -4415,9 +4378,9 @@ private fun AccessSettings(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasPhoneAccess) {
-                            Icons.Outlined.CheckCircle
+                            RunnerIcons.CheckCircle
                         } else {
-                            Icons.Outlined.ErrorOutline
+                            RunnerIcons.Error
                         },
                         contentDescription = null,
                         tint = if (hasPhoneAccess) StatusSuccess else StatusWarning,
@@ -4472,9 +4435,9 @@ private fun AccessSettings(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasAudio) {
-                            Icons.Outlined.CheckCircle
+                            RunnerIcons.CheckCircle
                         } else {
-                            Icons.Outlined.ErrorOutline
+                            RunnerIcons.Error
                         },
                         contentDescription = null,
                         tint = if (hasAudio) StatusSuccess else StatusWarning,
@@ -4630,7 +4593,7 @@ private fun AccessSettings(
                         verticalAlignment = Alignment.Top
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Info,
+                            imageVector = RunnerIcons.Info,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.size(16.dp).padding(top = 1.dp)
@@ -4649,7 +4612,7 @@ private fun AccessSettings(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (isAssistantActive) Icons.Outlined.CheckCircle else Icons.Outlined.AutoAwesome,
+                        imageVector = if (isAssistantActive) RunnerIcons.CheckCircle else RunnerIcons.AutoAwesome,
                         contentDescription = null,
                         tint = if (isAssistantActive) StatusSuccess else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(17.dp)
@@ -4753,7 +4716,7 @@ private fun AccessSettings(
                 onDismissRequest = { showAssistantBetaWarningDialog = false },
                 icon = {
                     Icon(
-                        imageVector = Icons.Outlined.Info,
+                        imageVector = RunnerIcons.Info,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(28.dp)
@@ -4828,7 +4791,7 @@ private fun AccessSettings(
                         verticalAlignment = Alignment.Top
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Info,
+                            imageVector = RunnerIcons.Info,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp).padding(top = 1.dp)
@@ -4849,7 +4812,7 @@ private fun AccessSettings(
                 val hasAccessibility = liveAccess.accessibility
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (hasAccessibility) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        imageVector = if (hasAccessibility) RunnerIcons.CheckCircle else RunnerIcons.Error,
                         contentDescription = null,
                         tint = if (hasAccessibility) StatusSuccess else StatusWarning,
                         modifier = Modifier.size(17.dp)
@@ -4875,7 +4838,7 @@ private fun AccessSettings(
                 val hasOverlay = liveAccess.overlay
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (hasOverlay) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        imageVector = if (hasOverlay) RunnerIcons.CheckCircle else RunnerIcons.Error,
                         contentDescription = null,
                         tint = if (hasOverlay) StatusSuccess else StatusWarning,
                         modifier = Modifier.size(17.dp)
@@ -5003,7 +4966,7 @@ private fun AccessSettings(
                 onDismissRequest = { showFullAccessWarning = false },
                 icon = {
                     Icon(
-                        imageVector = Icons.Outlined.WarningAmber,
+                        imageVector = RunnerIcons.Warning,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(28.dp)
@@ -5162,7 +5125,7 @@ private fun SettingsRow(
             )
         }
         Icon(
-            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            imageVector = RunnerIcons.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.outline,
             modifier = Modifier.size(17.dp)
@@ -5232,7 +5195,7 @@ private fun ConnectionStatusWidget(
                 )
 
                 result == null -> Icon(
-                    imageVector = RunnerIcons.Activity,
+                    imageVector = RunnerIcons.NetworkCheck,
                     contentDescription = null,
                     tint = accent,
                     modifier = Modifier.size(15.dp)
@@ -5270,7 +5233,7 @@ private fun ConnectionStatusWidget(
 
             if (!isTesting) {
                 Icon(
-                    imageVector = Icons.Outlined.Refresh,
+                    imageVector = RunnerIcons.Refresh,
                     contentDescription = if (result == null) null else "Проверить заново",
                     tint = accent.copy(alpha = 0.75f),
                     modifier = Modifier.size(15.dp)
@@ -5425,7 +5388,7 @@ private fun ThemeSettingsContent(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Add,
+                            imageVector = RunnerIcons.Add,
                             contentDescription = "Выбрать свой цвет",
                             tint = if (isCustomPickerActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
@@ -5500,7 +5463,7 @@ private fun ColorCircle(
     ) {
         if (isSelected) {
             Icon(
-                imageVector = Icons.Outlined.Check,
+                imageVector = RunnerIcons.Check,
                 contentDescription = null,
                 tint = if (isColorDark(colorInt)) Color.White else Color.Black,
                 modifier = Modifier.size(16.dp)
@@ -5896,7 +5859,7 @@ private fun CustomSuggestionsManager(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.AutoAwesome,
+                                imageVector = RunnerIcons.AutoAwesome,
                                 contentDescription = null,
                                 tint = SecondaryMint,
                                 modifier = Modifier.size(15.dp)
@@ -5915,7 +5878,7 @@ private fun CustomSuggestionsManager(
                                 modifier = Modifier.size(22.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Close,
+                                    imageVector = RunnerIcons.Close,
                                     contentDescription = "Удалить сценарий",
                                     tint = MaterialTheme.colorScheme.outline,
                                     modifier = Modifier.size(14.dp)
@@ -5982,7 +5945,7 @@ private fun CustomSuggestionsManager(
                     )
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Add,
+                    imageVector = RunnerIcons.Add,
                     contentDescription = "Добавить",
                     tint = if (newPromptText.isNotBlank()) MaterialTheme.colorScheme.onPrimaryContainer
                     else MaterialTheme.colorScheme.outline,

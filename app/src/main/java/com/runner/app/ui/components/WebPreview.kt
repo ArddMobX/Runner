@@ -18,10 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.PlayCircle
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +43,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.json.JSONObject
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Источник превью: либо разметка прямо из сообщения, либо файл на диске,
@@ -201,7 +198,7 @@ fun PreviewButton(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Outlined.PlayCircle,
+            imageVector = RunnerIcons.PlayCircle,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(17.dp)
@@ -259,7 +256,7 @@ fun WebPreviewDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.PlayCircle,
+                        imageVector = RunnerIcons.PlayCircle,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(17.dp)
@@ -285,7 +282,7 @@ fun WebPreviewDialog(
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Refresh,
+                            imageVector = RunnerIcons.Refresh,
                             contentDescription = "Перезагрузить",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(17.dp)
@@ -296,7 +293,7 @@ fun WebPreviewDialog(
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Close,
+                            imageVector = RunnerIcons.Close,
                             contentDescription = "Закрыть",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(17.dp)

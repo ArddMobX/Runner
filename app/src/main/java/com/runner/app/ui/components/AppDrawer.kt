@@ -21,17 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,12 +50,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import com.runner.app.data.db.SessionEntity
-import com.runner.app.ui.theme.GoogleSansCode
+import com.runner.app.ui.theme.RobotoMono
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import java.time.Instant
@@ -74,6 +62,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.runner.app.ui.components.RunnerIcons
 
 /** Секции истории. Заголовки неброские — они разделяют, а не кричат. */
 private enum class SessionGroup(val title: String) {
@@ -289,20 +278,12 @@ fun AppDrawerContent(
                         .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(SecondaryMint.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.FavoriteBorder,
-                            contentDescription = null,
-                            tint = SecondaryMint,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = RunnerIcons.Favorite,
+                        contentDescription = null,
+                        tint = SecondaryMint,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "Поддержать проект",
@@ -327,20 +308,12 @@ fun AppDrawerContent(
                         .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = RunnerIcons.Settings,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "Настройки",
@@ -445,7 +418,7 @@ private fun NewChatButton(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Outlined.Add,
+            imageVector = RunnerIcons.Add,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier.size(16.dp)
@@ -508,36 +481,27 @@ private fun SessionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier
-                    .size(26.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                        else if (isLiveSession) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-                        else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
-                    ),
+                modifier = Modifier.size(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (session.isPinned) {
-                    Icon(
-                        imageVector = Icons.Outlined.PushPin,
+                when {
+                    session.isPinned -> Icon(
+                        imageVector = RunnerIcons.PushPin,
                         contentDescription = "Закреплено",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                } else if (isLiveSession) {
-                    Icon(
-                        imageVector = Icons.Outlined.TouchApp,
+                    isLiveSession -> Icon(
+                        imageVector = RunnerIcons.TouchApp,
                         contentDescription = "Live-сессия",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.ChatBubbleOutline,
+                    else -> Icon(
+                        imageVector = RunnerIcons.ChatBubble,
                         contentDescription = null,
                         tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -590,7 +554,7 @@ private fun SessionRow(
                         text = cleanModel,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.outline,
                         fontSize = 10.5.sp,
-                        fontFamily = GoogleSansCode,
+                        fontFamily = RobotoMono,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -612,7 +576,7 @@ private fun SessionRow(
                 text = timeLabel,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
                 fontSize = 10.5.sp,
-                fontFamily = GoogleSansCode,
+                fontFamily = RobotoMono,
                 maxLines = 1
             )
 
@@ -623,7 +587,7 @@ private fun SessionRow(
                 modifier = Modifier.size(20.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.MoreVert,
+                    imageVector = RunnerIcons.MoreVert,
                     contentDescription = "Действия с чатом",
                     tint = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
                     modifier = Modifier.size(14.dp)
@@ -646,7 +610,7 @@ private fun SessionRow(
                 },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Outlined.PushPin,
+                        imageVector = RunnerIcons.PushPin,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
@@ -661,7 +625,7 @@ private fun SessionRow(
                 text = { Text("Переименовать", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Outlined.Edit,
+                        imageVector = RunnerIcons.Edit,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
@@ -676,7 +640,7 @@ private fun SessionRow(
                 text = { Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp) },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Outlined.DeleteOutline,
+                        imageVector = RunnerIcons.Delete,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(16.dp)
@@ -758,7 +722,7 @@ private fun SlimSearchBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Outlined.Search,
+                imageVector = RunnerIcons.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp)
@@ -795,7 +759,7 @@ private fun SlimSearchBar(
                     modifier = Modifier.size(22.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Close,
+                        imageVector = RunnerIcons.Close,
                         contentDescription = "Очистить поиск",
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(14.dp)

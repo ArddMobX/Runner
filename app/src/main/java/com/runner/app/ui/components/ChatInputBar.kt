@@ -28,12 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -80,6 +74,7 @@ import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.bounceClick
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Изолированное состояние поля ввода.
@@ -303,7 +298,7 @@ fun ChatInputBar(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Add,
+                        imageVector = RunnerIcons.Add,
                         contentDescription = "Прикрепить фото или сделать снимок",
                         tint = if (!isRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
                         modifier = Modifier.size(20.dp)
@@ -319,7 +314,7 @@ fun ChatInputBar(
                         text = { Text("Камера", fontSize = 14.sp) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Outlined.CameraAlt,
+                                imageVector = RunnerIcons.CameraAlt,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.primary
@@ -335,7 +330,7 @@ fun ChatInputBar(
                         text = { Text("Галерея", fontSize = 14.sp) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Outlined.Image,
+                                imageVector = RunnerIcons.Image,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.primary
@@ -484,7 +479,7 @@ private fun SelectedImageThumbnail(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Outlined.Close,
+                imageVector = RunnerIcons.Close,
                 contentDescription = "Удалить",
                 tint = Color.White,
                 modifier = Modifier.size(12.dp)
@@ -585,9 +580,9 @@ private fun SendMicStopButton(
         contentAlignment = Alignment.Center
     ) {
         val icon = when (mode) {
-            ActionButtonMode.STOP -> RunnerIcons.StopSquare
-            ActionButtonMode.RECORDING, ActionButtonMode.MIC -> Icons.Outlined.Mic
-            ActionButtonMode.SEND -> RunnerIcons.ArrowUp
+            ActionButtonMode.STOP -> RunnerIcons.StopFilled
+            ActionButtonMode.RECORDING, ActionButtonMode.MIC -> RunnerIcons.Mic
+            ActionButtonMode.SEND -> RunnerIcons.ArrowUpward
         }
 
         val desc = when (mode) {

@@ -28,16 +28,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +62,7 @@ import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
 import com.runner.app.data.Provider
 import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.components.RunnerIcons
 
 const val ALL_PROVIDERS_ID = "__ALL__"
 const val FAVORITES_PROVIDER_ID = "__FAVORITES__"
@@ -228,7 +219,7 @@ fun ModelPickerSheet(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Outlined.Refresh,
+                                imageVector = RunnerIcons.Refresh,
                                 contentDescription = "Обновить список",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp)
@@ -292,7 +283,7 @@ fun ModelPickerSheet(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Filled.Star,
+                            imageVector = RunnerIcons.StarFilled,
                             contentDescription = null,
                             tint = if (favoritesSelected) Color(0xFFFFB800) else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(13.dp)
@@ -332,7 +323,7 @@ fun ModelPickerSheet(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Outlined.Layers,
+                            imageVector = RunnerIcons.Layers,
                             contentDescription = null,
                             tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(13.dp)
@@ -393,7 +384,7 @@ fun ModelPickerSheet(
                                 Spacer(modifier = Modifier.width(6.dp))
                             } else if (isSelected) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Check,
+                                    imageVector = RunnerIcons.Check,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(13.dp)
@@ -430,7 +421,7 @@ fun ModelPickerSheet(
                 },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Outlined.Search,
+                        imageVector = RunnerIcons.Search,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.size(17.dp)
@@ -453,7 +444,7 @@ fun ModelPickerSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Edit,
+                    imageVector = RunnerIcons.Edit,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp)
@@ -575,7 +566,7 @@ private fun ModelRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = modelLogo ?: Icons.Outlined.AutoAwesome,
+                imageVector = modelLogo ?: RunnerIcons.AutoAwesome,
                 contentDescription = null,
                 tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp)
@@ -648,7 +639,7 @@ private fun ModelRow(
 
         if (isActive) {
             Icon(
-                imageVector = Icons.Outlined.Check,
+                imageVector = RunnerIcons.Check,
                 contentDescription = "Выбрана",
                 tint = StatusSuccess,
                 modifier = Modifier.size(16.dp)
@@ -661,7 +652,7 @@ private fun ModelRow(
             modifier = Modifier.size(34.dp)
         ) {
             Icon(
-                imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                imageVector = if (isFavorite) RunnerIcons.StarFilled else RunnerIcons.Star,
                 contentDescription = if (isFavorite) "Удалить из избранного" else "В избранное",
                 tint = if (isFavorite) Color(0xFFFFB800) else MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(17.dp)
@@ -673,7 +664,7 @@ private fun ModelRow(
             modifier = Modifier.size(34.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.ContentCopy,
+                imageVector = RunnerIcons.ContentCopy,
                 contentDescription = "Скопировать ID",
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(15.dp)

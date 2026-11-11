@@ -31,16 +31,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PauseCircleOutline
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Icon
@@ -82,6 +72,7 @@ import com.runner.app.service.TouchVisualizerOverlay
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.RunnerTheme
 import com.runner.app.util.CrashReportManager
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Плавающий оверлей для управления Live-режимом (автопилотом) агента:
@@ -395,27 +386,27 @@ object LiveFloatingOverlay {
         val visuals = when {
             state.status == LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
                 color = Color(0xFF34D399),
-                icon = Icons.Outlined.Check,
+                icon = RunnerIcons.Check,
                 title = "Готово"
             )
             state.status == LiveAgentManager.StepStatus.STOPPED -> StatusVisuals(
                 color = Color(0xFFFBBF24),
-                icon = Icons.Outlined.PauseCircleOutline,
+                icon = RunnerIcons.PauseCircle,
                 title = "Остановлено"
             )
             state.status == LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
                 color = Color(0xFFF87171),
-                icon = Icons.Outlined.ErrorOutline,
+                icon = RunnerIcons.Error,
                 title = "Ошибка"
             )
             state.isPaused -> StatusVisuals(
                 color = Color(0xFFFBBF24),
-                icon = Icons.Outlined.PauseCircleOutline,
+                icon = RunnerIcons.PauseCircle,
                 title = "Пауза"
             )
             else -> StatusVisuals(
                 color = MaterialTheme.colorScheme.primary,
-                icon = Icons.Outlined.TouchApp,
+                icon = RunnerIcons.TouchApp,
                 title = "Runner Live"
             )
         }
@@ -503,7 +494,7 @@ object LiveFloatingOverlay {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Close,
+                                        imageVector = RunnerIcons.Close,
                                         contentDescription = if (isFinished) "Закрыть" else "Свернуть",
                                         tint = Color.White.copy(alpha = 0.85f),
                                         modifier = Modifier.size(16.dp)
@@ -647,7 +638,7 @@ object LiveFloatingOverlay {
                                             .height(36.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Outlined.ContentCopy,
+                                            imageVector = RunnerIcons.ContentCopy,
                                             contentDescription = null,
                                             modifier = Modifier.size(14.dp)
                                         )
@@ -718,7 +709,7 @@ object LiveFloatingOverlay {
                                             .height(38.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (state.isPaused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
+                                            imageVector = if (state.isPaused) RunnerIcons.PlayArrow else RunnerIcons.Pause,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp)
                                         )
@@ -741,7 +732,7 @@ object LiveFloatingOverlay {
                                             .height(38.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Stop,
+                                            imageVector = RunnerIcons.StopFilled,
                                             contentDescription = "Стоп",
                                             modifier = Modifier.size(16.dp)
                                         )

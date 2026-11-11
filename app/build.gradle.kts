@@ -278,7 +278,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    // Иконки: Material Symbols Rounded лежат локально в res/drawable/ic_ms_*.xml.
+    // material-icons-extended больше не нужен: Google его снял с поддержки,
+    // а нам нужны только ~65 иконок, а не 2000+.
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
 
     // OkHttp 4.x for Groq API

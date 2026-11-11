@@ -17,10 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +46,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.theme.GoogleSans
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Шторка настройки разрешений для Live-режима (автопилота):
@@ -108,7 +105,7 @@ fun LivePermissionSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.TouchApp,
+                        imageVector = RunnerIcons.TouchApp,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp)
@@ -236,7 +233,7 @@ private fun PermissionCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (isGranted) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+                        imageVector = if (isGranted) RunnerIcons.CheckCircle else RunnerIcons.Error,
                         contentDescription = null,
                         tint = if (isGranted) Color(0xFF4DE1C1) else Color(0xFFE5A030),
                         modifier = Modifier.size(18.dp)

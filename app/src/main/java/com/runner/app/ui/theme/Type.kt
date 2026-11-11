@@ -4,82 +4,91 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.runner.app.R
 
 /**
- * Основное семейство Google Sans с полной поддержкой кириллицы (U+0400-045F) и латиницы.
+ * Google Sans Text: тело, подписи, кнопки. Оптическая ось 17.
+ *
+ * Это официальный Google Sans v14.000 из Google Fonts, Android-подсет
+ * с полной кириллицей. Не путать со старым google_sans_regular.ttf 2017 года
+ * и с Google Sans Flex, в котором кириллицы нет.
  */
 val GoogleSans = FontFamily(
-    Font(R.font.google_sans_regular, FontWeight.Normal),
-    Font(R.font.google_sans_medium, FontWeight.Medium),
-    Font(R.font.google_sans_bold, FontWeight.SemiBold),
-    Font(R.font.google_sans_bold, FontWeight.Bold)
+    Font(R.font.google_sans_text_regular, FontWeight.Normal),
+    Font(R.font.google_sans_text_medium, FontWeight.Medium),
+    Font(R.font.google_sans_text_semibold, FontWeight.SemiBold),
+    Font(R.font.google_sans_text_bold, FontWeight.Bold),
+    Font(R.font.google_sans_text_italic, FontWeight.Normal, FontStyle.Italic)
 )
 
 /**
- * Вариативное начертание Google Sans Flex для основного текста, цифр и латиницы.
- * Обеспечивает аккуратный облегчённый вес (~350) в Normal и плотный в Medium/Bold.
+ * Google Sans: заголовки и крупные акценты. Оптическая ось 18.
+ * SemiBold здесь настоящий 600, а не замаскированный Bold.
  */
-val GoogleSansFlex = FontFamily(
-    Font(R.font.google_sans_flex_regular, FontWeight.Normal),
-    Font(R.font.google_sans_flex_medium, FontWeight.Medium),
-    Font(R.font.google_sans_bold, FontWeight.SemiBold),
-    Font(R.font.google_sans_bold, FontWeight.Bold)
+val GoogleSansDisplay = FontFamily(
+    Font(R.font.google_sans_display_regular, FontWeight.Normal),
+    Font(R.font.google_sans_display_medium, FontWeight.Medium),
+    Font(R.font.google_sans_display_semibold, FontWeight.SemiBold),
+    Font(R.font.google_sans_display_bold, FontWeight.Bold),
+    Font(R.font.google_sans_display_italic, FontWeight.Normal, FontStyle.Italic)
 )
 
 /**
- * Моноширинное семейство Google Sans Code для блоков кода, терминала и технических меток.
- * Охватывает диапазон весов от 300 до 800.
+ * Roboto Mono: код, терминал и технические метки.
+ *
+ * Google Sans Code красивее для латиницы, но в нём нет кириллицы, поэтому
+ * русские комментарии в коде падали в системный моно. Roboto Mono закрывает
+ * этот разрыв и остаётся в Google-семействе.
  */
-val GoogleSansCode = FontFamily(
-    Font(R.font.google_sans_code_regular, FontWeight.Light),
-    Font(R.font.google_sans_code_regular, FontWeight.Normal),
-    Font(R.font.google_sans_code_medium, FontWeight.Medium),
-    Font(R.font.google_sans_code_bold, FontWeight.SemiBold),
-    Font(R.font.google_sans_code_bold, FontWeight.Bold)
+val RobotoMono = FontFamily(
+    Font(R.font.roboto_mono_regular, FontWeight.Normal),
+    Font(R.font.roboto_mono_medium, FontWeight.Medium),
+    Font(R.font.roboto_mono_bold, FontWeight.Bold),
+    Font(R.font.roboto_mono_italic, FontWeight.Normal, FontStyle.Italic)
 )
 
 val Typography = Typography(
     displayLarge = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.Bold,
         fontSize = 57.sp,
         lineHeight = 64.sp
     ),
     displayMedium = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.Bold,
         fontSize = 45.sp,
         lineHeight = 52.sp
     ),
     displaySmall = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
         lineHeight = 44.sp
     ),
     headlineLarge = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.SemiBold,
         fontSize = 32.sp,
         lineHeight = 40.sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.SemiBold,
         fontSize = 28.sp,
         lineHeight = 36.sp
     ),
     headlineSmall = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
         lineHeight = 32.sp
     ),
     titleLarge = TextStyle(
-        fontFamily = GoogleSans,
+        fontFamily = GoogleSansDisplay,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 26.sp
@@ -97,19 +106,19 @@ val Typography = Typography(
         lineHeight = 20.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = GoogleSansFlex,
+        fontFamily = GoogleSans,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         lineHeight = 22.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = GoogleSansFlex,
+        fontFamily = GoogleSans,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
     bodySmall = TextStyle(
-        fontFamily = GoogleSansFlex,
+        fontFamily = GoogleSans,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp

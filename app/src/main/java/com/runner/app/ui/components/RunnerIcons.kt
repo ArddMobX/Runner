@@ -1,120 +1,94 @@
 package com.runner.app.ui.components
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
+import com.runner.app.R
 
 /**
- * Иконки в стиле Lucide: тонкий штрих 2.2, скруглённые концы.
+ * Иконки приложения: Material Symbols Rounded.
  *
- * Нарисованы вручную, а не взяты из material-icons: во-первых, там нет
- * один-в-один Lucide ArrowUp, во-вторых, свои пути не зависят от версии
- * библиотеки иконок. Цвет задаётся через tint у Icon.
+ * XML лежат в res/drawable/ic_ms_*.xml, только те, которые реально
+ * используются. Так мы не тащим в сборку 4000+ иконок из готовой
+ * библиотеки и можем менять отдельную иконку, не трогая остальные.
+ *
+ * Цвет всегда задаётся через tint у Icon, поэтому в XML стоит чёрная
+ * заливка, а фактический цвет приходит из темы.
  */
 object RunnerIcons {
 
-    /** Lucide arrow-up: вертикальная линия и шеврон сверху. */
-    val ArrowUp: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "ArrowUp",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(
-                stroke = SolidColor(Color.White),
-                strokeLineWidth = 2.2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(12f, 19f)
-                lineTo(12f, 5f)
-                moveTo(5f, 12f)
-                lineTo(12f, 5f)
-                lineTo(19f, 12f)
-            }
-        }.build()
-    }
+    val Add: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_add)
+    val ArrowBack: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_arrow_back)
+    val ArrowDownward: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_arrow_downward)
+    val ArrowUpward: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_arrow_upward)
+    val Article: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_article)
+    val AutoAwesome: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_auto_awesome)
+    val BrokenImage: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_broken_image)
+    val BugReport: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_bug_report)
+    val CameraAlt: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_camera_alt)
+    val ChatBubble: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_chat_bubble)
+    val Check: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_check)
+    val CheckCircle: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_check_circle)
+    val Close: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_close)
+    val CloseFilled: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_close_filled)
+    val Code: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_code)
+    val ContentCopy: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_content_copy)
+    val ContentPaste: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_content_paste)
+    val Delete: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_delete)
+    val Edit: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_edit)
+    val Error: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_error)
+    val Favorite: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_favorite)
+    val Folder: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_folder)
+    val FolderOpen: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_folder_open)
+    val FolderSpecial: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_folder_special)
+    val Functions: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_functions)
+    val GraphicEq: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_graphic_eq)
+    val Image: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_image)
+    val Info: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_info)
+    val Key: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_key)
+    val KeyboardArrowDown: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_keyboard_arrow_down)
+    val KeyboardArrowRight: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_keyboard_arrow_right)
+    val Layers: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_layers)
+    val Menu: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_menu)
+    val Mic: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_mic)
+    val MoreVert: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_more_vert)
+    val NetworkCheck: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_network_check)
+    val OpenInNew: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_open_in_new)
+    val Pause: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_pause)
+    val PauseCircle: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_pause_circle)
+    val PlayArrow: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_play_arrow)
+    val PlayCircle: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_play_circle)
+    val Psychology: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_psychology)
+    val Public: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_public)
+    val PushPin: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_push_pin)
+    val Refresh: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_refresh)
+    val RestartAlt: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_restart_alt)
+    val Search: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_search)
+    val Settings: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_settings)
+    val SmartToy: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_smart_toy)
+    val Star: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_star)
+    val StarFilled: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_star_filled)
+    val Stop: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_stop)
+    val StopFilled: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_stop_filled)
+    val Storage: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_storage)
+    val Table: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_table)
+    val Terminal: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_terminal)
+    val TouchApp: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_touch_app)
+    val Tune: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_tune)
+    val Undo: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_undo)
+    val Videocam: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_videocam)
+    val VideoLibrary: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_video_library)
+    val Visibility: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_visibility)
+    val VisibilityOff: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_visibility_off)
+    val VolumeUp: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_volume_up)
+    val VpnKey: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_vpn_key)
+    val Warning: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_warning)
 
-    /** Скруглённый квадрат — прерывание генерации. */
-    val StopSquare: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "StopSquare",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(fill = SolidColor(Color.White)) {
-                moveTo(9.2f, 7f)
-                lineTo(14.8f, 7f)
-                quadTo(17f, 7f, 17f, 9.2f)
-                lineTo(17f, 14.8f)
-                quadTo(17f, 17f, 14.8f, 17f)
-                lineTo(9.2f, 17f)
-                quadTo(7f, 17f, 7f, 14.8f)
-                lineTo(7f, 9.2f)
-                quadTo(7f, 7f, 9.2f, 7f)
-                close()
-            }
-        }.build()
-    }
-
-    /** Lucide activity / pulse line — пинг и проверка соединения. */
-    val Activity: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "Activity",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(
-                stroke = SolidColor(Color.White),
-                strokeLineWidth = 2.2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(22f, 12f)
-                lineTo(18f, 12f)
-                lineTo(15f, 21f)
-                lineTo(9f, 3f)
-                lineTo(6f, 12f)
-            }
-        }.build()
-    }
-
-    /** Lucide code < > — окно исходного кода. */
-    val Code: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "Code",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(
-                stroke = SolidColor(Color.White),
-                strokeLineWidth = 2.2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(16f, 18f)
-                lineTo(22f, 12f)
-                lineTo(16f, 6f)
-                moveTo(8f, 6f)
-                lineTo(2f, 12f)
-                lineTo(8f, 18f)
-            }
-        }.build()
-    }
-
-    /** TON (The Open Network) crystal logo. */
+    /** TON (The Open Network) crystal logo. Остаётся кастомным: это бренд. */
     val Ton: ImageVector by lazy {
         ImageVector.Builder(
             name = "Ton",
@@ -146,7 +120,7 @@ object RunnerIcons {
         }.build()
     }
 
-    /** Telegram paper plane logo. */
+    /** Telegram paper plane logo. Тоже бренд, не Material Symbols. */
     val Telegram: ImageVector by lazy {
         ImageVector.Builder(
             name = "Telegram",
@@ -179,57 +153,6 @@ object RunnerIcons {
                 lineTo(4.4f, 12.1f)
                 lineTo(19.9f, 6.0f)
                 close()
-            }
-        }.build()
-    }
-    /** Lucide arrow-down: вертикальная стрелка вниз для индикатора сортировки. */
-    val ArrowDown: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "ArrowDown",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(
-                stroke = SolidColor(Color.White),
-                strokeLineWidth = 2.2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(12f, 5f)
-                lineTo(12f, 19f)
-                moveTo(5f, 12f)
-                lineTo(12f, 19f)
-                lineTo(19f, 12f)
-            }
-        }.build()
-    }
-
-    /** Иконка таблицы со столбцами и строками. */
-    val Table: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "Table",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(
-                stroke = SolidColor(Color.White),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(4f, 5f)
-                lineTo(20f, 5f)
-                lineTo(20f, 19f)
-                lineTo(4f, 19f)
-                close()
-                moveTo(4f, 10f)
-                lineTo(20f, 10f)
-                moveTo(11f, 10f)
-                lineTo(11f, 19f)
             }
         }.build()
     }

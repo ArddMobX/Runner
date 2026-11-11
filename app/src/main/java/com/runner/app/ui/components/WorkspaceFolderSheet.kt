@@ -18,13 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -59,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.util.StoragePathUtils
 import java.io.File
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Компактная плашка над полем ввода чата, отображающая выбранную рабочую папку агента.
@@ -104,7 +98,7 @@ fun WorkspaceFolderBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
-                    imageVector = if (hasFolder) Icons.Outlined.Folder else Icons.Outlined.FolderOpen,
+                    imageVector = if (hasFolder) RunnerIcons.Folder else RunnerIcons.FolderOpen,
                     contentDescription = "Рабочая папка",
                     tint = if (hasFolder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(14.dp)
@@ -129,7 +123,7 @@ fun WorkspaceFolderBar(
                 }
 
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
+                    imageVector = RunnerIcons.KeyboardArrowDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     modifier = Modifier.size(14.dp)
@@ -198,7 +192,7 @@ fun WorkspaceFolderSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Folder,
+                    imageVector = RunnerIcons.Folder,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(22.dp)
@@ -251,7 +245,7 @@ fun WorkspaceFolderSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (hasFolder) Icons.Outlined.Folder else Icons.Outlined.Storage,
+                            imageVector = if (hasFolder) RunnerIcons.Folder else RunnerIcons.Storage,
                             contentDescription = null,
                             tint = if (hasFolder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(22.dp)
@@ -287,7 +281,7 @@ fun WorkspaceFolderSheet(
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Close,
+                                imageVector = RunnerIcons.Close,
                                 contentDescription = "Сбросить папку",
                                 tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(18.dp)
@@ -314,7 +308,7 @@ fun WorkspaceFolderSheet(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.FolderOpen,
+                        imageVector = RunnerIcons.FolderOpen,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.primary
@@ -337,7 +331,7 @@ fun WorkspaceFolderSheet(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Edit,
+                        imageVector = RunnerIcons.Edit,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant

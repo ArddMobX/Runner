@@ -55,27 +55,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Restore
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VolumeUp
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -165,12 +144,14 @@ import com.runner.app.ui.components.TerminalAmbientBackground
 import com.runner.app.ui.components.WorkspaceFolderBar
 import com.runner.app.ui.components.WorkspaceFolderSheet
 import com.runner.app.ui.theme.GoogleSans
+import com.runner.app.ui.theme.GoogleSansDisplay
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
+import com.runner.app.ui.components.RunnerIcons
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -390,7 +371,7 @@ fun ChatScreen(
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer, modifier = Modifier.bounceClick { onOpenDrawer() }) {
                         Icon(
-                            imageVector = Icons.Outlined.Menu,
+                            imageVector = RunnerIcons.Menu,
                             contentDescription = "Чаты",
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
@@ -449,7 +430,7 @@ fun ChatScreen(
                             modifier = Modifier.bounceClick { undoCandidate = entry }
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Restore,
+                                imageVector = RunnerIcons.Undo,
                                 contentDescription = "Отменить последнюю операцию",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
@@ -768,7 +749,7 @@ private fun ModelChip(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = brandLogo ?: Icons.Outlined.AutoAwesome,
+            imageVector = brandLogo ?: RunnerIcons.AutoAwesome,
             contentDescription = null,
             tint = when {
                 !hasKey -> StatusWarning
@@ -795,7 +776,7 @@ private fun ModelChip(
             )
         } else {
             Icon(
-                imageVector = Icons.Outlined.KeyboardArrowDown,
+                imageVector = RunnerIcons.KeyboardArrowDown,
                 contentDescription = "Выбрать модель",
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp)
@@ -927,84 +908,78 @@ private fun EmptyChatState(
         }
     }
 
-    val defaultSuggestions = remember {
-        listOf(
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.DeleteOutline,
-                title = "Очистить кэш",
-                prompt = "Найди мусор: кэш, пустые папки и временные файлы",
-                isMint = true
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.VideoLibrary,
-                title = "Тяжёлые файлы",
-                prompt = "Найди файлы тяжелее 50 МБ: видео, архивы и загрузки",
-                isMint = false
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.FolderOpen,
-                title = "Разобрать Download",
-                prompt = "Разбери папку Download: архивы и свежие файлы",
-                isMint = true
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.ContentPaste,
-                title = "Буфер обмена",
-                prompt = "Прочитай буфер обмена",
-                isMint = false
-            )
+    val defaultSuggestions = listOf(
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Delete,
+            title = "Очистить кэш",
+            prompt = "Найди мусор: кэш, пустые папки и временные файлы",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.VideoLibrary,
+            title = "Тяжёлые файлы",
+            prompt = "Найди файлы тяжелее 50 МБ: видео, архивы и загрузки",
+            isMint = false
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.FolderOpen,
+            title = "Разобрать Download",
+            prompt = "Разбери папку Download: архивы и свежие файлы",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.ContentPaste,
+            title = "Буфер обмена",
+            prompt = "Прочитай буфер обмена",
+            isMint = false
         )
-    }
+    )
 
-    val liveSuggestions = remember {
-        listOf(
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.Visibility,
-                title = "Что на экране?",
-                prompt = "Посмотри на экран и подробно опиши, что сейчас открыто",
-                isMint = true
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.AutoAwesome,
-                title = "Настройки системы",
-                prompt = "Открой настройки телефона и проверь статус сети",
-                isMint = false
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.Psychology,
-                title = "Поиск в Telegram",
-                prompt = "Открой Telegram и найди последний чат",
-                isMint = true
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.Info,
-                title = "Проверить заряд и сеть",
-                prompt = "Проверь уровень заряда батареи и статус Wi-Fi",
-                isMint = false
-            ),
-            EmptyStateSuggestion(
-                icon = Icons.Outlined.AutoAwesome,
-                title = "Погода в браузере",
-                prompt = "Открой браузер и найди прогноз погоды на сегодня",
-                isMint = true
-            )
+    val liveSuggestions = listOf(
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Visibility,
+            title = "Что на экране?",
+            prompt = "Посмотри на экран и подробно опиши, что сейчас открыто",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.AutoAwesome,
+            title = "Настройки системы",
+            prompt = "Открой настройки телефона и проверь статус сети",
+            isMint = false
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Psychology,
+            title = "Поиск в Telegram",
+            prompt = "Открой Telegram и найди последний чат",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Info,
+            title = "Проверить заряд и сеть",
+            prompt = "Проверь уровень заряда батареи и статус Wi-Fi",
+            isMint = false
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.AutoAwesome,
+            title = "Погода в браузере",
+            prompt = "Открой браузер и найди прогноз погоды на сегодня",
+            isMint = true
         )
-    }
+    )
 
-    val allSuggestions: List<EmptyStateSuggestion> = remember(settings.customPromptSuggestions, defaultSuggestions, liveSuggestions, isLive) {
-        if (isLive) {
-            liveSuggestions
-        } else {
-            val custom: List<EmptyStateSuggestion> = settings.customPromptSuggestions.mapIndexed { idx, promptText ->
-                EmptyStateSuggestion(
-                    icon = Icons.Outlined.AutoAwesome,
-                    title = promptText.take(24),
-                    prompt = promptText,
-                    isMint = (idx % 2 == 1)
-                )
-            }
-            defaultSuggestions + custom
+    val allSuggestions: List<EmptyStateSuggestion> = if (isLive) {
+        liveSuggestions
+    } else {
+        val custom: List<EmptyStateSuggestion> = settings.customPromptSuggestions.mapIndexed { idx, promptText ->
+            EmptyStateSuggestion(
+                icon = RunnerIcons.AutoAwesome,
+                title = promptText.take(24),
+                prompt = promptText,
+                isMint = (idx % 2 == 1)
+            )
         }
+        defaultSuggestions + custom
     }
 
     Column(
@@ -1067,7 +1042,7 @@ private fun EmptyChatState(
                             Text(
                                 text = "LIVE",
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
                                 letterSpacing = 1.sp
                             )
@@ -1077,7 +1052,7 @@ private fun EmptyChatState(
             } else {
                 Text(
                     text = "RUNNER",
-                    fontFamily = GoogleSans,
+                    fontFamily = GoogleSansDisplay,
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 6.sp,
@@ -1111,6 +1086,7 @@ private fun EmptyChatState(
             ) {
                 Text(
                     text = greeting,
+                    fontFamily = GoogleSansDisplay,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -1235,7 +1211,7 @@ private fun MessageActionIcon(
     }
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(36.dp)
             .clip(CircleShape)
             .bounceClick(scaleDown = 0.88f, onClick = handleClick)
             .semantics(mergeDescendants = true) {
@@ -1251,7 +1227,7 @@ private fun MessageActionIcon(
             imageVector = icon,
             contentDescription = label,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-            modifier = Modifier.size(15.dp)
+            modifier = Modifier.size(17.dp)
         )
     }
 }
@@ -1350,7 +1326,7 @@ private fun MessageItem(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
+                                        imageVector = RunnerIcons.ContentCopy,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
@@ -1373,7 +1349,7 @@ private fun MessageItem(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Outlined.Edit,
+                                        imageVector = RunnerIcons.Edit,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
@@ -1395,7 +1371,7 @@ private fun MessageItem(
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Outlined.Refresh,
+                                    imageVector = RunnerIcons.Refresh,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
@@ -1452,14 +1428,14 @@ private fun MessageItem(
                         if (hasContent) {
                             val isCurrentSpeaking = isSpeaking && activeUtteranceId == message.id
                             @Suppress("DEPRECATION")
-                            val volumeIcon = Icons.Outlined.VolumeUp
+                            val volumeIcon = RunnerIcons.VolumeUp
                             MessageActionIcon(
-                                icon = if (isCurrentSpeaking) Icons.Outlined.Stop else volumeIcon,
+                                icon = if (isCurrentSpeaking) RunnerIcons.Stop else volumeIcon,
                                 label = if (isCurrentSpeaking) "Остановить" else "Озвучить",
                                 onClick = { onToggleSpeak(message.id, message.content) }
                             )
                             MessageActionIcon(
-                                icon = Icons.Outlined.ContentCopy,
+                                icon = RunnerIcons.ContentCopy,
                                 label = "Копировать",
                                 onClick = {
                                     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1469,7 +1445,7 @@ private fun MessageItem(
                             )
                             if (message.isError) {
                                 MessageActionIcon(
-                                    icon = Icons.Outlined.BugReport,
+                                    icon = RunnerIcons.BugReport,
                                     label = "Отчет о сбое",
                                     onClick = { CrashReportManager.copyReport(context, "Ответ ассистента с ошибкой: ${message.content}") }
                                 )
@@ -1650,7 +1626,7 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.Outlined.Psychology,
+                imageVector = RunnerIcons.Psychology,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(15.dp)
@@ -1667,7 +1643,7 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
                 modifier = Modifier.weight(1f)
             )
             Icon(
-                imageVector = Icons.Outlined.KeyboardArrowDown,
+                imageVector = RunnerIcons.KeyboardArrowDown,
                 contentDescription = if (expanded) "Свернуть" else "Развернуть",
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier
@@ -1767,7 +1743,7 @@ private fun PlanCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.AutoAwesome,
+                    imageVector = RunnerIcons.AutoAwesome,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp)
@@ -1788,7 +1764,7 @@ private fun PlanCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
-                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    imageVector = RunnerIcons.KeyboardArrowDown,
                     contentDescription = if (expanded) "Свернуть" else "Показать шаги",
                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     modifier = Modifier
@@ -2003,7 +1979,7 @@ private fun ToolGroupCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
-                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    imageVector = RunnerIcons.KeyboardArrowDown,
                     contentDescription = if (expanded) "Свернуть" else "Детали",
                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     modifier = Modifier
@@ -2161,7 +2137,7 @@ private fun ToolCard(
 
                 if (hasDetails && !message.isRunning) {
                     Icon(
-                        imageVector = Icons.Outlined.KeyboardArrowDown,
+                        imageVector = RunnerIcons.KeyboardArrowDown,
                         contentDescription = if (expanded) "Свернуть" else "Развернуть",
                         tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                         modifier = Modifier
@@ -2231,7 +2207,7 @@ private fun ToolCard(
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
+                                imageVector = RunnerIcons.ContentCopy,
                                 contentDescription = "Копировать",
                                 tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(13.dp)
@@ -2282,7 +2258,7 @@ private fun ReadOnlyBadge() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Outlined.Visibility,
+                imageVector = RunnerIcons.Visibility,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(12.dp)
@@ -2327,7 +2303,7 @@ private fun UndoTrashButton(label: String, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Outlined.Restore,
+                imageVector = RunnerIcons.Undo,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(14.dp)
@@ -2412,7 +2388,7 @@ private fun NoticeBanner(
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Icon(
-                imageVector = if (isError) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
+                imageVector = if (isError) RunnerIcons.Error else RunnerIcons.Info,
                 contentDescription = null,
                 tint = accent,
                 modifier = Modifier
@@ -2462,7 +2438,7 @@ private fun NoticeBanner(
                         onClick = { CrashReportManager.copyReport(context, "Системное уведомление: $text") }
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.ContentCopy,
+                            imageVector = RunnerIcons.ContentCopy,
                             contentDescription = null,
                             modifier = Modifier.size(13.dp),
                             tint = MaterialTheme.colorScheme.error
@@ -2489,7 +2465,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Outlined.BugReport,
+            imageVector = RunnerIcons.BugReport,
             contentDescription = null,
             tint = Color(0xFFEF4444),
             modifier = Modifier.size(18.dp)
@@ -2513,7 +2489,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.ContentCopy,
+                imageVector = RunnerIcons.ContentCopy,
                 contentDescription = null,
                 modifier = Modifier.size(13.dp),
                 tint = MaterialTheme.colorScheme.primary
@@ -2526,7 +2502,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
             modifier = Modifier.size(28.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.Close,
+                imageVector = RunnerIcons.Close,
                 contentDescription = "Закрыть",
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.outline
@@ -2548,7 +2524,7 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Outlined.WarningAmber,
+            imageVector = RunnerIcons.Warning,
             contentDescription = null,
             tint = StatusWarning,
             modifier = Modifier.size(15.dp)
@@ -2619,7 +2595,7 @@ private fun StoragePromptSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.WarningAmber,
+                        imageVector = RunnerIcons.Warning,
                         contentDescription = null,
                         tint = StatusWarning,
                         modifier = Modifier.size(18.dp)
@@ -2762,7 +2738,7 @@ private fun ConfirmationBottomSheet(
 
             Row(verticalAlignment = Alignment.Top) {
                 Icon(
-                    imageVector = Icons.Outlined.WarningAmber,
+                    imageVector = RunnerIcons.Warning,
                     contentDescription = null,
                     tint = StatusWarning,
                     modifier = Modifier

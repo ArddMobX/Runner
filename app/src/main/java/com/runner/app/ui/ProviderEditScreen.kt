@@ -26,13 +26,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -73,6 +66,7 @@ import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.util.PluralUtils
 import com.runner.app.util.UrlSanitizer
 import kotlinx.coroutines.delay
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Редактирование одного провайдера: имя, Base URL, ключ и список моделей,
@@ -154,7 +148,7 @@ fun ProviderEditScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = providerLogo ?: Icons.Outlined.AutoAwesome,
+                            imageVector = providerLogo ?: RunnerIcons.AutoAwesome,
                             contentDescription = null,
                             tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(19.dp)
@@ -300,9 +294,9 @@ fun ProviderEditScreen(
                         IconButton(onClick = { keyVisible = !keyVisible }) {
                             Icon(
                                 imageVector = if (keyVisible) {
-                                    Icons.Outlined.VisibilityOff
+                                    RunnerIcons.VisibilityOff
                                 } else {
-                                    Icons.Outlined.Visibility
+                                    RunnerIcons.Visibility
                                 },
                                 contentDescription = "Показать ключ",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -422,7 +416,7 @@ fun ProviderEditScreen(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Outlined.Refresh,
+                                imageVector = RunnerIcons.Refresh,
                                 contentDescription = "Загрузить список",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(19.dp)
@@ -516,7 +510,7 @@ fun ProviderEditScreen(
                                         modifier = Modifier.size(30.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Outlined.ContentCopy,
+                                            imageVector = RunnerIcons.ContentCopy,
                                             contentDescription = "Скопировать ID",
                                             tint = MaterialTheme.colorScheme.outline,
                                             modifier = Modifier.size(14.dp)
@@ -525,7 +519,7 @@ fun ProviderEditScreen(
 
                                     if (isSelected) {
                                         Icon(
-                                            imageVector = Icons.Outlined.Check,
+                                            imageVector = RunnerIcons.Check,
                                             contentDescription = "Выбрана",
                                             tint = StatusSuccess,
                                             modifier = Modifier.size(16.dp)

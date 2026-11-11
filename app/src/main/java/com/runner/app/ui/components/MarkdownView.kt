@@ -22,10 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Functions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,9 +40,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.runner.app.ui.theme.GoogleSansCode
+import com.runner.app.ui.theme.RobotoMono
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.components.RunnerIcons
 
 sealed class MarkdownElement {
     data class Header(val level: Int, val content: String) : MarkdownElement()
@@ -336,7 +333,7 @@ private fun CodeBlockElement(
                     Text(
                         text = element.language.ifBlank { "код" }.lowercase(),
                         fontSize = 12.sp,
-                        fontFamily = GoogleSansCode,
+                        fontFamily = RobotoMono,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -360,7 +357,7 @@ private fun CodeBlockElement(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        imageVector = if (copied) RunnerIcons.Check else RunnerIcons.ContentCopy,
                         contentDescription = null,
                         tint = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(13.dp)
@@ -415,7 +412,7 @@ private fun CodeBlockElement(
                     }
                     Text(
                         text = codeAnnotated,
-                        fontFamily = GoogleSansCode,
+                        fontFamily = RobotoMono,
                         fontSize = 12.5.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -444,7 +441,7 @@ private fun MathBlockElement(
         Column(modifier = Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Outlined.Functions,
+                    imageVector = RunnerIcons.Functions,
                     contentDescription = "LaTeX Formula",
                     tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(15.dp)
@@ -768,7 +765,7 @@ private fun InlineChip(text: String) {
             text = text,
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.5.sp,
-            fontFamily = GoogleSansCode,
+            fontFamily = RobotoMono,
             maxLines = 1
         )
     }
@@ -900,7 +897,7 @@ private fun TableElement(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
+                                imageVector = RunnerIcons.ContentCopy,
                                 contentDescription = "Скопировать как CSV",
                                 tint = primaryColor,
                                 modifier = Modifier.size(12.dp)
@@ -998,7 +995,7 @@ private fun TableElement(
                                         )
                                         if (isSorted) {
                                             Icon(
-                                                imageVector = if (sortAscending) RunnerIcons.ArrowUp else RunnerIcons.ArrowDown,
+                                                imageVector = if (sortAscending) RunnerIcons.ArrowUpward else RunnerIcons.ArrowDownward,
                                                 contentDescription = if (sortAscending) "По возрастанию" else "По убыванию",
                                                 tint = primaryColor,
                                                 modifier = Modifier.size(12.dp)
@@ -1417,7 +1414,7 @@ fun renderInlineMarkdown(
                 token.startsWith("`") && token.endsWith("`") && token.length >= 2 -> {
                     pushStyle(
                         SpanStyle(
-                            fontFamily = GoogleSansCode,
+                            fontFamily = RobotoMono,
                             background = primaryColor.copy(alpha = 0.13f),
                             color = primaryColor,
                             fontSize = 13.sp
@@ -1439,7 +1436,7 @@ fun renderInlineMarkdown(
                     val rawFormula = token.substring(1, token.length - 1)
                     pushStyle(
                         SpanStyle(
-                            fontFamily = GoogleSansCode,
+                            fontFamily = RobotoMono,
                             color = secondaryColor,
                             fontWeight = FontWeight.Medium
                         )

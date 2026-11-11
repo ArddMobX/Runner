@@ -23,11 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,9 +43,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.runner.app.ui.theme.GoogleSansCode
+import com.runner.app.ui.theme.RobotoMono
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.util.CrashReportManager
+import com.runner.app.ui.components.RunnerIcons
 
 const val DONATE_TON_ADDRESS = "UQBEzktkHEnVK8XTGztXfNcOWtdONyskFeb3u48lWfzZ-t6V"
 const val DONATE_TG_CHANNEL = "https://t.me/runner_agent"
@@ -106,7 +102,7 @@ fun SupportSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Favorite,
+                        imageVector = RunnerIcons.Favorite,
                         contentDescription = null,
                         tint = SecondaryMint,
                         modifier = Modifier.size(19.dp)
@@ -146,7 +142,7 @@ fun SupportSheet(
                 description = "Новости проекта, релизы и возможность отправить звёзды к постам",
                 icon = RunnerIcons.Telegram,
                 iconTint = Color(0xFF29B6F6),
-                actionIcon = Icons.AutoMirrored.Outlined.OpenInNew,
+                actionIcon = RunnerIcons.OpenInNew,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     openExternalUrl(context, DONATE_TG_CHANNEL)
@@ -220,7 +216,7 @@ fun SupportSheet(
                         text = DONATE_TON_ADDRESS,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 11.5.sp,
-                        fontFamily = GoogleSansCode,
+                        fontFamily = RobotoMono,
                         lineHeight = 16.sp
                     )
                 }
@@ -242,7 +238,7 @@ fun SupportSheet(
                     )
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.ContentCopy,
+                        imageVector = RunnerIcons.ContentCopy,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp)
                     )
@@ -264,7 +260,7 @@ fun SupportSheet(
                 description = "Поставить звёздочку ★ репозиторию или посмотреть исходный код",
                 icon = RunnerIcons.Code,
                 iconTint = MaterialTheme.colorScheme.onSurface,
-                actionIcon = Icons.AutoMirrored.Outlined.OpenInNew,
+                actionIcon = RunnerIcons.OpenInNew,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     openExternalUrl(context, DONATE_GITHUB_REPO)
@@ -278,9 +274,9 @@ fun SupportSheet(
                 title = "Отчет о сбоях и диагностика",
                 subtitle = "Сводка для разработчика",
                 description = "Скопировать в буфер информацию об устройстве, ошибках и последних системных событиях",
-                icon = Icons.Outlined.BugReport,
+                icon = RunnerIcons.BugReport,
                 iconTint = Color(0xFFFFB74D),
-                actionIcon = Icons.Outlined.ContentCopy,
+                actionIcon = RunnerIcons.ContentCopy,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     CrashReportManager.copyReport(context, "Диагностический отчет из меню поддержки")

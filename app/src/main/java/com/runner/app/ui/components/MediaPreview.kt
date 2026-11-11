@@ -26,13 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BrokenImage
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +50,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.runner.app.ui.theme.MotionTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.runner.app.ui.components.RunnerIcons
 
 /** Что за файл по расширению. От этого зависит, что показывать в строке. */
 enum class MediaKind { IMAGE, AUDIO, VIDEO, OTHER }
@@ -222,7 +216,7 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
             label = "play_pause_icon"
         ) { playing ->
             Icon(
-                imageVector = if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                imageVector = if (playing) RunnerIcons.Pause else RunnerIcons.PlayArrow,
                 contentDescription = if (playing) "Пауза" else "Воспроизвести",
                 tint = iconTint,
                 modifier = Modifier.size(18.dp)
@@ -243,8 +237,8 @@ fun MediaKindBadge(kind: MediaKind) {
     ) {
         Icon(
             imageVector = when (kind) {
-                MediaKind.VIDEO -> Icons.Outlined.Videocam
-                else -> Icons.Outlined.GraphicEq
+                MediaKind.VIDEO -> RunnerIcons.Videocam
+                else -> RunnerIcons.GraphicEq
             },
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -311,7 +305,7 @@ fun ImageThumbnail(path: String?) {
             )
         } else {
             Icon(
-                imageVector = Icons.Outlined.BrokenImage,
+                imageVector = RunnerIcons.BrokenImage,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp)
@@ -346,7 +340,7 @@ fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
             ) {
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        imageVector = Icons.Outlined.Close,
+                        imageVector = RunnerIcons.Close,
                         contentDescription = "Закрыть",
                         tint = MaterialTheme.colorScheme.onSurface
                     )

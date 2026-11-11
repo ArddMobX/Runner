@@ -12,8 +12,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -23,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.dp
+import com.runner.app.ui.components.RunnerIcons
 
 /**
  * Кнопка переключения Live-режима (автопилот по экрану) в верхнем правом углу.
@@ -85,7 +84,7 @@ fun LiveModeTopButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.Outlined.TouchApp,
+            imageVector = RunnerIcons.TouchApp,
             contentDescription = if (isActive) "Live-режим активен (автопилот)" else "Включить Live-режим",
             tint = iconColor,
             modifier = Modifier.size(19.dp)
