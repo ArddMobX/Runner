@@ -1105,6 +1105,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showStoragePrompt = MutableStateFlow(false)
     val showStoragePrompt: StateFlow<Boolean> = _showStoragePrompt.asStateFlow()
 
+    /**
+     * Сериализует переключение сессий.
+     *
+     * Объявлен ДО init осознанно: корутина из init на Main.immediate
+     * стартует сразу и обращается к этому полю. Если объявить его ниже,
+     * конструктор ещё не успевает создать Mutex, и получается NPE.
+     */
+    private val sessionSwitchLock = Mutex()
+
+    /** Сессия, которую попросили открыть явно: init не должен её перебить. */
+    @Volatile
+    private var explicitSessionRequest: String? = null
+
+    /** Оверлей уже запросил изолированную сессию ассистента. */
+    @Volatile
+    private var assistantSessionRequested = false
+
     init {
         ToolDispatcher.defaultWorkingDir = _settings.value.defaultWorkingDir
         voiceManager.setTtsParameters(_settings.value.ttsSpeed, _settings.value.ttsPitch, _settings.value.ttsVoiceName)
@@ -1197,24 +1214,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- Сессии ---
-
-    /**
-     * Сериализует переключение сессий.
-     *
-     * Стартовая загрузка из init и параллельный запрос (deep link из
-     * уведомления, оверлей ассистента) раньше гоняли loadSession: «побеждал»
-     * тот, кто последним дошёл до записи полей, и оверлей мог открыть
-     * основной чат пользователя, а deep link — потеряться.
-     */
-    private val sessionSwitchLock = Mutex()
-
-    /** Сессия, которую попросили открыть явно: init не должен её перебить. */
-    @Volatile
-    private var explicitSessionRequest: String? = null
-
-    /** Оверлей уже запросил изолированную сессию ассистента. */
-    @Volatile
-    private var assistantSessionRequested = false
 
     fun setSessionsQuery(query: String) {
         _sessionsQuery.value = query
