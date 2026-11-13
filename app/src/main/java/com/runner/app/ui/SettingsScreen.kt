@@ -5048,6 +5048,39 @@ private fun AccessSettings(
                 SettingsDivider()
                 Spacer(modifier = Modifier.height(10.dp))
 
+                Text(
+                    text = "Лимит шагов в Live",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Сколько шагов модель может сделать в одной Live-задаче. " +
+                            "«∞» значит без ограничения: задачу остановит только кнопка «Стоп», " +
+                            "завершение или срабатывание защиты от зацикливания.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                SegmentedChips(
+                    options = listOf(
+                        0 to "∞",
+                        25 to "25",
+                        50 to "50",
+                        100 to "100"
+                    ),
+                    selected = appSettings.liveMaxSteps,
+                    onSelect = {
+                        viewModel.updateSettings(appSettings.copy(liveMaxSteps = it))
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                SettingsDivider()
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically

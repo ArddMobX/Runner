@@ -169,6 +169,15 @@ data class AppSettings(
     val customPromptSuggestions: List<String> = emptyList(),
     /** Live-режим: выполнение действий через специальные возможности на экране. */
     val liveModeEnabled: Boolean = false,
+    /**
+     * Лимит шагов в Live-задаче. 0 = без лимита.
+     *
+     * В Live один шаг модели это обычно «посмотреть экран + одно действие»,
+     * поэтому общий лимит в 10 шагов заканчивает задачу после 5 действий.
+     * По умолчанию Live не ограничиваем: остановить задачу можно кнопкой
+     * «Стоп», а также сработают детектор зацикливания и лимит токенов.
+     */
+    val liveMaxSteps: Int = 0,
     /** Полный доступ в Live-режиме: выполнять действия без подтверждения на карточке. */
     val liveFullAccess: Boolean = false,
     /** Live: подтверждать каждое действие, а не только рискованные. */
@@ -294,8 +303,12 @@ data class AppSettings(
                     "open_app задаёт ожидаемое приложение. Пока на экране другое приложение, действия блокируются; " +
                     "если это системный диалог или клавиатура, вызови ui_target с текущим пакетом. " +
                     "Если открылось не то приложение или экран непонятен, остановись и сообщи пользователю. " +
+                    "План — это минимум, а не максимум: после его выполнения продолжай, пока критерий " +
+                    "успеха не выполнен. Не вызывай ui_finish только потому, что план закончился. " +
+                    "Не бойся сделать больше шагов: пользователь остановит задачу кнопкой «Стоп», если она не нужна. " +
                     "Перед ui_finish проверь, что результат действительно достигнут. " +
-                    "Если три раза подряд не получается один шаг, остановись и объясни причину."
+                    "Если три раза подряд не получается один шаг, попробуй другой способ; если и он не работает, " +
+                    "остановись и объясни причину."
 
         val CORE_SYSTEM_PROMPT = """
             Ты автономный мобильный агент Runner для Android. У тебя есть доступ к локальным системным инструментам:
@@ -556,6 +569,7 @@ class SettingsStore(context: Context) {
             showFollowUpSuggestions = prefs.getBoolean(KEY_SHOW_FOLLOW_UP_SUGGESTIONS, false),
             customPromptSuggestions = parseCustomSuggestions(prefs.getString(KEY_CUSTOM_SUGGESTIONS, null)),
             liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false),
+            liveMaxSteps = prefs.getInt(KEY_LIVE_MAX_STEPS, 0).coerceAtLeast(0),
             liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false),
             liveConfirmEveryStep = prefs.getBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, false)
         )
@@ -623,6 +637,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_SHOW_FOLLOW_UP_SUGGESTIONS, settings.showFollowUpSuggestions)
             .putString(KEY_CUSTOM_SUGGESTIONS, JSONArray(settings.customPromptSuggestions).toString())
             .putBoolean(KEY_LIVE_MODE_ENABLED, settings.liveModeEnabled)
+            .putInt(KEY_LIVE_MAX_STEPS, settings.liveMaxSteps)
             .putBoolean(KEY_LIVE_FULL_ACCESS, settings.liveFullAccess)
             .putBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, settings.liveConfirmEveryStep)
 
@@ -704,6 +719,7 @@ class SettingsStore(context: Context) {
         const val KEY_SHOW_FOLLOW_UP_SUGGESTIONS = "show_follow_up_suggestions"
         const val KEY_CUSTOM_SUGGESTIONS = "custom_prompt_suggestions_json"
         const val KEY_LIVE_MODE_ENABLED = "live_mode_enabled"
+        const val KEY_LIVE_MAX_STEPS = "live_max_steps"
         const val KEY_LIVE_FULL_ACCESS = "live_full_access"
         const val KEY_LIVE_CONFIRM_EVERY_STEP = "live_confirm_every_step"
 

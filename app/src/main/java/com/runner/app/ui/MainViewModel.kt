@@ -624,7 +624,8 @@ private const val LIVE_PLAN_SYSTEM_PROMPT = """
 Ты планировщик Live-задачи мобильного агента Runner. Агент управляет экраном Android через специальные возможности.
 Доступные инструменты: ui_inspect, ui_click, ui_long_click, ui_type, ui_scroll, ui_global_action, ui_wait, ui_wait_for, ui_target, open_app, open_url, web_search, web_fetch, ui_finish.
 Правила вывода:
-- Выведи 3-5 шагов, по одному на строку: "1. имя_инструмента - что сделать".
+- Выведи 3-6 шагов, по одному на строку: "1. имя_инструмента - что сделать".
+- План — это ориентир, а не полный список действий. После его выполнения работа продолжается, пока не достигнут критерий успеха.
 - Не выдумывай элементы экрана: сначала ui_inspect, потом действие.
 - Для поиска и открытия предпочитай open_app или open_url с готовой ссылкой.
 - Последней строкой выведи: "Критерий успеха: ..." - как проверить, что задача выполнена.
@@ -2104,6 +2105,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (successCriteria.isNotBlank()) {
                 append("Критерий успеха: $successCriteria\n")
             }
+            if (_settings.value.liveModeEnabled) {
+                append("План — это минимум, а не максимум. Если после его шагов цель не достигнута, ")
+                append("продолжай сам: ui_inspect, действие, проверка. Не вызывай ui_finish, ")
+                append("пока критерий успеха не выполнен.\n")
+            }
         }
 
         // В автономном режиме (autoApproveInWorkingDir) сформированный план передаётся на исполнение сразу.
@@ -2185,7 +2191,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var lastCallSignature: String? = null
         var repeatedCalls = 0
 
-        while (step < currentSettings.maxSteps && !stopRequested) {
+        // В Live один «шаг» модели обычно равен «посмотреть экран + одно действие»,
+        // поэтому общий лимит быстро заканчивает задачу. Для Live используем
+        // отдельный лимит, где 0 означает «без ограничения».
+        val stepLimit = if (currentSettings.liveModeEnabled) {
+            currentSettings.liveMaxSteps
+        } else {
+            currentSettings.maxSteps
+        }
+
+        while ((stepLimit <= 0 || step < stepLimit) && !stopRequested) {
             step++
             _currentStatus.value = "Шаг $step · $model"
 
@@ -2390,9 +2405,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (stopRequested) {
             turnAssistantId = finalizeStreamedText(sessionId, stopped = true) ?: turnAssistantId
-        } else {
+        } else if (stepLimit > 0) {
+            val hint = if (currentSettings.liveModeEnabled) {
+                "Увеличьте лимит или выберите «∞» (без лимита) в настройках Live-режима."
+            } else {
+                "Увеличьте лимит в настройках агента."
+            }
             appendSystemInfo(
-                "Достигнут лимит шагов (${currentSettings.maxSteps}). Увеличьте лимит в настройках агента.",
+                "Достигнут лимит шагов ($stepLimit). $hint " +
+                        "Можно также написать «продолжай», чтобы выполнить ещё один отрезок.",
                 null
             )
         }
