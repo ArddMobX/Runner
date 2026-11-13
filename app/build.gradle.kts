@@ -286,6 +286,9 @@ dependencies {
     // OkHttp 4.x for Groq API
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Jsoup: разбор HTML для чтения веб-страниц агентом.
+    implementation("org.jsoup:jsoup:1.18.3")
+
     // Zip4j for archive operations
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 

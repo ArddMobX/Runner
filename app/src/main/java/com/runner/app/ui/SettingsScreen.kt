@@ -105,6 +105,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -2648,9 +2649,123 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             )
         }
 
+        WebSearchSettings(viewModel, appSettings)
+
         TrashSettings(viewModel, onNavigate)
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+/**
+ * Настройка веб-поиска. Без ключа работает DuckDuckGo; ключ Tavily делает
+ * результаты стабильнее. Ключ хранится в зашифрованном виде.
+ */
+@Composable
+private fun WebSearchSettings(
+    viewModel: MainViewModel,
+    appSettings: AppSettings
+) {
+    var keyDraft by remember(appSettings.webSearchApiKey) {
+        mutableStateOf(appSettings.webSearchApiKey)
+    }
+    var keyVisible by remember { mutableStateOf(false) }
+    val hasChanges = keyDraft.trim() != appSettings.webSearchApiKey
+
+    SettingsGroup("Веб-поиск") {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = RunnerIcons.Public,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(17.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Поиск в интернете",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Агент ищет и читает страницы через web_search и web_fetch. " +
+                        "Без настройки используется DuckDuckGo. Ключ Tavily (1000 запросов " +
+                        "в месяц бесплатно) делает выдачу стабильнее.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = keyDraft,
+                onValueChange = { keyDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Ключ Tavily (необязательно)", fontSize = 13.sp) },
+                placeholder = { Text("tvly-...", fontSize = 13.sp) },
+                singleLine = true,
+                visualTransformation = if (keyVisible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { keyVisible = !keyVisible }) {
+                        Icon(
+                            imageVector = if (keyVisible) {
+                                RunnerIcons.VisibilityOff
+                            } else {
+                                RunnerIcons.Visibility
+                            },
+                            contentDescription = if (keyVisible) "Скрыть ключ" else "Показать ключ",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                },
+                shape = RoundedCornerShape(10.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Ключ шифруется на устройстве и никуда не уходит.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                if (appSettings.webSearchApiKey.isNotBlank()) {
+                    TextButton(
+                        onClick = {
+                            keyDraft = ""
+                            viewModel.updateSettings(
+                                appSettings.copy(webSearchApiKey = "")
+                            )
+                        }
+                    ) {
+                        Text(
+                            text = "Убрать",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.5.sp
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        viewModel.updateSettings(
+                            appSettings.copy(webSearchApiKey = keyDraft.trim())
+                        )
+                    },
+                    enabled = hasChanges
+                ) {
+                    Text("Сохранить", fontSize = 12.5.sp)
+                }
+            }
+        }
     }
 }
 

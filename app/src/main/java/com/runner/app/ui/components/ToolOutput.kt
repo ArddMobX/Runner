@@ -227,7 +227,15 @@ fun ToolOutputView(
     output: String,
     modifier: Modifier = Modifier
 ) {
-    val lines = remember(output) { parseOutput(output) }
+    val lines = remember(output) {
+        // Служебные маркеры конверта недоверенных данных — не часть вывода.
+        // Показывать их пользователю незачем, они нужны только модели.
+        val cleaned = output
+            .replace(Regex("""(?m)^[ \t]*```НЕДОВЕРЕННЫЕ-ДАННЫЕ.*$"""), "")
+            .replace(Regex("""(?m)^[ \t]*```КОНЕЦ-НЕДОВЕРЕННЫХ-ДАННЫХ[ \t]*$"""), "")
+            .trim()
+        parseOutput(cleaned)
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),

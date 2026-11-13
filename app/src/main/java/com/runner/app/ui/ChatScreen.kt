@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -119,6 +121,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
+import com.runner.app.data.WebSource
 import com.runner.app.tools.TrashStore
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.AgentStatusIndicator
@@ -207,6 +210,8 @@ fun ChatScreen(
 
     // Живое превью HTML/SVG: источник появляется из ответа модели или из write_file
     var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
+    // Шторка источников веб-поиска: null — закрыта.
+    var sourcesSheet by remember { mutableStateOf<List<WebSource>?>(null) }
     var showLivePermissionSheet by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
@@ -307,6 +312,23 @@ fun ChatScreen(
         WebPreviewDialog(
             source = source,
             onDismiss = { previewSource = null }
+        )
+    }
+
+    sourcesSheet?.let { sources ->
+        WebSourcesSheet(
+            sources = sources,
+            onDismiss = { sourcesSheet = null },
+            onOpenSource = { source ->
+                sourcesSheet = null
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(source.url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
+                }
+            }
         )
     }
 
@@ -561,6 +583,7 @@ fun ChatScreen(
                                             onRetryMessage = { viewModel.retryFromUserMessage(it) },
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
+                                            onOpenSources = { sourcesSheet = it },
                                             onAction = { action ->
                                                 when (action) {
                                                     MessageAction.OPEN_SETTINGS -> onOpenSettings()
@@ -574,7 +597,8 @@ fun ChatScreen(
                                         is ChatListItem.ToolGroup -> ToolGroupCard(
                                             messages = item.messages,
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
-                                            onOpenPreview = { previewSource = it }
+                                            onOpenPreview = { previewSource = it },
+                                            onOpenSources = { sourcesSheet = it }
                                         )
                                     }
                                 }
@@ -1251,6 +1275,7 @@ private fun MessageItem(
     onRetryMessage: (String) -> Unit,
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
+    onOpenSources: (List<WebSource>) -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
@@ -1483,7 +1508,8 @@ private fun MessageItem(
             showDetails = showToolDetails,
             showStats = showStats,
             onUndoTrash = onUndoTrash,
-            onOpenPreview = onOpenPreview
+            onOpenPreview = onOpenPreview,
+            onOpenSources = onOpenSources
         )
 
         MessageRole.PLAN -> PlanCard(
@@ -1921,7 +1947,8 @@ internal fun undoLabel(ref: TrashStore.UndoRef): String = when (ref.kind) {
 private fun ToolGroupCard(
     messages: List<ChatMessage>,
     onUndoTrash: (String) -> Unit,
-    onOpenPreview: (WebPreviewSource) -> Unit
+    onOpenPreview: (WebPreviewSource) -> Unit,
+    onOpenSources: (List<WebSource>) -> Unit
 ) {
     var expanded by remember(messages.first().id) { mutableStateOf(false) }
     val rotation by animateFloatAsState(
@@ -2000,6 +2027,19 @@ private fun ToolGroupCard(
                 )
             }
 
+            // Источники всей группы: поиск и чтение страниц обычно идут парой,
+            // и держать их за раскрытием не нужно.
+            val groupSources = remember(messages) {
+                messages.flatMap { it.sources }.distinctBy { it.url }
+            }
+            if (groupSources.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                WebSourcesRow(
+                    sources = groupSources,
+                    onClick = { onOpenSources(groupSources) }
+                )
+            }
+
             if (expanded) {
                 Spacer(modifier = Modifier.height(9.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
@@ -2064,7 +2104,8 @@ private fun ToolCard(
     showDetails: Boolean,
     showStats: Boolean,
     onUndoTrash: (String) -> Unit,
-    onOpenPreview: (WebPreviewSource) -> Unit
+    onOpenPreview: (WebPreviewSource) -> Unit,
+    onOpenSources: (List<WebSource>) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -2161,6 +2202,15 @@ private fun ToolCard(
                 )
             }
 
+            // Источники веб-поиска: строка на виду, без раскрытия карточки.
+            if (message.sources.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                WebSourcesRow(
+                    sources = message.sources,
+                    onClick = { onOpenSources(message.sources) }
+                )
+            }
+
             if (expanded && hasDetails) {
                 Spacer(modifier = Modifier.height(9.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
@@ -2235,6 +2285,215 @@ private fun ToolCard(
                     onClick = { onOpenPreview(preview) }
                 )
             }
+        }
+    }
+}
+
+/**
+ * Строка источников под карточкой веб-поиска: «5 источников · lenta.ru · habr.com».
+ * Тап открывает шторку. Домены важнее номеров: человек узнаёт сайт до клика.
+ */
+@Composable
+private fun WebSourcesRow(
+    sources: List<WebSource>,
+    onClick: () -> Unit
+) {
+    val domains = remember(sources) {
+        sources.map { it.domain }.filter { it.isNotBlank() }.distinct().take(3)
+    }
+    val shape = RoundedCornerShape(9.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f))
+            .border(
+                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                shape
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = RunnerIcons.Public,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = PluralUtils.sources(sources.size),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium
+        )
+        if (domains.isNotEmpty()) {
+            Text(
+                text = " · ${domains.joinToString(" · ")}",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Icon(
+            imageVector = RunnerIcons.KeyboardArrowRight,
+            contentDescription = "Открыть источники",
+            tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+            modifier = Modifier.size(15.dp)
+        )
+    }
+}
+
+/** Шторка источников: карточки с доменом, заголовком и сниппетом. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WebSourcesSheet(
+    sources: List<WebSource>,
+    onDismiss: () -> Unit,
+    onOpenSource: (WebSource) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(32.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Источники",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = PluralUtils.sources(sources.size),
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Нажмите на карточку, чтобы открыть страницу в браузере.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 20.dp)
+            ) {
+                items(sources) { source ->
+                    WebSourceCard(
+                        source = source,
+                        onClick = { onOpenSource(source) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSourceCard(
+    source: WebSource,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(
+            0.7.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = source.domain.take(1).uppercase(),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = source.title.ifBlank { source.domain },
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = source.domain,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                if (source.snippet.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = source.snippet,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                imageVector = RunnerIcons.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(15.dp)
+            )
         }
     }
 }

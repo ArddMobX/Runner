@@ -30,4 +30,5 @@ object PluralUtils {
     fun actions(count: Int): String = pluralize(count, "действие", "действия", "действий")
     fun models(count: Int): String = pluralize(count, "модель", "модели", "моделей")
     fun files(count: Int): String = pluralize(count, "файл", "файла", "файлов")
+    fun sources(count: Int): String = pluralize(count, "источник", "источника", "источников")
 }

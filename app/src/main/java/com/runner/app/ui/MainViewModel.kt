@@ -32,6 +32,7 @@ import com.runner.app.data.SettingsStore
 import com.runner.app.data.ThemeConfig
 import com.runner.app.data.ThemeStore
 import com.runner.app.data.ToolCall
+import com.runner.app.data.WebSource
 import com.runner.app.data.db.ChatDatabase
 import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
@@ -436,7 +437,13 @@ private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson
 }
 
 /** Инструменты, чей вывод считается недоверенным содержимым. */
-private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf("read_file", "list_dir", "clipboard_read")
+private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf(
+    "read_file",
+    "list_dir",
+    "clipboard_read",
+    "web_search",
+    "web_fetch"
+)
 
 /**
  * Команда из аргументов run_shell_command. Пустая строка, если JSON не
@@ -615,7 +622,7 @@ private const val PLAN_SYSTEM_PROMPT = """
  */
 private const val LIVE_PLAN_SYSTEM_PROMPT = """
 Ты планировщик Live-задачи мобильного агента Runner. Агент управляет экраном Android через специальные возможности.
-Доступные инструменты: ui_inspect, ui_click, ui_long_click, ui_type, ui_scroll, ui_global_action, ui_wait, ui_wait_for, ui_target, open_app, open_url, ui_finish.
+Доступные инструменты: ui_inspect, ui_click, ui_long_click, ui_type, ui_scroll, ui_global_action, ui_wait, ui_wait_for, ui_target, open_app, open_url, web_search, web_fetch, ui_finish.
 Правила вывода:
 - Выведи 3-5 шагов, по одному на строку: "1. имя_инструмента - что сделать".
 - Не выдумывай элементы экрана: сначала ui_inspect, потом действие.
@@ -639,6 +646,8 @@ data class ChatMessage(
     val isDeclined: Boolean = false,
     val action: MessageAction? = null,
     val timestamp: Long = System.currentTimeMillis(),
+    /** Источники веб-поиска: показываются строкой под карточкой инструмента. */
+    val sources: List<WebSource> = emptyList(),
     /** Полное время ответа агента на задачу. */
     val durationMs: Long? = null,
     /** Время работы конкретного инструмента. */
@@ -2489,7 +2498,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun runConfirmedOperation(
         call: ToolCall,
         info: ToolDispatcher.CriticalActionInfo,
-        decision: ConfirmationDecision
+        decision: ConfirmationDecision,
+        onWebSources: (List<WebSource>) -> Unit = {}
     ): String {
         val cleanName = call.name.substringAfterLast(":")
         val allIds = info.items.map { it.id }
@@ -2509,7 +2519,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _settings.value.shellOutsideStorage,
             _settings.value.allowRootShell,
             _settings.value.liveFullAccess,
-            _settings.value.liveConfirmEveryStep
+            _settings.value.liveConfirmEveryStep,
+            _settings.value.webSearchApiKey,
+            onWebSources
         )
     }
 
@@ -2531,6 +2543,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Замеряем только саму операцию: время ожидания подтверждения пользователем
         // в это число не входит, иначе тайминг теряет смысл.
         var toolDurationMs: Long? = null
+        // Источники, найденные web_search/web_fetch: приклеиваются к карточке.
+        val webSources = mutableListOf<WebSource>()
 
         // Проверка опасности идёт здесь, в момент исполнения, и не зависит от
         // того, был ли план. Предодобрение плана снимает шторку только для тех
@@ -2781,7 +2795,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _currentStatus.value = title
                 val startedAt = System.currentTimeMillis()
-                val result = runConfirmedOperation(call, info, decision)
+                val result = runConfirmedOperation(call, info, decision) { webSources += it }
                 toolDurationMs = System.currentTimeMillis() - startedAt
                 result
             }
@@ -2799,8 +2813,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _settings.value.shellOutsideStorage,
                 _settings.value.allowRootShell,
                 _settings.value.liveFullAccess,
-                _settings.value.liveConfirmEveryStep
-            )
+                _settings.value.liveConfirmEveryStep,
+                _settings.value.webSearchApiKey
+            ) { webSources += it }
             toolDurationMs = System.currentTimeMillis() - startedAt
             result
         }
@@ -2849,7 +2864,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     toolDurationMs = toolDurationMs,
                     isRunning = false,
                     isError = isError,
-                    isDeclined = declined
+                    isDeclined = declined,
+                    sources = webSources.toList()
                 )
             } else {
                 message
@@ -2868,7 +2884,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isError = isError,
                 isDeclined = declined,
                 createdAt = System.currentTimeMillis(),
-                toolDurationMs = toolDurationMs
+                toolDurationMs = toolDurationMs,
+                sourcesJson = sourcesToJson(webSources)
             )
         )
 
@@ -3236,8 +3253,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reasoningMs = reasoningMs,
         promptTokens = promptTokens,
         completionTokens = completionTokens,
-        tokensPerSecond = tokensPerSecond
+        tokensPerSecond = tokensPerSecond,
+        sourcesJson = sourcesToJson(sources)
     )
+
+    private fun sourcesToJson(sources: List<WebSource>): String? {
+        if (sources.isEmpty()) return null
+        return JSONArray().apply {
+            sources.forEach { source ->
+                put(
+                    JSONObject().apply {
+                        put("url", source.url)
+                        put("title", source.title)
+                        put("domain", source.domain)
+                        put("snippet", source.snippet)
+                    }
+                )
+            }
+        }.toString()
+    }
+
+    private fun parseSources(json: String?): List<WebSource> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val array = JSONArray(json)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val url = item.optString("url").trim()
+                if (url.isEmpty()) return@mapNotNull null
+                WebSource(
+                    url = url,
+                    title = item.optString("title").trim(),
+                    domain = item.optString("domain").trim()
+                        .ifBlank { WebSource.domainOf(url) },
+                    snippet = item.optString("snippet").trim()
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     private fun MessageEntity.toChatMessage(): ChatMessage = ChatMessage(
         id = id,
@@ -3260,6 +3315,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reasoningMs = reasoningMs,
         promptTokens = promptTokens,
         completionTokens = completionTokens,
-        tokensPerSecond = tokensPerSecond
+        tokensPerSecond = tokensPerSecond,
+        sources = parseSources(sourcesJson)
     )
 }
