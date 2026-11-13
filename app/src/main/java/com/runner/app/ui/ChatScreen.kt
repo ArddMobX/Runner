@@ -1864,9 +1864,16 @@ private fun MessageItem(
             ) {
                 // Если модель вернула размышления, показываем их даже без
                 // включённой статистики: режим «Думать» должен быть виден.
-                if (showStats || !message.reasoningText.isNullOrBlank()) {
+                // Совсем короткие «Думал 58 мс» считаем шумом.
+                val reasoning = message.reasoningText
+                val reasoningMs = message.reasoningMs ?: 0L
+                val showReasoning = !reasoning.isNullOrBlank() &&
+                        (showStats ||
+                                reasoningMs >= MIN_VISIBLE_REASONING_MS ||
+                                reasoning.length > 200)
+                if (showReasoning) {
                     ReasoningBlock(
-                        reasoning = message.reasoningText,
+                        reasoning = reasoning,
                         reasoningMs = message.reasoningMs
                     )
                 }
@@ -2478,6 +2485,9 @@ private fun parsePlanStepsUi(text: String): List<String> {
         .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
 }
 
+/** Ниже этого порога «Думал N мс» считаем шумом и не показываем. */
+private const val MIN_VISIBLE_REASONING_MS = 1_000L
+
 /**
  * Элемент ленты чата: одиночное сообщение либо лента хода задачи
  * (план, реплики модели и вызовы инструментов).
@@ -2495,33 +2505,99 @@ internal fun findLastUserMessageId(messages: List<ChatMessage>): String? =
     messages.findLast { it.role == MessageRole.USER }?.id
 
 /**
- * Собирает ленту хода задачи: план, реплики модели и вызовы инструментов
- * идут одной карточкой, пока их не разделит ответ ассистента, системная
- * плашка или новое сообщение пользователя.
+ * Собирает ленту по ходам пользователя.
  *
- * Раньше группировались только завершённые тулы, и ход рассыпался на
- * «Выполнено 2 действия», «Выполнено 3 действия» с независимыми счётчиками.
+ * Всё, что произошло между двумя сообщениями пользователя, показывается
+ * одной карточкой «Ход задачи»: план, комментарии модели, вызовы инструментов
+ * и промежуточные ответы. Отдельным сообщением остаётся только последний
+ * содержательный ответ ассистента, у которого есть кнопки копирования,
+ * озвучки и повторной генерации.
+ *
+ * Раньше любой ASSISTANT разрывал группу, поэтому один длинный ход
+ * рассыпался на десяток карточек с независимыми «Итог · N действий».
  */
 internal fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
     val out = mutableListOf<ChatListItem>()
-    var run = mutableListOf<ChatMessage>()
-    fun flush() {
-        if (run.isNotEmpty()) out += ChatListItem.TaskActivity(run.toList())
-        run = mutableListOf()
+    var index = 0
+    while (index < messages.size) {
+        val message = messages[index]
+        if (message.role == MessageRole.USER) {
+            out += ChatListItem.Single(message)
+            index++
+            continue
+        }
+
+        val turn = mutableListOf<ChatMessage>()
+        while (index < messages.size && messages[index].role != MessageRole.USER) {
+            turn += messages[index]
+            index++
+        }
+        appendTurn(turn, out)
     }
-    for (m in messages) {
-        when (m.role) {
-            MessageRole.PLAN,
-            MessageRole.NARRATION,
-            MessageRole.TOOL_EXECUTION -> run += m
-            else -> {
-                flush()
-                out += ChatListItem.Single(m)
-            }
+    return out
+}
+
+/**
+ * Раскладывает один ход на карточку активности и финальный ответ.
+ * SYSTEM_INFO остаётся отдельной плашкой и не попадает в карточку хода.
+ */
+private fun appendTurn(turn: List<ChatMessage>, out: MutableList<ChatListItem>) {
+    if (turn.isEmpty()) return
+    var segment = mutableListOf<ChatMessage>()
+    for (message in turn) {
+        if (message.role == MessageRole.SYSTEM_INFO) {
+            appendSegment(segment, out)
+            segment = mutableListOf()
+            out += ChatListItem.Single(message)
+        } else {
+            segment += message
         }
     }
-    flush()
-    return out
+    appendSegment(segment, out)
+}
+
+/**
+ * Внутри сегмента ищем последний содержательный ответ ассистента, после
+ * которого уже не было действий. Это и есть финальный ответ хода.
+ */
+private fun appendSegment(segment: List<ChatMessage>, out: MutableList<ChatListItem>) {
+    val meaningful = segment.filterNot {
+        it.role == MessageRole.ASSISTANT && it.content.isBlank()
+    }
+    if (meaningful.isEmpty()) return
+
+    val lastActivityIndex = meaningful.indexOfLast {
+        it.role == MessageRole.PLAN ||
+                it.role == MessageRole.NARRATION ||
+                it.role == MessageRole.TOOL_EXECUTION
+    }
+    var finalIndex = -1
+    for (index in meaningful.indices.reversed()) {
+        val message = meaningful[index]
+        if (message.role == MessageRole.ASSISTANT &&
+            message.content.isNotBlank() &&
+            index > lastActivityIndex
+        ) {
+            finalIndex = index
+            break
+        }
+    }
+
+    if (finalIndex < 0) {
+        out += ChatListItem.TaskActivity(meaningful)
+        return
+    }
+
+    val activity = meaningful.subList(0, finalIndex)
+    if (activity.isNotEmpty()) {
+        out += ChatListItem.TaskActivity(activity.toList())
+    }
+    out += ChatListItem.Single(meaningful[finalIndex])
+
+    val trailing = meaningful.subList(finalIndex + 1, meaningful.size)
+    if (trailing.isNotEmpty()) {
+        appendSegment(trailing, out)
+    }
 }
 
 /** Подпись кнопки отмены: вид операции виден прямо на кнопке. */
@@ -2532,9 +2608,9 @@ internal fun undoLabel(ref: TrashStore.UndoRef): String = when (ref.kind) {
 }
 
 /**
- * Карточка одного хода задачи: реплики модели, план и действия идут
- * непрерывной лентой. Заголовок показывает общее число действий и время,
- * поэтому счётчики больше не скачут от группы к группе.
+ * Карточка одного хода задачи: план, комментарии и действия идут одной
+ * непрерывной лентой. Счётчик действий один раз показывается в «Итоге»,
+ * а не в заголовке и не под каждым шагом.
  */
 @Composable
 private fun TaskActivityCard(
@@ -2559,6 +2635,21 @@ private fun TaskActivityCard(
     val failedSteps = remember(toolMessages) {
         toolMessages.filter { it.isError || it.isDeclined }
     }
+    val reasoningText = remember(messages) {
+        messages
+            .filter { it.role == MessageRole.ASSISTANT }
+            .mapNotNull { it.reasoningText?.takeIf { text -> text.isNotBlank() } }
+            .joinToString("\n\n")
+    }
+    val reasoningMs = remember(messages) {
+        messages
+            .filter { it.role == MessageRole.ASSISTANT }
+            .sumOf { it.reasoningMs ?: 0L }
+    }
+    val showReasoning = reasoningText.isNotBlank() &&
+            (showStats ||
+                    reasoningMs >= MIN_VISIBLE_REASONING_MS ||
+                    reasoningText.length > 200)
     val actionCount = toolMessages.size
     val hasError = toolMessages.any { it.isError }
     val hasDeclined = toolMessages.any { it.isDeclined }
@@ -2566,12 +2657,15 @@ private fun TaskActivityCard(
     val planAwaiting = messages.any { it.role == MessageRole.PLAN && it.id == planAwaitingId }
     val showTotals = actionCount > 0 || allChanges.isNotEmpty() ||
             failedSteps.isNotEmpty() || isActiveTurn
-    var expanded by remember(messages.first().id) { mutableStateOf(anyRunning || planAwaiting) }
-    LaunchedEffect(anyRunning) {
-        if (anyRunning) expanded = true
+    // Ход без инструментов (только план или комментарий) раскрываем сразу:
+    // иначе от него останется пустая строка.
+    var expanded by remember(messages.first().id) {
+        mutableStateOf(anyRunning || planAwaiting || toolMessages.isEmpty())
     }
-    LaunchedEffect(planAwaiting) {
-        if (planAwaiting) expanded = true
+    // Пока ход идёт, карточка раскрыта. Когда закончился, сворачиваем сами:
+    // завершённый ход не должен оставлять простыню на весь экран.
+    LaunchedEffect(anyRunning, planAwaiting, toolMessages.isEmpty()) {
+        expanded = anyRunning || planAwaiting || toolMessages.isEmpty()
     }
 
     val startedAt = remember(messages) { messages.firstOrNull()?.timestamp ?: 0L }
@@ -2628,14 +2722,6 @@ private fun TaskActivityCard(
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Medium
                 )
-                if (actionCount > 0) {
-                    Text(
-                        text = " · ${PluralUtils.actions(actionCount)}",
-                        color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.5.sp,
-                        maxLines = 1
-                    )
-                }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = formatTimelineElapsed(elapsedMs),
@@ -2656,6 +2742,13 @@ private fun TaskActivityCard(
 
             if (expanded) {
                 Spacer(modifier = Modifier.height(4.dp))
+                if (showReasoning) {
+                    ReasoningBlock(
+                        reasoning = reasoningText,
+                        reasoningMs = reasoningMs.takeIf { it > 0 }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
                 messages.forEach { message ->
                     when (message.role) {
                         MessageRole.PLAN -> PlanCard(
@@ -2666,6 +2759,8 @@ private fun TaskActivityCard(
                         )
 
                         MessageRole.NARRATION -> NarrationRow(text = message.content)
+
+                        MessageRole.ASSISTANT -> CommentaryBlock(text = message.content)
 
                         MessageRole.TOOL_EXECUTION -> TimelineStepRow(
                             message = message,
@@ -2682,15 +2777,17 @@ private fun TaskActivityCard(
                 }
             } else if (toolMessages.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                TimelineStepRow(
-                    message = toolMessages.last(),
-                    showDetails = showDetails,
-                    showStats = showStats,
-                    onUndoTrash = onUndoTrash,
-                    onOpenPreview = onOpenPreview,
-                    onOpenSources = onOpenSources,
-                    onOpenChanges = onOpenChanges
-                )
+                toolMessages.take(3).forEach { message ->
+                    CompactActionLine(message = message)
+                }
+                if (toolMessages.size > 3) {
+                    Text(
+                        text = "Ещё ${toolMessages.size - 3}",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 10.5.sp,
+                        modifier = Modifier.padding(start = 15.dp, top = 1.dp, bottom = 2.dp)
+                    )
+                }
             }
 
             if (showTotals) {
@@ -2768,6 +2865,71 @@ private fun NarrationRow(text: String) {
             maxLines = 4,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * Свёрнутая строка действия внутри хода. Без вложенного раскрытия:
+ * раскрывается вся карточка, а не отдельный шаг.
+ */
+@Composable
+private fun CompactActionLine(message: ChatMessage) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ToolStatusIcon(message)
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = message.content.ifBlank { message.toolName ?: "Действие" },
+                color = if (message.isDeclined) {
+                    MaterialTheme.colorScheme.outline
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontSize = 12.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val summary = when {
+                message.isRunning -> "выполняется…"
+                !message.toolSummary.isNullOrBlank() -> message.toolSummary
+                else -> null
+            }
+            if (summary != null) {
+                Text(
+                    text = summary,
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Промежуточная реплика модели внутри хода. Это не финальный ответ,
+ * поэтому здесь нет копирования и озвучки.
+ */
+@Composable
+private fun CommentaryBlock(text: String) {
+    if (text.isBlank()) return
+    val compact = text.length <= 240 && !text.contains("```") && !text.contains("|")
+    if (compact) {
+        NarrationRow(text = text)
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 2.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+        ) {
+            MarkdownView(text = text)
+        }
     }
 }
 

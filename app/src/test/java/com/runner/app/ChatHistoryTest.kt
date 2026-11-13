@@ -135,7 +135,7 @@ class ChatHistoryTest {
     }
 
     @Test
-    fun testGroupChatItems_multipleSeparateToolGroups() {
+    fun testGroupChatItems_interimAssistantDoesNotSplitTurn() {
         val t1 = ChatMessage(id = "t1", role = MessageRole.TOOL_EXECUTION, content = "", isRunning = false, toolName = "step1")
         val t2 = ChatMessage(id = "t2", role = MessageRole.TOOL_EXECUTION, content = "", isRunning = false, toolName = "step2")
         val a1 = ChatMessage(role = MessageRole.ASSISTANT, content = "Interim answer")
@@ -143,12 +143,46 @@ class ChatHistoryTest {
         val t4 = ChatMessage(id = "t4", role = MessageRole.TOOL_EXECUTION, content = "", isRunning = false, toolName = "step4")
 
         val items = groupChatItems(listOf(t1, t2, a1, t3, t4))
-        assertEquals(3, items.size)
+
+        assertEquals(1, items.size)
         assertTrue(items[0] is ChatListItem.TaskActivity)
-        assertEquals(2, (items[0] as ChatListItem.TaskActivity).messages.size)
-        assertTrue(items[1] is ChatListItem.Single)
-        assertTrue(items[2] is ChatListItem.TaskActivity)
-        assertEquals(2, (items[2] as ChatListItem.TaskActivity).messages.size)
+        assertEquals(5, (items[0] as ChatListItem.TaskActivity).messages.size)
+    }
+
+    @Test
+    fun testGroupChatItems_intermediateAssistantJoinsActivity() {
+        val u1 = ChatMessage(role = MessageRole.USER, content = "Open app")
+        val t1 = ChatMessage(id = "t1", role = MessageRole.TOOL_EXECUTION, content = "Открываю", toolName = "open_app")
+        val a1 = ChatMessage(id = "a1", role = MessageRole.ASSISTANT, content = "Приложение открылось, проверяю экран")
+        val t2 = ChatMessage(id = "t2", role = MessageRole.TOOL_EXECUTION, content = "Проверяю", toolName = "ui_inspect")
+        val a2 = ChatMessage(id = "a2", role = MessageRole.ASSISTANT, content = "Готово")
+
+        val items = groupChatItems(listOf(u1, t1, a1, t2, a2))
+
+        assertEquals(3, items.size)
+        assertTrue(items[0] is ChatListItem.Single)
+        assertTrue(items[1] is ChatListItem.TaskActivity)
+        assertEquals(listOf("t1", "a1", "t2"), (items[1] as ChatListItem.TaskActivity).messages.map { it.id })
+        assertTrue(items[2] is ChatListItem.Single)
+        assertEquals("a2", (items[2] as ChatListItem.Single).message.id)
+    }
+
+    @Test
+    fun testGroupChatItems_systemInfoStaysSeparate() {
+        val u1 = ChatMessage(role = MessageRole.USER, content = "Run")
+        val t1 = ChatMessage(id = "t1", role = MessageRole.TOOL_EXECUTION, content = "Работаю", toolName = "ping")
+        val a1 = ChatMessage(id = "a1", role = MessageRole.ASSISTANT, content = "Готово")
+        val info = ChatMessage(id = "i1", role = MessageRole.SYSTEM_INFO, content = "Замечание")
+
+        val items = groupChatItems(listOf(u1, t1, a1, info))
+
+        assertEquals(4, items.size)
+        assertTrue(items[0] is ChatListItem.Single)
+        assertTrue(items[1] is ChatListItem.TaskActivity)
+        assertTrue(items[2] is ChatListItem.Single)
+        assertEquals("a1", (items[2] as ChatListItem.Single).message.id)
+        assertTrue(items[3] is ChatListItem.Single)
+        assertEquals("i1", (items[3] as ChatListItem.Single).message.id)
     }
 
     @Test
