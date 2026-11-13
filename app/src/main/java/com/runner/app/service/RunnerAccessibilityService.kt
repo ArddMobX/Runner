@@ -157,21 +157,28 @@ class RunnerAccessibilityService : AccessibilityService() {
                     return
                 }
 
-                val text = node.text?.toString()?.trim().orEmpty()
-                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                val text = normalizeUiText(node.text?.toString())
+                val desc = normalizeUiText(node.contentDescription?.toString())
                 val isClickable = node.isClickable
                 val isEditable = node.isEditable
                 val isScrollable = node.isScrollable
                 val isCheckable = node.isCheckable
+                val isActionable = isClickable || isEditable || isScrollable || isCheckable
 
-                val isMeaningful = text.isNotEmpty() || desc.isNotEmpty() ||
-                        isClickable || isEditable || isScrollable || isCheckable
+                // Одиночные неинтерактивные символы вроде «•» только
+                // раздувают дерево. Кнопки при этом остаются: у них есть флаг.
+                val isMeaningful = isActionable || text.length >= 2 || desc.length >= 2
 
                 if (isMeaningful) {
                     val typeLabel = simplifyClassName(node.className?.toString())
                     // Один и тот же текст часто дублируется в контейнере и
-                    // вложенном TextView. В списке оставляем одну строку.
-                    val key = "$typeLabel|$text|$desc|${bounds.left},${bounds.top},${bounds.right},${bounds.bottom}"
+                    // вложенном TextView. Интерактивные элементы различаем по
+                    // координатам, текстовый контекст дедуплицируем по смыслу.
+                    val key = if (isActionable) {
+                        "$typeLabel|$text|$desc|${bounds.left},${bounds.top},${bounds.right},${bounds.bottom}"
+                    } else {
+                        "$typeLabel|$text|$desc"
+                    }
                     if (seenKeys.add(key)) {
                         val elementId = nextId++
                         cachedNodes[elementId] = node
@@ -207,11 +214,14 @@ class RunnerAccessibilityService : AccessibilityService() {
             traverse(root)
 
             // Сначала интерактивные элементы: модель чаще ищет кнопку, а не
-            // подпись. Текстовые узлы идут следом как контекст.
-            fun isActionable(entry: NodeEntry): Boolean =
+            // подпись. Текстовые узлы идут следом как контекст, но не больше
+            // MAX_CONTEXT_ELEMENTS: длинные списки подписей только тормозят.
+            fun isActionableEntry(entry: NodeEntry): Boolean =
                 entry.isClickable || entry.isEditable || entry.isScrollable || entry.isChecked != null
 
-            val ordered = visibleNodes.filter(::isActionable) + visibleNodes.filterNot(::isActionable)
+            val actionable = visibleNodes.filter(::isActionableEntry)
+            val context = visibleNodes.filterNot(::isActionableEntry).take(MAX_CONTEXT_ELEMENTS)
+            val ordered = actionable + context
             val shown = ordered.take(MAX_UI_ELEMENTS)
             val expected = LiveAgentManager.stateFlow.value.expectedPackage
 
@@ -249,8 +259,8 @@ class RunnerAccessibilityService : AccessibilityService() {
                         append(" (${entry.bounds.centerX()},${entry.bounds.centerY()})")
                         appendLine()
                     }
-                    if (ordered.size > shown.size) {
-                        appendLine("[Показаны первые ${shown.size} из ${ordered.size} элементов]")
+                    if (visibleNodes.size > shown.size) {
+                        appendLine("[Показаны первые ${shown.size} из ${visibleNodes.size} элементов]")
                     }
                 }
             }
@@ -264,6 +274,16 @@ class RunnerAccessibilityService : AccessibilityService() {
             ScreenInspectionResult.Error("Ошибка анализа экрана: ${t.localizedMessage ?: t.javaClass.simpleName}")
         }
     }
+
+    /**
+     * Схлопывает переводы строк и повторные пробелы, убирает кавычки,
+     * которые ломают формат `#id тип "текст"`.
+     */
+    private fun normalizeUiText(raw: String?): String =
+        raw.orEmpty()
+            .replace(UI_WHITESPACE, " ")
+            .replace("\"", "'")
+            .trim()
 
     private fun simplifyClassName(fullClass: String?): String {
         if (fullClass.isNullOrBlank()) return "View"
@@ -957,10 +977,16 @@ class RunnerAccessibilityService : AccessibilityService() {
         /** Сколько живёт кэш #id, прежде чем попросить новый ui_inspect. */
         private const val CACHE_TTL_MS = 60_000L
 
-        /** Максимум элементов в одном ui_inspect. */
-        private const val MAX_UI_ELEMENTS = 150
-        private const val MAX_UI_TEXT = 80
-        private const val MAX_UI_DESC = 60
+        /**
+         * Максимум элементов в одном ui_inspect. 90 вместо 150: меньше
+         * токенов и быстрее ответ модели, при этом интерактивные элементы
+         * всё равно идут первыми.
+         */
+        private const val MAX_UI_ELEMENTS = 90
+        private const val MAX_CONTEXT_ELEMENTS = 40
+        private const val MAX_UI_TEXT = 60
+        private const val MAX_UI_DESC = 40
+        private val UI_WHITESPACE = Regex("\\s+")
 
         /**
          * Окна, которые не считаются «чужим приложением»: системные диалоги,

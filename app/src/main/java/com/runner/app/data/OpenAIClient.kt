@@ -217,6 +217,25 @@ class OpenAIClient {
     }
 
     /**
+     * Модель через OpenRouter умеет reasoning. Список по именам, а не по
+     * провайдеру: OpenRouter отдаёт десятки чужих моделей. Нужен, чтобы
+     * не слать reasoning тем моделям, которые его не понимают, и не
+     * тратить лишний запрос на отказ.
+     */
+    private fun supportsOpenRouterReasoning(model: String): Boolean {
+        val name = model.substringAfterLast('/').lowercase()
+        return name.startsWith("deepseek") ||
+                name.startsWith("gpt-5") ||
+                name.startsWith("gpt-6") ||
+                name.startsWith("o1") ||
+                name.startsWith("o3") ||
+                name.startsWith("o4") ||
+                name.startsWith("gemini-3") ||
+                name.startsWith("claude") ||
+                name.startsWith("grok")
+    }
+
+    /**
      * Достаёт текст размышлений в разных форматах:
      * reasoning_content у DeepSeek, reasoning у OpenRouter, reasoning_details
      * у прокси, которые отдают структурированные блоки. Если есть простой
@@ -422,19 +441,35 @@ class OpenAIClient {
                         JSONObject().put("type", if (forceThinking) "enabled" else "disabled")
                     )
                 }
-                if (forceThinking) {
-                    when {
-                        // OpenRouter нормализует reasoning для всех моделей.
-                        // Верхнеуровневый reasoning_effort вместе с ним слать
-                        // нельзя: OpenRouter отвечает 400. Если reasoning
-                        // отвергли, второй вариант для OpenRouter не шлём.
-                        isOpenRouterHost -> {
-                            if (allowReasoning) {
-                                put("reasoning", JSONObject().put("effort", "high"))
+                when {
+                    forceThinking -> {
+                        when {
+                            // OpenRouter нормализует reasoning для всех моделей.
+                            // Верхнеуровневый reasoning_effort вместе с ним слать
+                            // нельзя: OpenRouter отвечает 400. Если reasoning
+                            // отвергли, второй вариант для OpenRouter не шлём.
+                            isOpenRouterHost -> {
+                                if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
+                                    put("reasoning", JSONObject().put("effort", "high"))
+                                }
+                            }
+                            allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
+                                put("reasoning_effort", "high")
                             }
                         }
-                        allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
-                            put("reasoning_effort", "high")
+                    }
+                    // Быстрый профиль Live: рутинные действия не должны
+                    // тратить столько же reasoning, сколько сложный план.
+                    liveMode -> {
+                        when {
+                            isOpenRouterHost -> {
+                                if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
+                                    put("reasoning", JSONObject().put("effort", "low"))
+                                }
+                            }
+                            allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
+                                put("reasoning_effort", "low")
+                            }
                         }
                     }
                 }

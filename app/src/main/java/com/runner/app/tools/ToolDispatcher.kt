@@ -1280,6 +1280,11 @@ object ToolDispatcher {
                     when (val res = service.dumpScreenHierarchy()) {
                         is com.runner.app.service.RunnerAccessibilityService.ScreenInspectionResult.Success -> {
                             com.runner.app.ui.LiveAgentManager.updateStep("Анализ экрана", com.runner.app.ui.LiveAgentManager.stateFlow.value.stepIndex)
+                            CrashReportManager.log(
+                                "Live",
+                                "ui_inspect: ${res.formattedHierarchy.length} символов, " +
+                                        "${res.nodes.size} элементов"
+                            )
                             res.formattedHierarchy
                         }
                         is com.runner.app.service.RunnerAccessibilityService.ScreenInspectionResult.SecurityBlocked -> {
@@ -1537,7 +1542,9 @@ object ToolDispatcher {
         // ui_inspect отдаёт дерево экрана и не должен резаться общим лимитом
         // в 35 строк: иначе модель просто не видит нужную кнопку.
         if (cleanToolName == "ui_inspect") {
-            truncateOutput(rawOutput, maxBytes = 24_000, maxLines = 180)
+            // Дерево уже сжато в сервисе, но оставляем страховку от гигантских
+            // экранов. 16 КБ и 120 строк хватает для 90 компактных элементов.
+            truncateOutput(rawOutput, maxBytes = 16_000, maxLines = 120)
         } else {
             truncateOutput(rawOutput)
         }

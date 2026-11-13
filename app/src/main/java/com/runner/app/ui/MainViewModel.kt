@@ -258,15 +258,37 @@ private fun shouldPlan(text: String): Boolean {
 }
 
 /**
- * В Live-режиме план нужен почти любой задаче, но приветствия и болтовню
- * планировщиком гонять бессмысленно.
+ * В Live-режиме план нужен не всегда. Простые одношаговые команды
+ * («открой Telegram», «включи VPN») выполняются сразу: лишний вызов
+ * планировщика добавляет секунды без пользы.
  */
-private fun shouldPlanLive(text: String): Boolean {
+internal fun shouldPlanLive(text: String): Boolean {
     val clean = text.trim().lowercase().replace(Regex("[!?.…]+$"), "").trim()
     if (clean.isEmpty()) return false
     if (clean in NO_PLAN_EXACT) return false
     if (clean.length <= 20 && NO_PLAN_CONTAINS.any { clean.contains(it) }) return false
+    if (isSimpleLiveTask(clean)) return false
     return true
+}
+
+/** Одно действие, без «и потом ещё вот это». */
+private val SIMPLE_LIVE_START = Regex(
+    """^(открой|открыть|запусти|запустить|включи|включить|выключи|выключить|""" +
+            """нажми|нажать|перейди|перейти|покажи|показать)\b""",
+    RegexOption.IGNORE_CASE
+)
+
+private val SIMPLE_LIVE_COMPLEX = listOf(
+    " и ", ",", " потом ", " затем ", " после ",
+    " найди", " напиши", " отправь", " удали", " создай", " проверь",
+    " сравни", " выбери", " заполни", " закажи", " купи", " скачай",
+    " установи", " скрипт", " команд", " shell", " терминал"
+)
+
+private fun isSimpleLiveTask(clean: String): Boolean {
+    if (clean.length > 60) return false
+    if (!SIMPLE_LIVE_START.containsMatchIn(clean)) return false
+    return SIMPLE_LIVE_COMPLEX.none { clean.contains(it) }
 }
 
 /** Действия, требующие предварительного планирования и подтверждения. */
@@ -2699,6 +2721,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _streamingReasoning.value = ""
 
             val metrics = GenerationMetrics()
+            val modelStartedAt = System.currentTimeMillis()
 
             val result = apiClient.sendChatCompletion(
                 baseUrl = provider.baseUrl,
@@ -2753,6 +2776,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 shouldStop = { stopRequested },
                 forceThinking = forceThinking
             )
+
+            if (currentSettings.liveModeEnabled) {
+                CrashReportManager.log(
+                    "Live",
+                    "Модель шаг $step: ${System.currentTimeMillis() - modelStartedAt} мс"
+                )
+            }
 
             metrics.promptTokens?.let { totalPromptTokens += it }
             metrics.completionTokens?.let { totalCompletionTokens += it }
@@ -3396,6 +3426,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ) { webSources += it }
             toolDurationMs = System.currentTimeMillis() - startedAt
             result
+        }
+
+        if (_settings.value.liveModeEnabled) {
+            CrashReportManager.log(
+                "Live",
+                "Инструмент ${call.name.substringAfterLast(':')}: ${toolDurationMs ?: 0} мс"
+            )
         }
 
         // Содержимое read_file / list_dir / clipboard_read запоминаем: если
