@@ -157,6 +157,9 @@ private const val LOOP_REPEAT_LIMIT = 3
  */
 private const val UNTRUSTED_LINES_LIMIT = 2_000
 
+/** Сколько символов живых размышлений держать для UI. */
+private const val REASONING_LIVE_LIMIT = 4_000
+
 /**
  * Пометка к операции, которую автономный режим выполнил без вопроса, хотя её
  * аргументы совпали с прочитанным текстом.
@@ -756,6 +759,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _streamingText = MutableStateFlow("")
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
 
+    /** Живые размышления текущего шага: показываются, пока модель думает. */
+    private val _streamingReasoning = MutableStateFlow("")
+    val streamingReasoning: StateFlow<String> = _streamingReasoning.asStateFlow()
+
+    /** Начало текущего хода: по нему UI считает прошедшее время. */
+    private val _streamStartedAt = MutableStateFlow<Long?>(null)
+    val streamStartedAt: StateFlow<Long?> = _streamStartedAt.asStateFlow()
+
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
@@ -1306,6 +1317,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentSessionId.value = session.id
         _currentSessionTitle.value = session.title
         _streamingText.value = ""
+        _streamingReasoning.value = ""
+        _streamStartedAt.value = null
         _currentStatus.value = null
 
         conversationJson = if (session.contextJson.isBlank()) {
@@ -1714,6 +1727,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             timestamp = now
         )
         _isRunning.value = true
+        _streamStartedAt.value = now
+        _streamingReasoning.value = ""
         AgentExecutionService.start(getApplication(), "Runner выполняет задачу...")
         if (_settings.value.liveModeEnabled) {
             // Обработчик «Стоп» привязан к этой сессии Live-режима, а не
@@ -1836,6 +1851,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isRunning.value = false
                 _currentStatus.value = null
                 _streamingText.value = ""
+                _streamingReasoning.value = ""
+                _streamStartedAt.value = null
                 apiClient.cancelActive()
                 // Задача завершилась: служба гасится только если других задач
                 // не осталось (в оверлее ассистента может идти своя).
@@ -1908,6 +1925,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dryRunBannerShown = false
         _streamingText.value = ""
         _isRunning.value = true
+        _streamStartedAt.value = System.currentTimeMillis()
+        _streamingReasoning.value = ""
         AgentExecutionService.start(getApplication(), "Повтор задачи...")
         if (_settings.value.liveModeEnabled) {
             // Повтор в Live-режиме тоже должен показывать плавающую карточку.
@@ -1936,6 +1955,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isRunning.value = false
                 _currentStatus.value = null
                 _streamingText.value = ""
+                _streamingReasoning.value = ""
+                _streamStartedAt.value = null
                 apiClient.cancelActive()
                 // Задача завершилась: служба гасится только если других задач
                 // не осталось (в оверлее ассистента может идти своя).
@@ -2203,6 +2224,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         while ((stepLimit <= 0 || step < stepLimit) && !stopRequested) {
             step++
             _currentStatus.value = "Шаг $step · $model"
+            _streamingReasoning.value = ""
 
             val metrics = GenerationMetrics()
 
@@ -2223,11 +2245,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _streamingText.value = _streamingText.value + delta
                     }
 
+                    override fun onReasoningDelta(delta: String) {
+                        // Держим только хвост: блок живой, а память не должна
+                        // расти от многотысячных рассуждений.
+                        _streamingReasoning.value =
+                            (_streamingReasoning.value + delta).takeLast(REASONING_LIVE_LIMIT)
+                    }
+
                     override fun onToolCallStarted(name: String) {
                         _currentStatus.value = ToolDispatcher.actionTitle(name, "{}")
                     }
 
                     override fun onRetry(message: String, delayMillis: Long) {
+                        // Запрос начнётся заново: частичный текст и размышления
+                        // от предыдущей попытки не должны смешиваться с новыми.
+                        _streamingText.value = ""
+                        _streamingReasoning.value = ""
                         _currentStatus.value = "Повтор через ${delayMillis / 1000} с · $message"
                     }
                 },

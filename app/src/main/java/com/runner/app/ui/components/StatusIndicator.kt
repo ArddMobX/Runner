@@ -20,7 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,7 +35,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.RobotoMono
 import com.runner.app.ui.theme.SecondaryMint
+import kotlinx.coroutines.delay
 
 /**
  * Деликатная пульсирующая точка статуса (status pulsing dot) с фирменным акцентом Runner (Mint / Ice Blue).
@@ -97,8 +103,11 @@ fun AgentStatusIndicator(
     dotColor: Color = SecondaryMint,
     dotSize: Dp = 6.dp,
     height: Dp = 28.dp,
-    horizontalPadding: Dp = 20.dp
+    horizontalPadding: Dp = 20.dp,
+    /** Начало хода: если задано, справа тикает прошедшее время. */
+    startedAt: Long? = null
 ) {
+    val elapsedSeconds = rememberElapsedSeconds(startedAt)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -126,5 +135,44 @@ fun AgentStatusIndicator(
                 overflow = TextOverflow.Ellipsis
             )
         }
+        if (elapsedSeconds != null) {
+            Text(
+                text = formatElapsed(elapsedSeconds),
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.sp,
+                fontFamily = RobotoMono,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * Тикающий счётчик с начала хода. Отдельный composable, чтобы обновлялась
+ * только эта строка, а не весь экран чата.
+ */
+@Composable
+private fun rememberElapsedSeconds(startedAt: Long?): Int? {
+    if (startedAt == null) return null
+    var seconds by remember(startedAt) {
+        mutableIntStateOf(((System.currentTimeMillis() - startedAt) / 1000).toInt().coerceAtLeast(0))
+    }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            seconds = ((System.currentTimeMillis() - startedAt) / 1000).toInt().coerceAtLeast(0)
+            delay(1000)
+        }
+    }
+    return seconds
+}
+
+private fun formatElapsed(totalSeconds: Int): String {
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
     }
 }

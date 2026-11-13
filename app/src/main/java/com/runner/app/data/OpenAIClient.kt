@@ -1,6 +1,7 @@
 package com.runner.app.data
 
 import com.runner.app.tools.ToolDispatcher
+import com.runner.app.util.CrashReportManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -15,6 +16,8 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 data class ToolCall(
@@ -170,6 +173,12 @@ class OpenAIClient {
         fun onTextDelta(delta: String) {}
         fun onToolCallStarted(name: String) {}
         fun onRetry(message: String, delayMillis: Long) {}
+
+        /**
+         * Кусок размышлений thinking-модели. UI показывает его живьём,
+         * чтобы долгое «думание» не выглядело как зависание.
+         */
+        fun onReasoningDelta(delta: String) {}
     }
 
     /**
@@ -377,6 +386,7 @@ class OpenAIClient {
 
             val call = clientWithTimeout(connectTimeoutSeconds, responseTimeoutSeconds).newCall(request)
             activeCall = call
+            CrashReportManager.log("API", "Запрос $effectiveModel, попытка ${attempt + 1}")
             try {
                 val result = if (streaming) {
                     // Заглушка thought_signature — недокументированная строка Google.
@@ -463,12 +473,57 @@ class OpenAIClient {
         AIResponseResult.Error("Превышено количество попыток запроса к API.")
     }
 
-    /** Разбирает SSE-поток: content уходит в UI по мере поступления, tool_calls склеиваются по index/id. */
+    /**
+     * Обёртка над разбором SSE: заводит сторожа потока и превращает зависание
+     * в обычную retryable-ошибку, а не в вечное ожидание.
+     */
     private fun executeStreaming(
         call: Call,
         listener: StreamListener?,
         signatureFallback: Boolean,
         metrics: GenerationMetrics?
+    ): AIResponseResult {
+        val watchdog = StreamWatchdog()
+        watchdog.start(call)
+        CrashReportManager.log("API", "Стрим начат")
+        try {
+            val result = executeStreamingInner(call, listener, signatureFallback, metrics, watchdog)
+            if (watchdog.stalled) {
+                CrashReportManager.log(
+                    "API",
+                    "Поток завис: ${STREAM_STALL_TIMEOUT_MS / 1000} с без полезных данных"
+                )
+                return AIResponseResult.Error(
+                    "Модель молчит уже ${STREAM_STALL_TIMEOUT_MS / 1000} секунд. Повторяю запрос.",
+                    retryable = true
+                )
+            }
+            CrashReportManager.log("API", "Стрим завершён: ${result::class.simpleName}")
+            return result
+        } catch (e: IOException) {
+            if (watchdog.stalled) {
+                CrashReportManager.log(
+                    "API",
+                    "Поток завис: ${STREAM_STALL_TIMEOUT_MS / 1000} с без полезных данных"
+                )
+                return AIResponseResult.Error(
+                    "Модель молчит уже ${STREAM_STALL_TIMEOUT_MS / 1000} секунд. Повторяю запрос.",
+                    retryable = true
+                )
+            }
+            throw e
+        } finally {
+            watchdog.stop()
+        }
+    }
+
+    /** Разбирает SSE-поток: content уходит в UI по мере поступления, tool_calls склеиваются по index/id. */
+    private fun executeStreamingInner(
+        call: Call,
+        listener: StreamListener?,
+        signatureFallback: Boolean,
+        metrics: GenerationMetrics?,
+        watchdog: StreamWatchdog
     ): AIResponseResult {
         val content = StringBuilder()
         val toolCallSlots = sortedMapOf<Int, ToolCallAccumulator>()
@@ -508,6 +563,7 @@ class OpenAIClient {
                         metrics.completionTokens = completion
                     }
                 }
+                if (usage != null) watchdog.touch()
 
                 val choices = chunk.optJSONArray("choices") ?: continue
                 val choice0 = choices.optJSONObject(0) ?: continue
@@ -527,6 +583,8 @@ class OpenAIClient {
                         ?: (delta.opt("reasoning") as? String)?.takeIf { it.isNotEmpty() }
                 if (reasoningPiece != null) {
                     metrics?.noteReasoning(reasoningPiece, now)
+                    listener?.onReasoningDelta(reasoningPiece)
+                    watchdog.touch()
                 }
 
                 (delta.opt("content") as? String)?.takeIf { it.isNotEmpty() }?.let { piece ->
@@ -534,6 +592,7 @@ class OpenAIClient {
                     content.append(piece)
                     emitted = true
                     listener?.onTextDelta(piece)
+                    watchdog.touch()
                 }
 
                 val deltaExtra = delta.optJSONObject("extra_content")
@@ -547,6 +606,7 @@ class OpenAIClient {
 
                 val deltaToolCalls = delta.optJSONArray("tool_calls")
                 if (deltaToolCalls != null) {
+                    watchdog.touch()
                     for (index in 0 until deltaToolCalls.length()) {
                         val item = deltaToolCalls.optJSONObject(index) ?: continue
                         val hasIndex = item.has("index")
@@ -1377,4 +1437,60 @@ class OpenAIClient {
         const val RETRY_TICK_MS = 120L
     }
 
+}
+
+/**
+ * Сторож SSE-потока.
+ *
+ * OkHttp-таймаут следит за байтами, а не за смыслом: провайдер может слать
+ * пустые keepalive-строки, и соединение будет жить вечно, пока модель молчит.
+ * Сторож тикает раз в несколько секунд и отменяет вызов, если полезных
+ * событий (текст, reasoning, tool-call) не было дольше [STREAM_STALL_TIMEOUT_MS].
+ */
+private class StreamWatchdog {
+
+    @Volatile
+    private var lastEventAt: Long = System.currentTimeMillis()
+
+    @Volatile
+    var stalled: Boolean = false
+        private set
+
+    private var future: ScheduledFuture<*>? = null
+
+    fun start(call: Call) {
+        future = streamWatchdogExecutor.scheduleWithFixedDelay(
+            {
+                if (System.currentTimeMillis() - lastEventAt > STREAM_STALL_TIMEOUT_MS) {
+                    stalled = true
+                    call.cancel()
+                }
+            },
+            STREAM_WATCHDOG_TICK_MS,
+            STREAM_WATCHDOG_TICK_MS,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    /** Отметить полезное событие: поток жив, даже если это только reasoning. */
+    fun touch() {
+        lastEventAt = System.currentTimeMillis()
+    }
+
+    fun stop() {
+        future?.cancel(false)
+        future = null
+    }
+}
+
+/*
+ * 90 секунд — заведомо больше обычного «первого токена» даже у thinking-моделей
+ * на большом контексте. Сторож нужен против keepalive-зависаний, а не против
+ * медленного старта: обычный readTimeout OkHttp ловит мёртвое соединение раньше.
+ */
+private const val STREAM_STALL_TIMEOUT_MS = 90_000L
+private const val STREAM_WATCHDOG_TICK_MS = 5_000L
+
+private val streamWatchdogExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
+    Thread(runnable, "runner-stream-watchdog").apply { isDaemon = true }
 }

@@ -166,6 +166,8 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val streamingText by viewModel.streamingText.collectAsState()
+    val streamingReasoning by viewModel.streamingReasoning.collectAsState()
+    val streamStartedAt by viewModel.streamStartedAt.collectAsState()
     val isRunning by viewModel.isRunning.collectAsState()
     val currentStatus by viewModel.currentStatus.collectAsState()
     val provider by viewModel.activeProvider.collectAsState()
@@ -649,7 +651,15 @@ fun ChatScreen(
                 enter = expandVertically(animationSpec = MotionTokens.fluidSpring()) + fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)),
                 exit = shrinkVertically(animationSpec = MotionTokens.fluidSpring()) + fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast))
             ) {
-                AgentStatusIndicator(status = currentStatus)
+                Column {
+                    AgentStatusIndicator(
+                        status = currentStatus,
+                        startedAt = streamStartedAt
+                    )
+                    if (streamingText.isBlank() && streamingReasoning.isNotBlank()) {
+                        LiveReasoningBlock(reasoning = streamingReasoning)
+                    }
+                }
             }
 
             if (!appSettings.liveModeEnabled) {
@@ -1622,6 +1632,53 @@ private fun ResponseStats(
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
                 fontSize = 10.5.sp,
                 fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+/**
+ * Живой хвост размышлений, пока модель думает.
+ *
+ * Не раскрывается и не копит историю: это индикатор прогресса, а не архив.
+ * Показываем последние строки, чтобы было видно, что работа идёт.
+ */
+@Composable
+private fun LiveReasoningBlock(reasoning: String) {
+    val tail = remember(reasoning) { reasoning.takeLast(700).trim() }
+    if (tail.isEmpty()) return
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = RunnerIcons.Psychology,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Размышления",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = tail,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

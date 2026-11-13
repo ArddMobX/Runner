@@ -186,6 +186,7 @@ private fun OverlayScreen(
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val streamingText by viewModel.streamingText.collectAsState()
+    val streamStartedAt by viewModel.streamStartedAt.collectAsState()
     val isRunning by viewModel.isRunning.collectAsState()
     val currentStatus by viewModel.currentStatus.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
@@ -518,7 +519,8 @@ private fun OverlayScreen(
                                     dotColor = SecondaryMint,
                                     dotSize = 5.dp,
                                     height = 24.dp,
-                                    horizontalPadding = 0.dp
+                                    horizontalPadding = 0.dp,
+                                    startedAt = streamStartedAt
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
