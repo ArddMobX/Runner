@@ -203,6 +203,19 @@ class OpenAIClient {
         }
     }
 
+    /**
+     * Модель понимает reasoning_effort. Проверка по имени, а не по провайдеру:
+     * один и тот же GPT-приходит и с OpenAI, и через прокси/агрегаторы.
+     */
+    private fun supportsReasoningEffort(model: String): Boolean {
+        val name = model.substringAfterLast('/').lowercase()
+        return name.startsWith("gpt-5") ||
+                name.startsWith("gpt-6") ||
+                name.startsWith("o1") ||
+                name.startsWith("o3") ||
+                name.startsWith("o4")
+    }
+
     private val client = OkHttpClient.Builder()
         .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -286,7 +299,13 @@ class OpenAIClient {
          * Проверка «пользователь нажал Стоп». Нужна внутри пауз между ретраями:
          * без неё кнопка не реагирует до конца ожидания, а запрос всё равно уходит.
          */
-        shouldStop: () -> Boolean = { false }
+        shouldStop: () -> Boolean = { false },
+        /**
+         * Режим «Думать»: включить thinking у DeepSeek и reasoning_effort
+         * у моделей OpenAI, если они это поддерживают. Для остальных остаётся
+         * только добавка к системному промпту.
+         */
+        forceThinking: Boolean = false
     ): AIResponseResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             return@withContext AIResponseResult.Error(
@@ -312,6 +331,7 @@ class OpenAIClient {
         var allowTemperature = true
         var allowMaxTokens = maxTokens > 0
         var allowThinking = providerKind == ProviderKind.DEEPSEEK && officialDeepSeekHost
+        var allowReasoningEffort = true
         var allowTools = withTools
         var optionalStripped = 0
 
@@ -359,7 +379,13 @@ class OpenAIClient {
                 // цикла это лишняя латентность. Но поле не из схемы OpenAI, поэтому
                 // шлём его только на официальный хост, а не на любой похожий прокси.
                 if (allowThinking) {
-                    put("thinking", JSONObject().put("type", "disabled"))
+                    put(
+                        "thinking",
+                        JSONObject().put("type", if (forceThinking) "enabled" else "disabled")
+                    )
+                }
+                if (forceThinking && allowReasoningEffort && supportsReasoningEffort(effectiveModel)) {
+                    put("reasoning_effort", "high")
                 }
             }
 
@@ -413,6 +439,7 @@ class OpenAIClient {
                         "temperature" -> allowTemperature = false
                         "max_tokens", "max_completion_tokens" -> allowMaxTokens = false
                         "thinking" -> allowThinking = false
+                        "reasoning_effort" -> allowReasoningEffort = false
                         "tools", "tool_choice" -> allowTools = false
                         else -> Unit
                     }
@@ -999,7 +1026,13 @@ class OpenAIClient {
                 AIResponseResult.Error("Ошибка запроса (400): $details")
             code == 400 ->
                 AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Проверьте модель и параметры в настройках.")
-            code == 401 -> AIResponseResult.Error("Ошибка авторизации (401). Проверьте API-ключ провайдера.")
+            code == 401 -> {
+                val host = call.request().url.host
+                AIResponseResult.Error(
+                    "Ошибка авторизации (401) на $host. Ключ не подошёл этому провайдеру: " +
+                            "проверьте, что он от этого сервиса, а не от другого, и что Base URL совпадает."
+                )
+            }
             code == 403 -> AIResponseResult.Error(
                 if (details != null) "Доступ запрещён (403): $details"
                 else "Доступ запрещён (403). Проверьте ключ и доступ модели."
@@ -1418,7 +1451,16 @@ class OpenAIClient {
          * Поля, которые разрешено убирать по жалобе провайдера. Белый список:
          * удалять из запроса произвольное поле, названное сервером, нельзя.
          */
-        val OPTIONAL_PARAM_NAMES = listOf("stream_options", "temperature", "max_tokens", "thinking", "tools", "tool_choice")
+        val OPTIONAL_PARAM_NAMES = listOf(
+            "stream_options",
+            "temperature",
+            "max_tokens",
+            "max_completion_tokens",
+            "thinking",
+            "reasoning_effort",
+            "tools",
+            "tool_choice"
+        )
 
         /** Хосты, про которые точно известно, что stream_options они принимают. */
         val KNOWN_STREAM_USAGE_HOSTS = listOf(

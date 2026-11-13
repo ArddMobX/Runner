@@ -13,14 +13,17 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -58,12 +61,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
@@ -92,6 +97,12 @@ class ChatInputState(initialText: String = "") {
     )
 
     var selectedImages by mutableStateOf<List<Uri>>(emptyList())
+
+    /** Принудительный веб-поиск перед ответом. */
+    var webSearch by mutableStateOf(false)
+
+    /** Принудительно включить размышления модели, если провайдер это умеет. */
+    var think by mutableStateOf(false)
 
     val text: String
         get() = textFieldValue.text
@@ -271,15 +282,25 @@ fun ChatInputBar(
             }
         }
 
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(26.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainer)
                 .border(BorderStroke(if (isLiveMode) 1.2.dp else 1.dp, borderColor), RoundedCornerShape(26.dp))
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-            verticalAlignment = if (textValue.text.contains('\n')) Alignment.Bottom else Alignment.CenterVertically
+                .padding(horizontal = 6.dp, vertical = 5.dp)
         ) {
+            InputModeChips(
+                webSearch = inputState.webSearch,
+                think = inputState.think,
+                enabled = !isRunning,
+                onToggleSearch = { inputState.webSearch = !inputState.webSearch },
+                onToggleThink = { inputState.think = !inputState.think }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = if (textValue.text.contains('\n')) Alignment.Bottom else Alignment.CenterVertically
+            ) {
             // Кнопка «+»: быстрое меню прикрепления — камера или галерея.
             // Идеально сбалансирована по центру, размеру (38dp) и форме с кнопкой микрофона/отправки.
             Box(
@@ -406,7 +427,112 @@ fun ChatInputBar(
                 onStop = { handleStop() },
                 onMicClick = { handleMicClick() }
             )
+            }
         }
+    }
+}
+
+/**
+ * Два режима ввода: принудительный поиск и размышления.
+ * Это не настройки навсегда, а переключатели на текущий диалог.
+ */
+@Composable
+private fun InputModeChips(
+    webSearch: Boolean,
+    think: Boolean,
+    enabled: Boolean,
+    onToggleSearch: () -> Unit,
+    onToggleThink: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 1.dp, bottom = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        InputModeChip(
+            label = "Поиск",
+            icon = RunnerIcons.Search,
+            active = webSearch,
+            enabled = enabled,
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onToggleSearch()
+            }
+        )
+        InputModeChip(
+            label = "Думать",
+            icon = RunnerIcons.Psychology,
+            active = think,
+            enabled = enabled,
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onToggleThink()
+            }
+        )
+    }
+}
+
+@Composable
+private fun InputModeChip(
+    label: String,
+    icon: ImageVector,
+    active: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(9.dp)
+    val background by animateColorAsState(
+        targetValue = when {
+            !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f)
+            active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+        },
+        animationSpec = MotionTokens.fluidTween(180),
+        label = "mode_chip_background"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+            active -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = MotionTokens.fluidTween(180),
+        label = "mode_chip_content"
+    )
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(background)
+            .border(
+                BorderStroke(
+                    1.dp,
+                    if (active) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    }
+                ),
+                shape
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = label,
+            color = contentColor,
+            fontSize = 11.5.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium
+        )
     }
 }
 

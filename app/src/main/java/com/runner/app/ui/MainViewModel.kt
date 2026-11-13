@@ -43,6 +43,7 @@ import com.runner.app.tools.FileChangeTracker
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
+import com.runner.app.tools.WebTools
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
@@ -167,6 +168,11 @@ private const val REASONING_LIVE_LIMIT = 4_000
 
 /** Предел длины реплики-нарратива в ленте. */
 private const val NARRATION_MAX_CHARS = 1_200
+
+/** Добавка к системному промпту на один ход с включённым «Думать». */
+private const val THINKING_TURN_NOTE =
+    "РЕЖИМ «ДУМАТЬ»: продумай задачу тщательно, проверь свои выводы и результаты инструментов. " +
+            "Не выводи служебные рассуждения в ответ, если пользователь их не просил."
 
 /**
  * Пометка к операции, которую автономный режим выполнил без вопроса, хотя её
@@ -1655,7 +1661,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentStatus.value = "Останавливаю"
     }
 
-    fun sendMessage(prompt: String, images: List<Uri> = emptyList()) {
+    fun sendMessage(
+        prompt: String,
+        images: List<Uri> = emptyList(),
+        forceSearch: Boolean = false,
+        forceThinking: Boolean = false
+    ) {
         val text = prompt.trim()
         if (text.isEmpty() && images.isEmpty()) return
         if (_isRunning.value) return
@@ -1694,7 +1705,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val session = repository.createSession()
                     loadSession(session.id)
-                    sendMessage(prompt, images)
+                    sendMessage(prompt, images, forceSearch, forceThinking)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -1770,7 +1781,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Системный промпт пересобираем перед каждым ходом: настройки
                 // могли измениться посреди сессии, а контекст хранится в базе.
-                refreshSystemPrompt()
+                refreshSystemPrompt(if (forceThinking) THINKING_TURN_NOTE else "")
 
                 if (cachedImagePaths.isNotEmpty()) {
                     val contentArray = JSONArray().apply {
@@ -1807,6 +1818,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 persistContext(sessionId)
 
+                if (forceSearch) {
+                    performForcedSearch(sessionId, effectiveText)
+                    if (stopRequested) {
+                        finalizeStreamedText(sessionId, stopped = true)
+                        return@launch
+                    }
+                }
+
                 // Планирование: сначала план шагов + подтверждение, потом исполнение.
                 // Слабым моделям (Flash Lite и подобные) это сильно поднимает надёжность.
                 // На приветствия и смолл-ток планировщик не триггерим вообще.
@@ -1842,7 +1861,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Состав инструментов известен только после утверждения плана.
                 updateToolScope()
 
-                runAgentLoop(sessionId, provider, model)
+                runAgentLoop(sessionId, provider, model, forceThinking)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1896,7 +1915,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * генерацию ещё раз. Контекст диалога обрезается до того же места, иначе
      * модель получила бы историю, которой в ленте уже нет.
      */
-    fun retryFromUserMessage(messageId: String) {
+    fun retryFromUserMessage(
+        messageId: String,
+        forceSearch: Boolean = false,
+        forceThinking: Boolean = false
+    ) {
         if (_isRunning.value) return
 
         val target = _messages.value.firstOrNull { it.id == messageId } ?: return
@@ -1947,9 +1970,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 repository.deleteMessagesAfter(sessionId, target.timestamp)
                 trimContextToUser(target.content)
+                refreshSystemPrompt(if (forceThinking) THINKING_TURN_NOTE else "")
                 persistContext(sessionId)
                 repository.updateSessionModel(sessionId, model)
-                runAgentLoop(sessionId, provider, model)
+                if (forceSearch) {
+                    performForcedSearch(sessionId, target.content)
+                    if (stopRequested) {
+                        return@launch
+                    }
+                }
+                runAgentLoop(sessionId, provider, model, forceThinking)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2201,7 +2231,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .take(MAX_PLAN_STEPS)
     }
 
-    private suspend fun runAgentLoop(sessionId: String, provider: Provider, model: String) {
+    private suspend fun runAgentLoop(
+        sessionId: String,
+        provider: Provider,
+        model: String,
+        forceThinking: Boolean = false
+    ) {
         val currentSettings = _settings.value
         val trackStats = currentSettings.showStats
         val turnStartedAt = System.currentTimeMillis()
@@ -2288,7 +2323,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 liveMode = currentSettings.liveModeEnabled,
                 // Стоп должен работать и во время паузы между ретраями,
                 // иначе кнопка «висит», а запрос всё равно уходит повторно.
-                shouldStop = { stopRequested }
+                shouldStop = { stopRequested },
+                forceThinking = forceThinking
             )
 
             metrics.promptTokens?.let { totalPromptTokens += it }
@@ -3089,6 +3125,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Принудительный поиск из режима «Поиск».
+     *
+     * Делает один запрос до агентского цикла, кладёт карточку в ленту и
+     * результаты в контекст. Модель всё равно может вызвать web_search ещё раз,
+     * если выдачи мало.
+     */
+    private suspend fun performForcedSearch(sessionId: String, query: String) {
+        val cleanQuery = query.replace('\n', ' ').trim().take(300)
+        if (cleanQuery.isBlank()) {
+            appendSystemInfo("Режим «Поиск» включён, но в запросе нет текста для поиска.", null)
+            return
+        }
+        _currentStatus.value = "Ищу в сети…"
+        val startedAt = System.currentTimeMillis()
+        val outcome = withContext(Dispatchers.IO) {
+            WebTools.search(cleanQuery, 5, _settings.value.webSearchApiKey)
+        }
+        val duration = System.currentTimeMillis() - startedAt
+        _currentStatus.value = null
+
+        if (outcome.sources.isEmpty()) {
+            appendSystemInfo(outcome.text, null)
+            return
+        }
+
+        val args = JSONObject().apply {
+            put("query", cleanQuery)
+            put("count", 5)
+        }
+        val wrapped = ToolDispatcher.wrapUntrusted(outcome.text)
+        val message = ChatMessage(
+            role = MessageRole.TOOL_EXECUTION,
+            content = ToolDispatcher.actionTitle("web_search", args.toString()),
+            toolName = "web_search",
+            toolArgs = args.toString(),
+            toolOutput = wrapped,
+            toolSummary = ToolDispatcher.summarizeResult(wrapped),
+            sources = outcome.sources,
+            toolDurationMs = duration,
+            timestamp = System.currentTimeMillis()
+        )
+        _messages.value = _messages.value + message
+        repository.saveMessage(message.toEntity(sessionId))
+
+        // Аргументы из выдачи считаем недоверенными, как и обычный web_search.
+        val lines = wrapped.lineSequence()
+            .map { it.trim() }
+            .filter { it.length in 4..300 && it.none { ch -> ch == '\u0000' } }
+            .toSet()
+        if (lines.isNotEmpty()) {
+            untrustedLines = (untrustedLines + lines)
+                .toList()
+                .takeLast(UNTRUSTED_LINES_LIMIT)
+                .toSet()
+        }
+
+        conversationJson.put(
+            JSONObject().apply {
+                put("role", "user")
+                put("content", buildString {
+                    append("Пользователь включил режим «Поиск». Ниже результаты веб-поиска по запросу «")
+                    append(cleanQuery)
+                    append("». Используй их в ответе, называй сайты и ссылки. ")
+                    append("Если информации мало, вызови web_search ещё раз.\n\n")
+                    append(wrapped)
+                })
+            }
+        )
+        persistContext(sessionId)
+    }
+
+    /**
      * Копия контекста для записи в Room.
      *
      * data:image/...;base64,... — сотни килобайт на кадр. Несколько фото в
@@ -3143,7 +3251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * и доп. инструкции могут измениться посреди сессии, а контекст лежит в базе
      * как есть и переживает перезапуск.
      */
-    private fun systemMessage(): JSONObject {
+    private fun systemMessage(extraNote: String = ""): JSONObject {
         var content = AppSettings.buildFinalSystemPrompt(
             _settings.value.effectiveInstructions,
             readOnly = _settings.value.readOnlyMode,
@@ -3152,6 +3260,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             autoApproveInWorkingDir = _settings.value.autoApproveInWorkingDir,
             liveMode = _settings.value.liveModeEnabled
         )
+        if (extraNote.isNotBlank()) {
+            content = content.trimEnd() + "\n\n" + extraNote
+        }
         // Пояснение к урезанному набору. Без него модель просто не знает, что
         // инструмент существует, и отвечает «не могу» вместо подключения.
         activeToolScope?.let { scope ->
@@ -3282,11 +3393,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Обновляет системное сообщение в текущем контексте, если оно там есть. */
-    private fun refreshSystemPrompt() {
+    private fun refreshSystemPrompt(extraNote: String = "") {
         if (conversationJson.length() == 0) return
         val first = conversationJson.optJSONObject(0) ?: return
         if (first.optString("role") != "system") return
-        conversationJson.put(0, systemMessage())
+        conversationJson.put(0, systemMessage(extraNote))
     }
 
     /**

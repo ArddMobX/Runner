@@ -608,7 +608,13 @@ fun ChatScreen(
                                             onApprovePlan = { viewModel.resolvePlan(true) },
                                             onRejectPlan = { viewModel.resolvePlan(false) },
                                             onEditMessage = { inputState.setText(it) },
-                                            onRetryMessage = { viewModel.retryFromUserMessage(it) },
+                                            onRetryMessage = {
+                                                viewModel.retryFromUserMessage(
+                                                    it,
+                                                    forceSearch = inputState.webSearch,
+                                                    forceThinking = inputState.think
+                                                )
+                                            },
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
@@ -732,7 +738,12 @@ fun ChatScreen(
                     if (appSettings.liveModeEnabled) {
                         (context as? android.app.Activity)?.moveTaskToBack(true)
                     }
-                    viewModel.sendMessage(text, images)
+                    viewModel.sendMessage(
+                        text,
+                        images,
+                        forceSearch = inputState.webSearch,
+                        forceThinking = inputState.think
+                    )
                 },
                 onStop = { viewModel.stopGeneration() },
                 onStartListening = {
@@ -1480,7 +1491,9 @@ private fun MessageItem(
                     .fillMaxWidth(0.96f)
                     .padding(vertical = 2.dp)
             ) {
-                if (showStats) {
+                // Если модель вернула размышления, показываем их даже без
+                // включённой статистики: режим «Думать» должен быть виден.
+                if (showStats || !message.reasoningText.isNullOrBlank()) {
                     ReasoningBlock(
                         reasoning = message.reasoningText,
                         reasoningMs = message.reasoningMs
@@ -3551,7 +3564,7 @@ private fun getErrorHint(text: String): String? {
         lower.contains("(400)") || lower.contains("400") ->
             "Возможно, выбранная модель не поддерживается провайдером или в настройках указаны несовместимые параметры. Попробуйте сменить модель или проверить настройки."
         lower.contains("(401)") || lower.contains("401") || lower.contains("авторизац") ->
-            "Возможно, неверно введён API-ключ или он был отозван. Проверьте ключ в настройках провайдера."
+            "Ключ не подошёл выбранному провайдеру. Проверьте, что он от этого сервиса, а не от другого, и что Base URL совпадает. Если задан кастомный заголовок Authorization, он заменяет ключ провайдера."
         lower.contains("(403)") || lower.contains("403") || lower.contains("доступ запрещ") ->
             "Возможно, на балансе закончились средства, у ключа нет прав к этой модели или требуется включить VPN."
         lower.contains("(404)") || lower.contains("404") || lower.contains("не найден") ->

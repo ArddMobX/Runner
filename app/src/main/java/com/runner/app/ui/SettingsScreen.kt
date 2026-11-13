@@ -1292,7 +1292,7 @@ private fun SettingsRoot(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Cloudflare Access, X-Api-Key, кастомный auth",
+                            text = "Cloudflare Access, X-Api-Key. Заголовок Authorization здесь заменяет ключ выбранного провайдера.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.5.sp
                         )
