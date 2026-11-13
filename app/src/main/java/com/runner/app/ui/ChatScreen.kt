@@ -114,6 +114,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -217,6 +218,10 @@ fun ChatScreen(
     var showLivePermissionSheet by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
+    // Лента строится заранее: по ней же считается автоскролл. Раньше скролл
+    // использовал число сообщений, а рисуемых элементов после группировки
+    // меньше, и индекс уезжал за пределы списка.
+    val chatItems = remember(messages) { groupChatItems(messages) }
 
     // Плеер и синтез речи глушим при уходе с экрана:
     // иначе они продолжат звучать поверх других экранов
@@ -229,8 +234,8 @@ fun ChatScreen(
     }
 
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+        if (chatItems.isNotEmpty()) {
+            listState.animateScrollToItem(chatItems.size - 1)
         }
     }
 
@@ -555,7 +560,7 @@ fun ChatScreen(
                                 key = {
                                     when (it) {
                                         is ChatListItem.Single -> it.message.id
-                                        is ChatListItem.ToolGroup -> "group_${it.messages.first().id}"
+                                        is ChatListItem.TaskActivity -> "turn_${it.messages.first().id}"
                                     }
                                 }
                             ) { item ->
@@ -596,11 +601,17 @@ fun ChatScreen(
                                             }
                                         )
 
-                                        is ChatListItem.ToolGroup -> ToolGroupCard(
+                                        is ChatListItem.TaskActivity -> TaskActivityCard(
                                             messages = item.messages,
+                                            showDetails = appSettings.showToolDetails,
+                                            showStats = appSettings.showStats,
+                                            planAwaitingId = pendingPlan?.id,
+                                            isRunning = isRunning,
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
-                                            onOpenSources = { sourcesSheet = it }
+                                            onOpenSources = { sourcesSheet = it },
+                                            onApprovePlan = { viewModel.resolvePlan(true) },
+                                            onRejectPlan = { viewModel.resolvePlan(false) }
                                         )
                                     }
                                 }
@@ -1522,6 +1533,8 @@ private fun MessageItem(
             onOpenSources = onOpenSources
         )
 
+        MessageRole.NARRATION -> NarrationRow(text = message.content)
+
         MessageRole.PLAN -> PlanCard(
             message = message,
             awaitingDecision = message.id == planAwaitingId,
@@ -1947,12 +1960,12 @@ private fun parsePlanStepsUi(text: String): List<String> {
 }
 
 /**
- * Элемент ленты чата: одиночное сообщение либо схлопнутая серия
- * одинаковых вызовов инструментов.
+ * Элемент ленты чата: одиночное сообщение либо лента хода задачи
+ * (план, реплики модели и вызовы инструментов).
  */
 internal sealed interface ChatListItem {
     data class Single(val message: ChatMessage) : ChatListItem
-    data class ToolGroup(val messages: List<ChatMessage>) : ChatListItem
+    data class TaskActivity(val messages: List<ChatMessage>) : ChatListItem
 }
 
 /**
@@ -1963,26 +1976,29 @@ internal fun findLastUserMessageId(messages: List<ChatMessage>): String? =
     messages.findLast { it.role == MessageRole.USER }?.id
 
 /**
- * Схлопывает ЛЮБУЮ идущую подряд серию завершённых вызовов в одну карточку,
- * а не только одинаковые тулы: иначе после каждого шага агента в ленте
- * плодятся отдельные плашки и полезный ответ в них тонет.
- * Живые (isRunning) вызовы и одиночные не группируем.
+ * Собирает ленту хода задачи: план, реплики модели и вызовы инструментов
+ * идут одной карточкой, пока их не разделит ответ ассистента, системная
+ * плашка или новое сообщение пользователя.
+ *
+ * Раньше группировались только завершённые тулы, и ход рассыпался на
+ * «Выполнено 2 действия», «Выполнено 3 действия» с независимыми счётчиками.
  */
 internal fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
     val out = mutableListOf<ChatListItem>()
     var run = mutableListOf<ChatMessage>()
     fun flush() {
-        if (run.size == 1) out += ChatListItem.Single(run[0])
-        else if (run.isNotEmpty()) out += ChatListItem.ToolGroup(run.toList())
+        if (run.isNotEmpty()) out += ChatListItem.TaskActivity(run.toList())
         run = mutableListOf()
     }
     for (m in messages) {
-        val isFinishedTool = m.role == MessageRole.TOOL_EXECUTION && !m.isRunning && m.toolName != null
-        if (isFinishedTool) {
-            run += m
-        } else {
-            flush()
-            out += ChatListItem.Single(m)
+        when (m.role) {
+            MessageRole.PLAN,
+            MessageRole.NARRATION,
+            MessageRole.TOOL_EXECUTION -> run += m
+            else -> {
+                flush()
+                out += ChatListItem.Single(m)
+            }
         }
     }
     flush()
@@ -1997,155 +2013,381 @@ internal fun undoLabel(ref: TrashStore.UndoRef): String = when (ref.kind) {
 }
 
 /**
- * Аккордеон серии вызовов: «Выполнено N действий (нажми для деталей)».
- * Внутри — заголовок и вывод каждого вызова, стиль как у лёгкой тул-плашки.
+ * Карточка одного хода задачи: реплики модели, план и действия идут
+ * непрерывной лентой. Заголовок показывает общее число действий и время,
+ * поэтому счётчики больше не скачут от группы к группе.
  */
 @Composable
-private fun ToolGroupCard(
+private fun TaskActivityCard(
     messages: List<ChatMessage>,
+    showDetails: Boolean,
+    showStats: Boolean,
+    planAwaitingId: String?,
+    isRunning: Boolean,
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
-    onOpenSources: (List<WebSource>) -> Unit
+    onOpenSources: (List<WebSource>) -> Unit,
+    onApprovePlan: () -> Unit,
+    onRejectPlan: () -> Unit
 ) {
-    var expanded by remember(messages.first().id) { mutableStateOf(false) }
-    val rotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = MotionTokens.fluidSpring(),
-        label = "group_chevron_rotation"
-    )
-    val hasErrors = messages.any { it.isError }
-    // Записи журнала этой группы: у каждой операции удаления или перемещения своя.
-    val undoRefs = remember(messages) {
-        messages.mapNotNull { TrashStore.undoRefFromOutput(it.toolOutput) }
+    val toolMessages = remember(messages) { messages.filter { it.role == MessageRole.TOOL_EXECUTION } }
+    val actionCount = toolMessages.size
+    val hasError = toolMessages.any { it.isError }
+    val anyRunning = toolMessages.any { it.isRunning }
+    val planAwaiting = messages.any { it.role == MessageRole.PLAN && it.id == planAwaitingId }
+    var expanded by remember(messages.first().id) { mutableStateOf(anyRunning || planAwaiting) }
+    LaunchedEffect(anyRunning) {
+        if (anyRunning) expanded = true
     }
-    val compactShape = RoundedCornerShape(9.dp)
+    LaunchedEffect(planAwaiting) {
+        if (planAwaiting) expanded = true
+    }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(compactShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f))
-            .border(
-                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                compactShape
-            )
-            .animateContentSize(animationSpec = MotionTokens.fluidSpring())
-            .clickable { expanded = !expanded }
+    val startedAt = remember(messages) { messages.firstOrNull()?.timestamp ?: 0L }
+    var elapsedMs by remember(messages.first().id) {
+        mutableStateOf(currentActivityElapsed(messages, startedAt, anyRunning && isRunning))
+    }
+    LaunchedEffect(messages, anyRunning, isRunning) {
+        if (anyRunning && isRunning) {
+            while (true) {
+                elapsedMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(0)
+                kotlinx.coroutines.delay(1000)
+            }
+        } else {
+            elapsedMs = currentActivityElapsed(messages, startedAt, false)
+        }
+    }
+
+    val shape = RoundedCornerShape(12.dp)
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f),
+        shape = shape,
+        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    // Пока план ждёт решения, прятать его нельзя: кнопки
+                    // утверждения находятся внутри.
+                    .clickable(enabled = !planAwaiting) { expanded = !expanded }
+                    .padding(horizontal = 2.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(7.dp)
                         .clip(CircleShape)
-                        .background(if (hasErrors) MaterialTheme.colorScheme.error else StatusSuccess)
+                        .background(
+                            when {
+                                hasError -> MaterialTheme.colorScheme.error
+                                planAwaiting -> StatusWarning
+                                anyRunning -> MaterialTheme.colorScheme.primary
+                                else -> StatusSuccess
+                            }
+                        )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Выполнено ${PluralUtils.actions(messages.size)}",
+                    text = "Ход задачи",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f, fill = false)
+                    fontWeight = FontWeight.Medium
                 )
+                if (actionCount > 0) {
+                    Text(
+                        text = " · ${PluralUtils.actions(actionCount)}",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.5.sp,
+                        maxLines = 1
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = "· ${messages.first().content}",
+                    text = formatTimelineElapsed(elapsedMs),
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 6.dp)
+                    fontSize = 10.5.sp,
+                    fontFamily = FontFamily.Monospace
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
                     imageVector = RunnerIcons.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Свернуть" else "Детали",
+                    contentDescription = if (expanded) "Свернуть" else "Развернуть",
                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     modifier = Modifier
                         .size(14.dp)
-                        .graphicsLayer { rotationZ = rotation }
-                )
-            }
-
-            // Одна запись корзины на всю группу — показываем кнопку сразу.
-            // Если их несколько, кнопки уезжают в раскрытый список: стопка
-            // одинаковых надписей в шапке читалась бы как одна операция.
-            if (!expanded && undoRefs.size == 1) {
-                Spacer(modifier = Modifier.height(7.dp))
-                val ref = undoRefs.first()
-                UndoTrashButton(
-                    label = undoLabel(ref),
-                    onClick = { onUndoTrash(ref.entryId) }
-                )
-            }
-
-            // Источники всей группы: поиск и чтение страниц обычно идут парой,
-            // и держать их за раскрытием не нужно.
-            val groupSources = remember(messages) {
-                messages.flatMap { it.sources }.distinctBy { it.url }
-            }
-            if (groupSources.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                WebSourcesRow(
-                    sources = groupSources,
-                    onClick = { onOpenSources(groupSources) }
+                        .graphicsLayer { rotationZ = if (expanded) 180f else 0f }
                 )
             }
 
             if (expanded) {
-                Spacer(modifier = Modifier.height(9.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
                 Spacer(modifier = Modifier.height(4.dp))
-                messages.forEachIndexed { index, m ->
-                    if (index > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            thickness = 0.5.dp
+                messages.forEach { message ->
+                    when (message.role) {
+                        MessageRole.PLAN -> PlanCard(
+                            message = message,
+                            awaitingDecision = message.id == planAwaitingId,
+                            onApprove = onApprovePlan,
+                            onReject = onRejectPlan
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+
+                        MessageRole.NARRATION -> NarrationRow(text = message.content)
+
+                        MessageRole.TOOL_EXECUTION -> TimelineStepRow(
+                            message = message,
+                            showDetails = showDetails,
+                            showStats = showStats,
+                            onUndoTrash = onUndoTrash,
+                            onOpenPreview = onOpenPreview,
+                            onOpenSources = onOpenSources
+                        )
+
+                        else -> Unit
                     }
+                }
+            } else if (toolMessages.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                TimelineStepRow(
+                    message = toolMessages.last(),
+                    showDetails = showDetails,
+                    showStats = showStats,
+                    onUndoTrash = onUndoTrash,
+                    onOpenPreview = onOpenPreview,
+                    onOpenSources = onOpenSources
+                )
+            }
+        }
+    }
+}
+
+/** Время хода: от первого сообщения до последнего завершённого действия. */
+private fun currentActivityElapsed(
+    messages: List<ChatMessage>,
+    startedAt: Long,
+    running: Boolean
+): Long {
+    if (startedAt <= 0L) return 0L
+    val end = if (running) {
+        System.currentTimeMillis()
+    } else {
+        val last = messages.lastOrNull() ?: return 0L
+        last.timestamp + (last.toolDurationMs ?: 0L)
+    }
+    return (end - startedAt).coerceAtLeast(0L)
+}
+
+private fun formatTimelineElapsed(millis: Long): String {
+    val totalSeconds = (millis / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
+
+/** Короткая реплика модели внутри хода задачи. */
+@Composable
+private fun NarrationRow(text: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 2.dp, end = 4.dp, top = 6.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = RunnerIcons.ChatBubble,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+            modifier = Modifier
+                .padding(top = 1.dp)
+                .size(13.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.5.sp,
+            lineHeight = 17.sp,
+            fontStyle = FontStyle.Italic,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** Один шаг хода: действие, результат и раскрываемые детали. */
+@Composable
+private fun TimelineStepRow(
+    message: ChatMessage,
+    showDetails: Boolean,
+    showStats: Boolean,
+    onUndoTrash: (String) -> Unit,
+    onOpenPreview: (WebPreviewSource) -> Unit,
+    onOpenSources: (List<WebSource>) -> Unit
+) {
+    val context = LocalContext.current
+    var detailsExpanded by remember(message.id) { mutableStateOf(false) }
+    val hasDetails = showDetails && (
+            !message.toolArgs.isNullOrBlank() || !message.toolOutput.isNullOrBlank()
+            )
+    val undoRef = remember(message.toolOutput) {
+        TrashStore.undoRefFromOutput(message.toolOutput)
+    }
+    val preview = remember(message.toolArgs, message.toolOutput) {
+        findWebPreviewInToolCall(
+            toolName = message.toolName.orEmpty(),
+            args = message.toolArgs,
+            output = message.toolOutput
+        )
+    }
+    val shape = RoundedCornerShape(8.dp)
+    val runningBackground = if (message.isRunning) {
+        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
+    } else {
+        Color.Transparent
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(runningBackground)
+            .padding(horizontal = 4.dp, vertical = 3.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .clickable(enabled = hasDetails && !message.isRunning) {
+                    detailsExpanded = !detailsExpanded
+                }
+                .padding(vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ToolStatusIcon(message)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = message.content,
+                    color = if (message.isDeclined) {
+                        MaterialTheme.colorScheme.outline
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val detailLine = buildString {
+                    if (!message.toolSummary.isNullOrBlank()) append(message.toolSummary)
+                    if (showStats && !message.isRunning && message.toolDurationMs != null) {
+                        if (isNotEmpty()) append(" · ")
+                        append(formatDuration(message.toolDurationMs))
+                    }
+                    if (message.isRunning) {
+                        if (isNotEmpty()) append(" · ")
+                        append("выполняется…")
+                    }
+                }
+                if (detailLine.isNotBlank()) {
                     Text(
-                        text = m.content,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
+                        text = detailLine,
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (!m.toolOutput.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(3.dp))
-                        ToolOutputView(output = m.toolOutput)
-                    }
-                    val preview = remember(m.toolArgs, m.toolOutput) {
-                        findWebPreviewInToolCall(
-                            toolName = m.toolName.orEmpty(),
-                            args = m.toolArgs,
-                            output = m.toolOutput
-                        )
-                    }
-                    if (preview != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        PreviewButton(
-                            label = "Открыть превью ${preview.title}",
-                            onClick = { onOpenPreview(preview) }
-                        )
-                    }
-                    // Кнопка стоит под своим сообщением: в группе операций
-                    // каждая откатывается отдельно.
-                    TrashStore.undoRefFromOutput(m.toolOutput)?.let { ref ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        UndoTrashButton(
-                            label = undoLabel(ref),
-                            onClick = { onUndoTrash(ref.entryId) }
+                }
+            }
+            if (hasDetails && !message.isRunning) {
+                Icon(
+                    imageVector = RunnerIcons.KeyboardArrowDown,
+                    contentDescription = if (detailsExpanded) "Свернуть" else "Детали",
+                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(14.dp)
+                        .graphicsLayer { rotationZ = if (detailsExpanded) 180f else 0f }
+                )
+            }
+        }
+
+        if (message.sources.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(5.dp))
+            WebSourcesRow(
+                sources = message.sources,
+                onClick = { onOpenSources(message.sources) }
+            )
+        }
+
+        if (undoRef != null) {
+            Spacer(modifier = Modifier.height(5.dp))
+            UndoTrashButton(
+                label = undoLabel(undoRef),
+                onClick = { onUndoTrash(undoRef.entryId) }
+            )
+        }
+
+        if (preview != null) {
+            Spacer(modifier = Modifier.height(5.dp))
+            PreviewButton(
+                label = "Открыть превью ${preview.title}",
+                onClick = { onOpenPreview(preview) }
+            )
+        }
+
+        if (detailsExpanded && hasDetails) {
+            Spacer(modifier = Modifier.height(7.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(7.dp))
+            if (!message.toolArgs.isNullOrBlank() && message.toolArgs != "{}") {
+                Text(
+                    text = "Аргументы",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = message.toolArgs,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            if (!message.toolOutput.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Результат",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = {
+                            val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            manager.setPrimaryClip(
+                                ClipData.newPlainText("Результат инструмента", message.toolOutput)
+                            )
+                            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = RunnerIcons.ContentCopy,
+                            contentDescription = "Копировать",
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(3.dp))
+                ToolOutputView(output = message.toolOutput)
             }
         }
     }

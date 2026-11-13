@@ -69,6 +69,8 @@ enum class MessageRole {
     ASSISTANT,
     TOOL_EXECUTION,
     SYSTEM_INFO,
+    /** Короткая реплика модели перед инструментами: «Сейчас проверю новости». */
+    NARRATION,
     /** Карточка плана шагов: составляется до исполнения, ждёт подтверждения. */
     PLAN
 }
@@ -159,6 +161,9 @@ private const val UNTRUSTED_LINES_LIMIT = 2_000
 
 /** Сколько символов живых размышлений держать для UI. */
 private const val REASONING_LIVE_LIMIT = 4_000
+
+/** Предел длины реплики-нарратива в ленте. */
+private const val NARRATION_MAX_CHARS = 1_200
 
 /**
  * Пометка к операции, которую автономный режим выполнил без вопроса, хотя её
@@ -2371,9 +2376,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 is AIResponseResult.ToolCallsResult -> {
                     val preText = result.assistantMessageJson.optString("content")
-                    // Текст-вывод модели в ленту не публикуем до исполнения тулов:
-                    // итоговый пузырь появляется строго после результата инструментов.
-                    if (preText.isNotBlank()) _streamingText.value = ""
+                    // Текст перед инструментами больше не выбрасываем: в ленте
+                    // он становится живой репликой хода («Сейчас проверю...»).
+                    // В контекст отдельно не пишем — он уже внутри assistant
+                    // сообщения с tool_calls.
+                    if (preText.isNotBlank()) {
+                        _streamingText.value = ""
+                        saveNarrationMessage(sessionId, preText)
+                    }
                     conversationJson.put(result.assistantMessageJson)
                     persistContext(sessionId)
 
@@ -3031,6 +3041,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun persistContext(sessionId: String) {
         repository.updateContext(sessionId, contextForStorage().toString())
+    }
+
+    /**
+     * Реплика модели перед вызовом инструментов.
+     *
+     * Нужна только ленте: по ней ход задачи читается как рассказ, а не как
+     * список безымянных действий. В контекст отдельным сообщением не идёт,
+     * потому что уже содержится в assistant-сообщении с tool_calls.
+     */
+    private suspend fun saveNarrationMessage(sessionId: String, rawText: String) {
+        val cleaned = stripLeakedSystemPrompt(rawText).trim()
+        if (cleaned.isBlank()) return
+        val text = if (cleaned.length > NARRATION_MAX_CHARS) {
+            cleaned.take(NARRATION_MAX_CHARS).trimEnd() + "…"
+        } else {
+            cleaned
+        }
+        if (_messages.value.lastOrNull { it.role == MessageRole.NARRATION }?.content == text) {
+            return
+        }
+        val message = ChatMessage(
+            role = MessageRole.NARRATION,
+            content = text,
+            timestamp = System.currentTimeMillis()
+        )
+        _messages.value = _messages.value + message
+        repository.saveMessage(message.toEntity(sessionId))
     }
 
     /**

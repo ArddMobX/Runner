@@ -124,8 +124,8 @@ class ChatHistoryTest {
         assertTrue(items[0] is ChatListItem.Single)
         assertEquals(u1, (items[0] as ChatListItem.Single).message)
 
-        assertTrue(items[1] is ChatListItem.ToolGroup)
-        val group = (items[1] as ChatListItem.ToolGroup).messages
+        assertTrue(items[1] is ChatListItem.TaskActivity)
+        val group = (items[1] as ChatListItem.TaskActivity).messages
         assertEquals(2, group.size)
         assertEquals("t1", group[0].id)
         assertEquals("t2", group[1].id)
@@ -144,28 +144,41 @@ class ChatHistoryTest {
 
         val items = groupChatItems(listOf(t1, t2, a1, t3, t4))
         assertEquals(3, items.size)
-        assertTrue(items[0] is ChatListItem.ToolGroup)
-        assertEquals(2, (items[0] as ChatListItem.ToolGroup).messages.size)
+        assertTrue(items[0] is ChatListItem.TaskActivity)
+        assertEquals(2, (items[0] as ChatListItem.TaskActivity).messages.size)
         assertTrue(items[1] is ChatListItem.Single)
-        assertTrue(items[2] is ChatListItem.ToolGroup)
-        assertEquals(2, (items[2] as ChatListItem.ToolGroup).messages.size)
+        assertTrue(items[2] is ChatListItem.TaskActivity)
+        assertEquals(2, (items[2] as ChatListItem.TaskActivity).messages.size)
     }
 
     @Test
-    fun testGroupChatItems_singleToolIsNotGrouped() {
+    fun testGroupChatItems_singleToolBecomesActivity() {
         val t1 = ChatMessage(role = MessageRole.TOOL_EXECUTION, isRunning = false, toolName = "ping", content = "pong")
         val items = groupChatItems(listOf(t1))
         assertEquals(1, items.size)
-        assertTrue(items[0] is ChatListItem.Single)
+        assertTrue(items[0] is ChatListItem.TaskActivity)
+        assertEquals(1, (items[0] as ChatListItem.TaskActivity).messages.size)
     }
 
     @Test
-    fun testGroupChatItems_runningToolIsNotGrouped() {
+    fun testGroupChatItems_runningToolsBecomeActivity() {
         val t1 = ChatMessage(role = MessageRole.TOOL_EXECUTION, isRunning = true, toolName = "ping", content = "running...")
         val t2 = ChatMessage(role = MessageRole.TOOL_EXECUTION, isRunning = true, toolName = "ping", content = "running...")
         val items = groupChatItems(listOf(t1, t2))
+        assertEquals(1, items.size)
+        assertTrue(items[0] is ChatListItem.TaskActivity)
+        assertEquals(2, (items[0] as ChatListItem.TaskActivity).messages.size)
+    }
+
+    @Test
+    fun testGroupChatItems_narrationJoinsActivity() {
+        val n = ChatMessage(role = MessageRole.NARRATION, content = "Сейчас проверю новости")
+        val t = ChatMessage(role = MessageRole.TOOL_EXECUTION, toolName = "web_search", content = "Ищу")
+        val a = ChatMessage(role = MessageRole.ASSISTANT, content = "Готово")
+        val items = groupChatItems(listOf(n, t, a))
         assertEquals(2, items.size)
-        assertTrue(items[0] is ChatListItem.Single)
+        assertTrue(items[0] is ChatListItem.TaskActivity)
+        assertEquals(2, (items[0] as ChatListItem.TaskActivity).messages.size)
         assertTrue(items[1] is ChatListItem.Single)
     }
 
