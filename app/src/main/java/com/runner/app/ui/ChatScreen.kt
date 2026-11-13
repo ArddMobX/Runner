@@ -100,8 +100,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,6 +146,7 @@ import androidx.compose.animation.shrinkVertically
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
+import com.runner.app.ui.components.StatusPulsingDot
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.components.WebPreviewDialog
 import com.runner.app.ui.components.WebPreviewSource
@@ -178,6 +181,7 @@ fun ChatScreen(
     val streamStartedAt by viewModel.streamStartedAt.collectAsState()
     val isRunning by viewModel.isRunning.collectAsState()
     val currentStatus by viewModel.currentStatus.collectAsState()
+    val liveState by LiveAgentManager.stateFlow.collectAsState()
     val provider by viewModel.activeProvider.collectAsState()
     val providers by viewModel.providers.collectAsState()
     val activeProviderId by viewModel.activeProviderId.collectAsState()
@@ -231,6 +235,7 @@ fun ChatScreen(
     // использовал число сообщений, а рисуемых элементов после группировки
     // меньше, и индекс уезжал за пределы списка.
     val chatItems = remember(messages) { groupChatItems(messages) }
+    val scope = rememberCoroutineScope()
 
     // Плеер и синтез речи глушим при уходе с экрана:
     // иначе они продолжат звучать поверх других экранов
@@ -624,6 +629,7 @@ fun ChatScreen(
                                             showStats = appSettings.showStats,
                                             planAwaitingId = pendingPlan?.id,
                                             isRunning = isRunning,
+                                            isActiveTurn = isRunning && item === chatItems.lastOrNull(),
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
@@ -683,12 +689,27 @@ fun ChatScreen(
                 Column {
                     AgentStatusIndicator(
                         status = currentStatus,
-                        startedAt = streamStartedAt
+                        startedAt = if (liveState.isExecuting) null else streamStartedAt
                     )
                     if (streamingText.isBlank() && streamingReasoning.isNotBlank()) {
                         LiveReasoningBlock(reasoning = streamingReasoning)
                     }
                 }
+            }
+
+            if (liveState.isExecuting) {
+                LiveTaskStrip(
+                    state = liveState,
+                    startedAt = streamStartedAt,
+                    onOpenActivity = {
+                        if (chatItems.isNotEmpty()) {
+                            scope.launch {
+                                listState.animateScrollToItem(chatItems.lastIndex)
+                            }
+                        }
+                    },
+                    onStop = { viewModel.stopGeneration() }
+                )
             }
 
             if (!appSettings.liveModeEnabled) {
@@ -1670,6 +1691,101 @@ private fun ResponseStats(
 }
 
 /**
+ * Закреплённая строка Live-задачи над полем ввода: шаг, время, «Лента», «Стоп».
+ * Плавающая карточка остаётся для паузы и работы поверх других приложений.
+ */
+@Composable
+private fun LiveTaskStrip(
+    state: LiveAgentManager.State,
+    startedAt: Long?,
+    onOpenActivity: () -> Unit,
+    onStop: () -> Unit
+) {
+    var elapsedSeconds by remember(state.isExecuting) { mutableIntStateOf(0) }
+    LaunchedEffect(startedAt, state.isExecuting) {
+        if (startedAt == null) {
+            elapsedSeconds = 0
+            return@LaunchedEffect
+        }
+        while (true) {
+            elapsedSeconds = ((System.currentTimeMillis() - startedAt) / 1000)
+                .toInt()
+                .coerceAtLeast(0)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            0.7.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatusPulsingDot(dotSize = 5.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Live",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = " · действие ${state.stepIndex.coerceAtLeast(1)}",
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 11.5.sp,
+                maxLines = 1
+            )
+            if (state.isPaused) {
+                Text(
+                    text = " · пауза",
+                    color = StatusWarning,
+                    fontSize = 11.5.sp,
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = formatTimelineElapsed(elapsedSeconds * 1000L),
+                color = MaterialTheme.colorScheme.outline,
+                fontSize = 10.5.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            TextButton(
+                onClick = onOpenActivity,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text("Лента", fontSize = 11.5.sp)
+            }
+            Button(
+                onClick = onStop,
+                shape = RoundedCornerShape(9.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(30.dp)
+            ) {
+                Text(
+                    text = "Стоп",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+/**
  * Живой хвост размышлений, пока модель думает.
  *
  * Не раскрывается и не копит историю: это индикатор прогресса, а не архив.
@@ -2043,6 +2159,7 @@ private fun TaskActivityCard(
     showStats: Boolean,
     planAwaitingId: String?,
     isRunning: Boolean,
+    isActiveTurn: Boolean,
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onOpenSources: (List<WebSource>) -> Unit,
@@ -2052,10 +2169,19 @@ private fun TaskActivityCard(
 ) {
     val toolMessages = remember(messages) { messages.filter { it.role == MessageRole.TOOL_EXECUTION } }
     val allChanges = remember(messages) { messages.flatMap { it.fileChanges } }
+    val distinctSources = remember(toolMessages) {
+        toolMessages.flatMap { it.sources }.distinctBy { it.url }.size
+    }
+    val failedSteps = remember(toolMessages) {
+        toolMessages.filter { it.isError || it.isDeclined }
+    }
     val actionCount = toolMessages.size
     val hasError = toolMessages.any { it.isError }
+    val hasDeclined = toolMessages.any { it.isDeclined }
     val anyRunning = toolMessages.any { it.isRunning }
     val planAwaiting = messages.any { it.role == MessageRole.PLAN && it.id == planAwaitingId }
+    val showTotals = actionCount > 0 || allChanges.isNotEmpty() ||
+            failedSteps.isNotEmpty() || isActiveTurn
     var expanded by remember(messages.first().id) { mutableStateOf(anyRunning || planAwaiting) }
     LaunchedEffect(anyRunning) {
         if (anyRunning) expanded = true
@@ -2105,6 +2231,7 @@ private fun TaskActivityCard(
                             when {
                                 hasError -> MaterialTheme.colorScheme.error
                                 planAwaiting -> StatusWarning
+                                hasDeclined -> StatusWarning
                                 anyRunning -> MaterialTheme.colorScheme.primary
                                 else -> StatusSuccess
                             }
@@ -2182,15 +2309,19 @@ private fun TaskActivityCard(
                 )
             }
 
-            if (allChanges.isNotEmpty()) {
+            if (showTotals) {
                 Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
                     thickness = 0.5.dp
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                ChangeTotalsRow(
+                TaskTotalsRow(
                     changes = allChanges,
+                    isActiveTurn = isActiveTurn,
+                    actionCount = actionCount,
+                    sourcesCount = distinctSources,
+                    failedSteps = failedSteps,
                     onOpenChanges = { onOpenChanges(allChanges) }
                 )
             }
@@ -2216,9 +2347,14 @@ private fun currentActivityElapsed(
 
 private fun formatTimelineElapsed(millis: Long): String {
     val totalSeconds = (millis / 1000).coerceAtLeast(0)
-    val minutes = totalSeconds / 60
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
+    }
 }
 
 /** Короткая реплика модели внутри хода задачи. */
@@ -2687,45 +2823,124 @@ private fun ChangeLine(
     }
 }
 
-/** Итоговая строка хода: «Создано 2 · изменено 1 · удалено 3 · +54 −12». */
+/** Итог хода: «Итог · 7 действий · 16 источников», файлы и замечания. */
 @Composable
-private fun ChangeTotalsRow(
+private fun TaskTotalsRow(
     changes: List<FileChange>,
+    isActiveTurn: Boolean,
+    actionCount: Int,
+    sourcesCount: Int,
+    failedSteps: List<ChatMessage>,
     onOpenChanges: () -> Unit
 ) {
     val totals = remember(changes) { changeTotals(changes) }
-    Row(
+    val hasFailed = failedSteps.isNotEmpty()
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 2.dp)
     ) {
-        Icon(
-            imageVector = RunnerIcons.Edit,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(14.dp)
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = totals.text,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.5.sp,
-            lineHeight = 15.sp,
-            maxLines = 2,
-            modifier = Modifier.weight(1f)
-        )
-        if (changes.any { !it.diff.isNullOrBlank() }) {
-            TextButton(
-                onClick = onOpenChanges,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "Дифф",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 11.5.sp
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (isActiveTurn) {
+                StatusPulsingDot(dotSize = 5.dp)
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(if (hasFailed) StatusWarning else StatusSuccess)
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = when {
+                        isActiveTurn -> "В работе"
+                        hasFailed -> "Итог с замечаниями"
+                        else -> "Итог"
+                    },
+                    color = if (!isActiveTurn && hasFailed) {
+                        StatusWarning
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                val meta = buildList {
+                    if (actionCount > 0) add(PluralUtils.actions(actionCount))
+                    if (sourcesCount > 0) add(PluralUtils.sources(sourcesCount))
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = " · ${meta.joinToString(" · ")}",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+            }
+            if (changes.any { !it.diff.isNullOrBlank() }) {
+                TextButton(
+                    onClick = onOpenChanges,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "Дифф",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 11.5.sp
+                    )
+                }
+            }
+        }
+
+        if (changes.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    imageVector = RunnerIcons.Edit,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(top = 1.dp)
+                        .size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Файлы: ${totals.body}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        if (hasFailed) {
+            Spacer(modifier = Modifier.height(3.dp))
+            val errors = failedSteps.filter { it.isError }
+            val declined = failedSteps.filter { it.isDeclined }
+            val label = when {
+                errors.isNotEmpty() && declined.isNotEmpty() -> "Замечания"
+                errors.isNotEmpty() -> "Ошибки"
+                else -> "Отклонено"
+            }
+            val names = failedSteps.take(3).joinToString("; ") { it.content }
+            val suffix = if (failedSteps.size > 3) " и ещё ${failedSteps.size - 3}" else ""
+            Text(
+                text = "$label: $names$suffix",
+                color = StatusWarning,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -2739,9 +2954,8 @@ private data class ChangeTotals(
     val added: Int,
     val removed: Int
 ) {
-    val text: String
+    val body: String
         get() = buildString {
-            append("Итог: ")
             val parts = buildList {
                 if (created > 0) add("создано $created")
                 if (modified > 0) add("изменено $modified")
