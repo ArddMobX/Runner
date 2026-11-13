@@ -71,28 +71,14 @@ object WebTools {
         }
 
         val count = limit.coerceIn(1, MAX_RESULTS)
-        val provider = if (apiKey.isNotBlank()) "tavily" else "ddg"
+        val provider = if (apiKey.isNotBlank()) "tavily" else "web"
         val cacheKey = "$provider|$count|${cleanQuery.lowercase(Locale.ROOT)}"
         searchCache[cacheKey]
             ?.takeIf { System.currentTimeMillis() - it.storedAt < SEARCH_TTL_MS }
             ?.let { return formatSearch(cleanQuery, it.value) }
 
         val results = try {
-            if (apiKey.isNotBlank()) {
-                // Ключ мог протухнуть или упереться в лимит: тогда не оставляем
-                // пользователя без поиска, а тихо откатываемся на DuckDuckGo.
-                try {
-                    searchTavily(cleanQuery, count, apiKey)
-                } catch (tavilyError: Exception) {
-                    try {
-                        searchDuckDuckGo(cleanQuery, count)
-                    } catch (_: Exception) {
-                        throw tavilyError
-                    }
-                }
-            } else {
-                searchDuckDuckGo(cleanQuery, count)
-            }
+            searchWithFallbacks(cleanQuery, count, apiKey)
         } catch (e: Exception) {
             return WebToolResult(
                 "Не удалось выполнить поиск: ${e.message ?: e.javaClass.simpleName}. " +
@@ -102,8 +88,8 @@ object WebTools {
 
         if (results.isEmpty()) {
             return WebToolResult(
-                "Поиск не дал результатов. DuckDuckGo мог заблокировать запрос: " +
-                        "в этом случае добавь ключ Tavily в Настройки → Веб-поиск " +
+                "Поиск не дал результатов. Попробуй переформулировать запрос, " +
+                        "добавь ключ Tavily в Настройки → Веб-поиск " +
                         "или открой известный адрес напрямую через web_fetch."
             )
         }
@@ -208,6 +194,40 @@ object WebTools {
         return WebToolResult(text, results)
     }
 
+    /**
+     * Цепочка движков: Tavily по ключу, затем DuckDuckGo, затем Bing RSS.
+     * Пустая выдача тоже считается поводом попробовать следующий движок.
+     */
+    private fun searchWithFallbacks(
+        query: String,
+        limit: Int,
+        apiKey: String
+    ): List<WebSource> {
+        if (apiKey.isNotBlank()) {
+            try {
+                val tavily = searchTavily(query, limit, apiKey)
+                if (tavily.isNotEmpty()) return tavily
+            } catch (_: Exception) {
+                // Ключ мог протухнуть: идём дальше по цепочке.
+            }
+        }
+
+        try {
+            val ddg = searchDuckDuckGo(query, limit)
+            if (ddg.isNotEmpty()) return ddg
+        } catch (_: Exception) {
+            // DuckDuckGo часто рвёт соединение в мобильных сетях.
+        }
+
+        // Последний движок: его ошибку уже показываем пользователю.
+        val bing = searchBingRss(query, limit)
+        if (bing.isNotEmpty()) return bing
+
+        // Все движки ответили без ошибок, но выдача пустая: пусть вызывающий
+        // покажет совет переформулировать запрос, а не техническую ошибку.
+        return emptyList()
+    }
+
     private fun searchDuckDuckGo(query: String, limit: Int): List<WebSource> {
         val encoded = URLEncoder.encode(query, "UTF-8")
         // Через общий httpGet: он аккуратно проходит редиректы и не тянет
@@ -215,6 +235,13 @@ object WebTools {
         val page = httpGet("https://html.duckduckgo.com/html/?q=$encoded")
         val html = String(page.bytes, Charsets.UTF_8)
         return WebPageParser.parseDuckDuckGoHtml(html, limit)
+    }
+
+    private fun searchBingRss(query: String, limit: Int): List<WebSource> {
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val page = httpGet("https://www.bing.com/search?q=$encoded&format=rss&setlang=ru")
+        val xml = String(page.bytes, Charsets.UTF_8)
+        return WebPageParser.parseBingRss(xml, limit)
     }
 
     private fun searchTavily(query: String, limit: Int, apiKey: String): List<WebSource> {

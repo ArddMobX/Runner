@@ -4,6 +4,7 @@ import com.runner.app.data.WebSource
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
 import java.io.ByteArrayInputStream
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -163,6 +164,36 @@ internal object WebPageParser {
                     title = title,
                     domain = domain,
                     snippet = snippet
+                )
+            }
+        }
+        return found.values.toList()
+    }
+
+    /**
+     * Разбор RSS-выдачи Bing. Нужен как запасной движок: HTML-выдача
+     * DuckDuckGo в некоторых сетях рвётся по connection reset, а лёгкий
+     * RSS-ответ Bing проходит чаще и не требует ключа.
+     */
+    fun parseBingRss(xml: String, limit: Int): List<WebSource> {
+        if (xml.isBlank()) return emptyList()
+        val doc = Jsoup.parse(xml, "", Parser.xmlParser())
+        val found = LinkedHashMap<String, WebSource>()
+
+        doc.select("item").forEach { item ->
+            val url = item.selectFirst("link")?.text()?.trim().orEmpty()
+            if (!url.startsWith("http://") && !url.startsWith("https://")) return@forEach
+            val title = item.selectFirst("title")?.text()?.trim().orEmpty()
+            if (title.isBlank()) return@forEach
+            val domain = WebSource.domainOf(url)
+            if (domain.isBlank()) return@forEach
+            val snippet = item.selectFirst("description")?.text()?.trim().orEmpty()
+            if (found.size < limit && url !in found) {
+                found[url] = WebSource(
+                    url = url,
+                    title = title,
+                    domain = domain,
+                    snippet = snippet.take(300)
                 )
             }
         }

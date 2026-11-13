@@ -56,6 +56,7 @@ object RunnerIcons {
     val Menu: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_menu)
     val Mic: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_mic)
     val MoreVert: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_more_vert)
+    val MusicNote: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_music_note)
     val NetworkCheck: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_network_check)
     val OpenInNew: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_open_in_new)
     val Pause: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_pause)

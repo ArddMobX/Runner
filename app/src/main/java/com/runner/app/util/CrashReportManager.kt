@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 /**
  * Менеджер сбора и копирования отчетов о сбоях, ошибках агента и системных неполадках.
  * Сохраняет последние события в кольцевой буфер, перехватывает необработанные исключения
- * и формирует безопасный Markdown-отчет для передачи разработчикам.
+ * и формирует безопасный текстовый отчет для передачи разработчикам.
  */
 object CrashReportManager {
     private const val TAG = "CrashReportManager"
@@ -180,18 +180,18 @@ object CrashReportManager {
         val maxMemMb = runtime.maxMemory() / (1024 * 1024)
 
         val sb = StringBuilder()
-        sb.append("### ").append(title).append(" - Runner v").append(versionName).append(" (").append(versionCode).append(")\n")
-        sb.append("- **Дата и время:** ").append(LocalDateTime.now().format(fullDateFormat)).append("\n")
-        sb.append("- **Устройство:** ").append(Build.MANUFACTURER.replaceFirstChar { it.uppercase() }).append(" ").append(Build.MODEL)
+        sb.append(title).append(" - Runner v").append(versionName).append(" (").append(versionCode).append(")\n\n")
+        sb.append("Дата и время: ").append(LocalDateTime.now().format(fullDateFormat)).append("\n")
+        sb.append("Устройство: ").append(Build.MANUFACTURER.replaceFirstChar { it.uppercase() }).append(" ").append(Build.MODEL)
             .append(" (").append(Build.DEVICE).append(", Android ").append(Build.VERSION.RELEASE)
             .append(", API ").append(Build.VERSION.SDK_INT).append(")\n")
-        sb.append("- **Память:** ").append(usedMemMb).append(" МБ / ").append(maxMemMb).append(" МБ\n")
-        sb.append("- **Провайдер:** ").append(providerInfo).append("\n")
-        sb.append("- **Live-режим:** ").append(liveStatus).append("\n")
+        sb.append("Память: ").append(usedMemMb).append(" МБ / ").append(maxMemMb).append(" МБ\n")
+        sb.append("Провайдер: ").append(providerInfo).append("\n")
+        sb.append("Live-режим: ").append(liveStatus).append("\n")
         if (lastActivePackage.isNotBlank()) {
-            sb.append("- **Активное приложение на экране:** `").append(lastActivePackage).append("`\n")
+            sb.append("Активное приложение на экране: ").append(lastActivePackage).append("\n")
         }
-        sb.append("- **Разрешения:** ")
+        sb.append("Разрешения: ")
             .append("Accessibility: ").append(if (hasAccessibility) "ВКЛ" else "ВЫКЛ").append(", ")
             .append("Overlay: ").append(if (hasOverlay) "ВКЛ" else "ВЫКЛ").append(", ")
             .append("Storage: ").append(if (hasStorage) "ВКЛ" else "ВЫКЛ").append(", ")
@@ -199,22 +199,21 @@ object CrashReportManager {
 
         val effectiveContext = customContext ?: lastErrorDetail
         if (effectiveContext.isNotBlank()) {
-            sb.append("\n#### Контекст проблемы:\n")
+            sb.append("\nКонтекст проблемы:\n")
             sb.append(sanitize(effectiveContext).trim()).append("\n")
         }
 
         if (!stackTrace.isNullOrBlank()) {
-            sb.append("\n#### Стек ошибки:\n```\n")
-            sb.append(sanitize(stackTrace).trim()).append("\n```\n")
+            sb.append("\nСтек ошибки:\n")
+            sb.append(sanitize(stackTrace).trim()).append("\n")
         }
 
         val recentLogs = logEvents.toList()
         if (recentLogs.isNotEmpty()) {
-            sb.append("\n#### Последние события (LogBuffer):\n```\n")
+            sb.append("\nПоследние события (LogBuffer):\n")
             for (log in recentLogs.takeLast(30)) {
                 sb.append(log).append("\n")
             }
-            sb.append("```\n")
         }
 
         return sb.toString()

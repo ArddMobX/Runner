@@ -22,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -721,24 +723,28 @@ object LiveFloatingOverlay {
                                 ) {
                                     OutlinedButton(
                                         onClick = if (state.isPaused) onResume else onPause,
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier
-                                            .weight(1f)
+                                            .weight(1.35f)
                                             .height(38.dp)
                                     ) {
                                         Icon(
                                             imageVector = if (state.isPaused) RunnerIcons.PlayArrow else RunnerIcons.Pause,
                                             contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = if (state.isPaused) "Продолжить" else "Пауза",
-                                            style = MaterialTheme.typography.labelLarge
+                                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                     Button(
                                         onClick = onStop,
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = colors.errorContainer,
                                             contentColor = colors.onErrorContainer
@@ -751,12 +757,14 @@ object LiveFloatingOverlay {
                                         Icon(
                                             imageVector = RunnerIcons.StopFilled,
                                             contentDescription = "Стоп",
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "Стоп",
-                                            style = MaterialTheme.typography.labelLarge
+                                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }

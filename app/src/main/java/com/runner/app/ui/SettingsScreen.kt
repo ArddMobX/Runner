@@ -125,6 +125,7 @@ import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.DONATE_GITHUB_REPO
 import com.runner.app.ui.components.DONATE_TG_CHANNEL
+import com.runner.app.ui.components.DONATE_TIKTOK
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
@@ -522,6 +523,13 @@ private fun SettingsRoot(
                 description = "@runner_agent - новости разработки",
                 icon = RunnerIcons.Telegram,
                 onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
+            ),
+            SearchableSetting(
+                title = "TikTok",
+                section = "О проекте",
+                description = "@runner_agent",
+                icon = RunnerIcons.MusicNote,
+                onClick = { openExternalUrl(context, DONATE_TIKTOK) }
             ),
             SearchableSetting(
                 title = "Сбросить все настройки",
@@ -1497,6 +1505,13 @@ private fun SettingsRoot(
                 value = "@runner_agent",
                 onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) },
                 icon = RunnerIcons.Telegram
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "TikTok",
+                value = "@runner_agent",
+                onClick = { openExternalUrl(context, DONATE_TIKTOK) },
+                icon = RunnerIcons.MusicNote
             )
             SettingsDivider()
             SettingsRow(

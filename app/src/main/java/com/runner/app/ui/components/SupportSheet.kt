@@ -50,6 +50,7 @@ import com.runner.app.ui.components.RunnerIcons
 
 const val DONATE_TON_ADDRESS = "UQBEzktkHEnVK8XTGztXfNcOWtdONyskFeb3u48lWfzZ-t6V"
 const val DONATE_TG_CHANNEL = "https://t.me/runner_agent"
+const val DONATE_TIKTOK = "https://www.tiktok.com/@runner_agent"
 const val DONATE_GITHUB_REPO = "https://github.com/ArddMobX/Runner"
 
 /**

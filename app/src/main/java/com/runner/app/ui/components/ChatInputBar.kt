@@ -565,7 +565,7 @@ private fun InputModeChip(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(9.dp)
+    val shape = RoundedCornerShape(13.dp)
     val background by animateColorAsState(
         targetValue = when {
             !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f)

@@ -216,6 +216,41 @@ class OpenAIClient {
                 name.startsWith("o4")
     }
 
+    /**
+     * Достаёт текст размышлений в разных форматах:
+     * reasoning_content у DeepSeek, reasoning у OpenRouter, reasoning_details
+     * у прокси, которые отдают структурированные блоки. Если есть простой
+     * reasoning, структурированные блоки не дублируем.
+     */
+    private fun extractReasoningText(source: JSONObject): String? {
+        (source.opt("reasoning_content") as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        (source.opt("reasoning") as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        val details = source.optJSONArray("reasoning_details") ?: return null
+        val parts = mutableListOf<String>()
+        for (index in 0 until details.length()) {
+            val item = details.optJSONObject(index) ?: continue
+            (item.opt("text") as? String)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { parts += it }
+            (item.opt("summary") as? String)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { parts += it }
+            val content = item.optJSONArray("content") ?: continue
+            for (partIndex in 0 until content.length()) {
+                val part = content.optJSONObject(partIndex) ?: continue
+                (part.opt("text") as? String)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { parts += it }
+            }
+        }
+        return parts.joinToString("").takeIf { it.isNotBlank() }
+    }
+
     private val client = OkHttpClient.Builder()
         .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -325,12 +360,15 @@ class OpenAIClient {
             if (isGemini) "gemini-2.5-flash" else "openai/gpt-oss-120b"
         }
 
+        val isOpenRouterHost = effectiveBaseUrl.contains("openrouter.ai", ignoreCase = true)
+
         // Параметры, которые провайдер может не знать. При жалобе на неизвестное
         // поле убираем его и повторяем сразу, не тратя попытку ретрая.
         var allowStreamUsage = streamUsageSupported(endpoint)
         var allowTemperature = true
         var allowMaxTokens = maxTokens > 0
         var allowThinking = providerKind == ProviderKind.DEEPSEEK && officialDeepSeekHost
+        var allowReasoning = true
         var allowReasoningEffort = true
         var allowTools = withTools
         var optionalStripped = 0
@@ -384,8 +422,21 @@ class OpenAIClient {
                         JSONObject().put("type", if (forceThinking) "enabled" else "disabled")
                     )
                 }
-                if (forceThinking && allowReasoningEffort && supportsReasoningEffort(effectiveModel)) {
-                    put("reasoning_effort", "high")
+                if (forceThinking) {
+                    when {
+                        // OpenRouter нормализует reasoning для всех моделей.
+                        // Верхнеуровневый reasoning_effort вместе с ним слать
+                        // нельзя: OpenRouter отвечает 400. Если reasoning
+                        // отвергли, второй вариант для OpenRouter не шлём.
+                        isOpenRouterHost -> {
+                            if (allowReasoning) {
+                                put("reasoning", JSONObject().put("effort", "high"))
+                            }
+                        }
+                        allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
+                            put("reasoning_effort", "high")
+                        }
+                    }
                 }
             }
 
@@ -439,6 +490,7 @@ class OpenAIClient {
                         "temperature" -> allowTemperature = false
                         "max_tokens", "max_completion_tokens" -> allowMaxTokens = false
                         "thinking" -> allowThinking = false
+                        "reasoning" -> allowReasoning = false
                         "reasoning_effort" -> allowReasoningEffort = false
                         "tools", "tool_choice" -> allowTools = false
                         else -> Unit
@@ -580,6 +632,21 @@ class OpenAIClient {
                     continue
                 }
 
+                // OpenRouter и часть прокси присылают ошибку отдельным SSE-чанком
+                // без choices. Раньше он молча игнорировался, и ход заканчивался
+                // пустым ответом без понятной причины.
+                val streamErrorObj = chunk.optJSONObject("error")
+                val streamErrorText = when {
+                    streamErrorObj != null -> streamErrorObj.optString("message")
+                        .ifBlank { streamErrorObj.toString() }
+                    else -> chunk.optString("error").takeIf { it.isNotBlank() }
+                }
+                if (!streamErrorText.isNullOrBlank()) {
+                    val code = streamErrorObj?.optInt("code", 0) ?: 0
+                    val prefix = if (code > 0) "Ошибка провайдера ($code)" else "Ошибка провайдера"
+                    return AIResponseResult.Error("$prefix: $streamErrorText")
+                }
+
                 // Чанк с usage приходит отдельно и с пустым choices — читаем до разбора choices
                 val usage = chunk.optJSONObject("usage")
                 if (usage != null && metrics != null) {
@@ -603,11 +670,9 @@ class OpenAIClient {
 
                 val now = System.currentTimeMillis()
 
-                // Размышления thinking-моделей: у OpenRouter это reasoning,
-                // у DeepSeek — reasoning_content.
-                val reasoningPiece =
-                    (delta.opt("reasoning_content") as? String)?.takeIf { it.isNotEmpty() }
-                        ?: (delta.opt("reasoning") as? String)?.takeIf { it.isNotEmpty() }
+                // Размышления thinking-моделей: у OpenRouter это reasoning
+                // или reasoning_details, у DeepSeek — reasoning_content.
+                val reasoningPiece = extractReasoningText(delta)
                 if (reasoningPiece != null) {
                     metrics?.noteReasoning(reasoningPiece, now)
                     listener?.onReasoningDelta(reasoningPiece)
@@ -698,7 +763,15 @@ class OpenAIClient {
         if (toolCallSlots.isEmpty()) {
             val text = content.toString()
             return if (text.isBlank()) {
-                AIResponseResult.Error("Модель вернула пустой ответ.", retryable = !emitted)
+                if (metrics?.finishReason == "length") {
+                    AIResponseResult.Error(
+                        "Модель израсходовала лимит вывода на размышления и не оставила текста. " +
+                                "Увеличь лимит вывода или выключи «Думать».",
+                        retryable = false
+                    )
+                } else {
+                    AIResponseResult.Error("Модель вернула пустой ответ.", retryable = !emitted)
+                }
             } else {
                 AIResponseResult.TextResult(text)
             }
@@ -736,8 +809,7 @@ class OpenAIClient {
             val message = choice0.getJSONObject("message")
 
             // Размышления thinking-модели приходят в самом сообщении
-            val reasoning = (message.opt("reasoning_content") as? String)?.takeIf { it.isNotBlank() }
-                ?: (message.opt("reasoning") as? String)?.takeIf { it.isNotBlank() }
+            val reasoning = extractReasoningText(message)
             if (reasoning != null && metrics != null) {
                 val now = System.currentTimeMillis()
                 metrics.noteReasoning(reasoning, now)
@@ -1088,6 +1160,19 @@ class OpenAIClient {
             (lowered.contains("tools") && lowered.contains("multimodal"))
         ) {
             return "tools"
+        }
+
+        if (lowered.contains("reasoning_effort") &&
+            (lowered.contains("not supported") || lowered.contains("unsupported") ||
+                    lowered.contains("invalid") || lowered.contains("unknown"))
+        ) {
+            return "reasoning_effort"
+        }
+        if (lowered.contains("reasoning") &&
+            (lowered.contains("not supported") || lowered.contains("unsupported") ||
+                    lowered.contains("invalid") || lowered.contains("unknown"))
+        ) {
+            return "reasoning"
         }
 
         if (!lowered.contains("unknown name") &&
@@ -1457,6 +1542,7 @@ class OpenAIClient {
             "max_tokens",
             "max_completion_tokens",
             "thinking",
+            "reasoning",
             "reasoning_effort",
             "tools",
             "tool_choice"
