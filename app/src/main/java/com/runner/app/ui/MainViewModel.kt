@@ -12,6 +12,7 @@ import com.runner.app.service.AgentExecutionService
 import com.runner.app.util.CrashReportManager
 import com.runner.app.util.HapticManager
 import com.runner.app.util.ImageUtils
+import com.runner.app.util.PrefatoryText
 import com.runner.app.util.ProjectInstructionsGenerator
 import com.runner.app.util.TaskNotificationManager
 import com.runner.app.util.VoiceManager
@@ -187,6 +188,14 @@ private const val COMPACT_SUMMARY_MAX_TOKENS = 4_000
 
 /** Начало системного сообщения со сводкой после /compact. */
 private const val COMPACT_SUMMARY_MARKER = "Сводка предыдущего диалога"
+
+/** Сколько раз просим модель продолжить, если она закончила ход обещанием. */
+private const val MAX_PREFATORY_NUDGES = 2
+
+/** Подсказка модели после служебного «сейчас посмотрю» без вызова инструмента. */
+private const val PREFATORY_NUDGE_TEXT =
+    "СЛУЖЕБНАЯ ПРОВЕРКА: продолжай выполнение задачи. Предыдущий ответ был только " +
+            "обещанием действия. Вызови нужный инструмент или дай окончательный результат."
 
 /**
  * Пометка к операции, которую автономный режим выполнил без вопроса, хотя её
@@ -2673,6 +2682,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // через шаг, для пользователя ничем не лучше повторяющей подряд.
         var lastCallSignature: String? = null
         var repeatedCalls = 0
+        var prefatoryNudges = 0
 
         // В Live один «шаг» модели обычно равен «посмотреть экран + одно действие»,
         // поэтому общий лимит быстро заканчивает задачу. Для Live используем
@@ -2751,14 +2761,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (currentSettings.maxTaskTokens > 0 && currentTaskTokens >= currentSettings.maxTaskTokens) {
                 if (result is AIResponseResult.TextResult) {
                     val reply = result.text.ifBlank { "Готово." }
-                    turnAssistantId = saveAssistantMessage(
-                        sessionId = sessionId,
-                        text = reply,
-                        reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
-                        reasoningMs = metrics.reasoningMillis.takeIf { it > 0L },
-                        completionTokens = metrics.completionTokens,
-                        tokensPerSecond = metrics.tokensPerSecond
-                    )
+                    if (PrefatoryText.isPrefatory(reply)) {
+                        saveNarrationMessage(sessionId, reply)
+                    } else {
+                        turnAssistantId = saveAssistantMessage(
+                            sessionId = sessionId,
+                            text = reply,
+                            reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
+                            reasoningMs = metrics.reasoningMillis.takeIf { it > 0L },
+                            completionTokens = metrics.completionTokens,
+                            tokensPerSecond = metrics.tokensPerSecond
+                        )
+                    }
                     _streamingText.value = ""
                 }
                 hapticManager.onError(_settings.value)
@@ -2809,6 +2823,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return
                     }
                     val reply = cleanedReply.ifBlank { "Готово." }
+
+                    // «Сейчас посмотрю» без вызова инструмента — это не финал.
+                    // Просим модель продолжить, иначе пользователь получает
+                    // красивую фразу вместо результата.
+                    if (PrefatoryText.isPrefatory(reply)) {
+                        _streamingText.value = ""
+                        if (prefatoryNudges < MAX_PREFATORY_NUDGES) {
+                            prefatoryNudges++
+                            saveNarrationMessage(sessionId, reply)
+                            conversationJson.put(
+                                JSONObject().apply {
+                                    put("role", "assistant")
+                                    put("content", reply)
+                                }
+                            )
+                            conversationJson.put(
+                                JSONObject().apply {
+                                    put("role", "user")
+                                    put("content", PREFATORY_NUDGE_TEXT)
+                                }
+                            )
+                            persistContext(sessionId)
+                            continue
+                        }
+
+                        saveNarrationMessage(sessionId, reply)
+                        appendSystemInfo(
+                            "Модель написала, что сейчас что-то сделает, но не вызвала " +
+                                    "инструмент. Попробуйте повторить задачу или выбрать другую модель.",
+                            null
+                        )
+                        attachTurnStats(
+                            sessionId, turnStartedAt, totalPromptTokens,
+                            totalCompletionTokens, trackStats, turnAssistantId
+                        )
+                        return
+                    }
+
                     turnAssistantId = saveAssistantMessage(
                         sessionId = sessionId,
                         text = reply,
