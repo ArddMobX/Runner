@@ -133,11 +133,16 @@ import com.runner.app.data.FileChangeKind
 import com.runner.app.data.WebSource
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
+import com.runner.app.ui.commands.CommandStatusInfo
+import com.runner.app.ui.commands.CommandToolsInfo
 import com.runner.app.ui.commands.SlashCommand
+import com.runner.app.ui.commands.SlashCommandRequests
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
+import com.runner.app.ui.components.CommandStatusSheet
+import com.runner.app.ui.components.CommandToolsSheet
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.components.LiveModeTopButton
@@ -193,6 +198,7 @@ fun ChatScreen(
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
+    val currentSessionTitle by viewModel.currentSessionTitle.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val rmsLevel by viewModel.rmsLevel.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
@@ -232,6 +238,8 @@ fun ChatScreen(
     var changesSheet by remember { mutableStateOf<List<FileChange>?>(null) }
     var showLivePermissionSheet by remember { mutableStateOf(false) }
     var showCommandHelp by remember { mutableStateOf(false) }
+    var statusSheet by remember { mutableStateOf<CommandStatusInfo?>(null) }
+    var toolsSheet by remember { mutableStateOf<CommandToolsInfo?>(null) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
     // Лента строится заранее: по ней же считается автоскролл. Раньше скролл
@@ -239,6 +247,47 @@ fun ChatScreen(
     // меньше, и индекс уезжал за пределы списка.
     val chatItems = remember(messages) { groupChatItems(messages) }
     val scope = rememberCoroutineScope()
+
+    fun buildStatusInfo(): CommandStatusInfo {
+        val modelId = provider?.activeModel.orEmpty()
+        val modelLabel = provider?.models
+            ?.firstOrNull { it.id == modelId }
+            ?.label
+            ?.takeIf { it.isNotBlank() }
+        val modes = buildList {
+            if (appSettings.liveModeEnabled) add("Live")
+            if (appSettings.readOnlyMode) add("Только чтение")
+            if (appSettings.dryRunFirst) add("Сухой прогон")
+            if (inputState.webSearch) add("Поиск")
+            if (inputState.think) add("Думать")
+        }.ifEmpty { listOf("Обычный") }.joinToString(", ")
+        val lastStats = messages.lastOrNull {
+            it.role == MessageRole.ASSISTANT &&
+                    ((it.promptTokens ?: 0) > 0 || (it.completionTokens ?: 0) > 0)
+        }
+        val tools = viewModel.currentToolSummaries()
+        return CommandStatusInfo(
+            sessionTitle = currentSessionTitle.ifBlank { "Новый чат" },
+            providerName = provider?.name?.takeIf { it.isNotBlank() } ?: "не выбран",
+            modelName = modelLabel ?: modelId.ifBlank { "не выбрана" },
+            modes = modes,
+            workingDir = appSettings.defaultWorkingDir.ifBlank { "не задана" },
+            contextChars = viewModel.currentContextChars(),
+            contextBudgetChars = appSettings.contextBudgetChars,
+            activeTools = tools.size,
+            totalTools = viewModel.availableToolCount(),
+            promptTokens = lastStats?.promptTokens?.takeIf { it > 0 },
+            completionTokens = lastStats?.completionTokens?.takeIf { it > 0 }
+        )
+    }
+
+    fun buildToolsInfo(): CommandToolsInfo {
+        val tools = viewModel.currentToolSummaries()
+        return CommandToolsInfo(
+            tools = tools,
+            total = viewModel.availableToolCount()
+        )
+    }
 
     /**
      * Локальные команды не уходят в модель: они меняют состояние приложения
@@ -271,8 +320,47 @@ fun ChatScreen(
                 }
                 true
             }
+            "plan", "search" -> {
+                val request = SlashCommandRequests.from(command, args)
+                if (request == null) {
+                    val usage = buildString {
+                        append(command.invocation)
+                        command.argsHint?.takeIf { it.isNotBlank() }?.let {
+                            append(' ').append(it)
+                        }
+                    }
+                    Toast.makeText(
+                        context,
+                        "Использование: $usage",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    false
+                } else {
+                    if (appSettings.liveModeEnabled) {
+                        (context as? android.app.Activity)?.moveTaskToBack(true)
+                    }
+                    viewModel.sendMessage(
+                        prompt = request.prompt,
+                        images = inputState.selectedImages,
+                        forceSearch = request.forceSearch || inputState.webSearch,
+                        forceThinking = inputState.think,
+                        forcePlan = request.forcePlan
+                    )
+                    // Вложения уже ушли в запрос, в поле им делать нечего.
+                    inputState.clear()
+                    true
+                }
+            }
             "sessions" -> {
                 onOpenDrawer()
+                true
+            }
+            "status" -> {
+                statusSheet = buildStatusInfo()
+                true
+            }
+            "tools" -> {
+                toolsSheet = buildToolsInfo()
                 true
             }
             "rename" -> {
@@ -493,6 +581,20 @@ fun ChatScreen(
 
     if (showCommandHelp) {
         SlashCommandHelpSheet(onDismiss = { showCommandHelp = false })
+    }
+
+    statusSheet?.let { info ->
+        CommandStatusSheet(
+            info = info,
+            onDismiss = { statusSheet = null }
+        )
+    }
+
+    toolsSheet?.let { info ->
+        CommandToolsSheet(
+            info = info,
+            onDismiss = { toolsSheet = null }
+        )
     }
 
     undoCandidate?.let { entry ->

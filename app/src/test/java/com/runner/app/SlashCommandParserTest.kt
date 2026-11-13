@@ -1,6 +1,7 @@
 package com.runner.app
 
 import com.runner.app.ui.commands.SlashCommandParser
+import com.runner.app.ui.commands.SlashCommandRequests
 import com.runner.app.ui.commands.SlashCommands
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -93,5 +94,48 @@ class SlashCommandParserTest {
         }
 
         assertEquals(names.size, names.distinct().size)
+    }
+
+    @Test
+    fun planCommandSendsOnlyTheTaskWithPlanFlag() {
+        val parsed = SlashCommandParser.parse("/plan Разбери Download")
+        val request = parsed?.let { SlashCommandRequests.from(it.command, it.args) }
+
+        assertNotNull(request)
+        assertEquals("Разбери Download", request?.prompt)
+        assertTrue(request?.forcePlan == true)
+        assertEquals(false, request?.forceSearch)
+    }
+
+    @Test
+    fun searchCommandSendsOnlyTheQueryWithSearchFlag() {
+        val parsed = SlashCommandParser.parse("/search погода на завтра")
+        val request = parsed?.let { SlashCommandRequests.from(it.command, it.args) }
+
+        assertNotNull(request)
+        assertEquals("погода на завтра", request?.prompt)
+        assertTrue(request?.forceSearch == true)
+        assertEquals(false, request?.forcePlan)
+    }
+
+    @Test
+    fun planWithoutArgumentsIsNotAnAgentRequest() {
+        val parsed = SlashCommandParser.parse("/plan")
+
+        assertNull(parsed?.let { SlashCommandRequests.from(it.command, it.args) })
+    }
+
+    @Test
+    fun searchWithoutArgumentsIsNotAnAgentRequest() {
+        val parsed = SlashCommandParser.parse("/search")
+
+        assertNull(parsed?.let { SlashCommandRequests.from(it.command, it.args) })
+    }
+
+    @Test
+    fun localCommandIsNotAnAgentRequest() {
+        val parsed = SlashCommandParser.parse("/status")
+
+        assertNull(parsed?.let { SlashCommandRequests.from(it.command, it.args) })
     }
 }

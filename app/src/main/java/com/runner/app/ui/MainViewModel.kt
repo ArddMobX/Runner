@@ -1639,10 +1639,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         current?.onDecision?.invoke(ConfirmationDecision(confirmed, selectedIds, remember))
     }
 
-    /** Решение пользователя по плану шагов. */
+    /**
+     * Решение пользователя по плану шагов.
+     *
+     * Отклонение плана останавливает ход. Раньше задача после отказа просто
+     * исполнялась без плана, то есть кнопка «Отклонить» ничего не отклоняла.
+     */
     fun resolvePlan(approved: Boolean) {
         val current = _pendingPlan.value
         _pendingPlan.value = null
+        if (!approved && current != null) {
+            stopRequested = true
+            _currentStatus.value = "Останавливаю"
+            apiClient.cancelActive()
+        }
         current?.onDecision?.invoke(approved)
     }
 
@@ -1665,7 +1675,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prompt: String,
         images: List<Uri> = emptyList(),
         forceSearch: Boolean = false,
-        forceThinking: Boolean = false
+        forceThinking: Boolean = false,
+        forcePlan: Boolean = false
     ) {
         val text = prompt.trim()
         if (text.isEmpty() && images.isEmpty()) return
@@ -1705,7 +1716,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val session = repository.createSession()
                     loadSession(session.id)
-                    sendMessage(prompt, images, forceSearch, forceThinking)
+                    sendMessage(prompt, images, forceSearch, forceThinking, forcePlan)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -1731,7 +1742,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Прогон всухую включаем только для задач, которые выглядят как
         // изменяющие данные: он удваивает расход запросов, и тратить его
         // на чтение бессмысленно. Эвристика та же, что решает про план.
-        dryRunActive = _settings.value.dryRunFirst && shouldPlan(effectiveText)
+        dryRunActive = _settings.value.dryRunFirst && (forcePlan || shouldPlan(effectiveText))
         val userMessageId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
@@ -1831,14 +1842,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // На приветствия и смолл-ток планировщик не триггерим вообще.
                 // Во время сухого прогона план не нужен: сам прогон и есть предпросмотр,
                 // а лишний запрос расходует тот же лимит.
-                val shouldRequestPlan = if (_settings.value.liveModeEnabled) {
+                // /plan - явная просьба пользователя, поэтому он важнее и
+                // эвристики, и выключенного планировщика, и сухого прогона.
+                val shouldRequestPlan = forcePlan || if (_settings.value.liveModeEnabled) {
                     shouldPlanLive(effectiveText)
                 } else {
                     shouldPlan(effectiveText)
                 }
-                val planNote = if (!dryRunActive &&
-                    _settings.value.planningEnabled &&
-                    shouldRequestPlan
+                val planNote = if (shouldRequestPlan &&
+                    (forcePlan || (!dryRunActive && _settings.value.planningEnabled))
                 ) {
                     requestPlanApproval(sessionId, provider, model)
                 } else {
@@ -3238,6 +3250,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         return out
     }
+
+    /** Размер текущего контекста в символах: для снимка /status. */
+    fun currentContextChars(): Int = contextForStorage().toString().length
+
+    /** Инструменты, которые реально уйдут в следующий запрос. */
+    fun currentToolSummaries(): List<ToolDispatcher.ToolSummary> =
+        ToolDispatcher.toolSummaries(activeToolScope, _settings.value.liveModeEnabled)
+
+    /** Сколько всего настоящих инструментов доступно в текущем режиме. */
+    fun availableToolCount(): Int =
+        ToolDispatcher.availableToolCount(_settings.value.liveModeEnabled)
 
     private fun freshContext(): JSONArray = JSONArray().apply {
         // База зашита в код + доп. инструкции пользователя (если заданы).

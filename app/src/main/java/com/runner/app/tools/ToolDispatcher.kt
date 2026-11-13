@@ -960,6 +960,13 @@ object ToolDispatcher {
         }
     }
 
+    /** Короткая карточка инструмента для шторки /tools. */
+    data class ToolSummary(
+        val name: String,
+        val description: String,
+        val liveOnly: Boolean
+    )
+
     /**
      * Схемы инструментов для запроса.
      *
@@ -987,6 +994,36 @@ object ToolDispatcher {
         if (names != null && ENABLE_TOOLS in names) filtered.put(createEnableToolsSchema())
         return filtered
     }
+
+    /**
+     * Человеческий список инструментов для /tools. Описание берём из той же
+     * схемы, что уходит модели, поэтому шторка не может разойтись с запросом.
+     * `enable_tools` скрываем: это служебный подключатель, а не действие.
+     */
+    fun toolSummaries(names: Set<String>? = null, liveMode: Boolean = false): List<ToolSummary> {
+        val json = getToolsJson(names, liveMode)
+        val result = ArrayList<ToolSummary>(json.length())
+        for (index in 0 until json.length()) {
+            val function = json.optJSONObject(index)?.optJSONObject("function") ?: continue
+            val name = function.optString("name").trim()
+            if (name.isBlank() || name == ENABLE_TOOLS) continue
+            val description = function.optString("description")
+                .replace('\n', ' ')
+                .substringBefore(". ")
+                .trim()
+                .take(220)
+            result += ToolSummary(
+                name = name,
+                description = description.ifBlank { "Без описания" },
+                liveOnly = name in LIVE_ONLY_TOOL_NAMES
+            )
+        }
+        return result
+    }
+
+    /** Сколько настоящих инструментов доступно в текущем режиме. */
+    fun availableToolCount(liveMode: Boolean = false): Int =
+        ALL_TOOL_NAMES.count { liveMode || it !in LIVE_ONLY_TOOL_NAMES }
 
     private fun createEnableToolsSchema(): JSONObject = createToolFunction(
         name = ENABLE_TOOLS,

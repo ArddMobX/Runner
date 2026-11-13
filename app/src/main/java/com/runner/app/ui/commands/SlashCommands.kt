@@ -58,6 +58,22 @@ object SlashCommands {
             group = SlashCommandGroup.CHAT
         ),
         SlashCommand(
+            name = "plan",
+            title = "План",
+            description = "Составить план перед выполнением",
+            group = SlashCommandGroup.TASK,
+            argsHint = "задача",
+            requiresArgs = true
+        ),
+        SlashCommand(
+            name = "search",
+            title = "Поиск",
+            description = "Найти в интернете и сразу ответить",
+            group = SlashCommandGroup.TASK,
+            argsHint = "запрос",
+            requiresArgs = true
+        ),
+        SlashCommand(
             name = "model",
             title = "Модель",
             description = "Выбрать провайдера и модель",
@@ -75,6 +91,18 @@ object SlashCommands {
             description = "Остановить текущую задачу",
             group = SlashCommandGroup.TASK,
             availableWhileRunning = true
+        ),
+        SlashCommand(
+            name = "status",
+            title = "Статус",
+            description = "Провайдер, модель, контекст и режимы",
+            group = SlashCommandGroup.HELP
+        ),
+        SlashCommand(
+            name = "tools",
+            title = "Инструменты",
+            description = "Что доступно агенту сейчас",
+            group = SlashCommandGroup.HELP
         ),
         SlashCommand(
             name = "rename",
@@ -157,6 +185,32 @@ object SlashCommandParser {
         return SlashCommands.all.filter { command ->
             command.name.startsWith(query) ||
                     command.aliases.any { alias -> alias.lowercase().startsWith(query) }
+        }
+    }
+}
+
+/**
+ * Запрос агенту, собранный из команды.
+ *
+ * В промпт уходит только текст после команды. Сама строка /plan или /search
+ * в контекст модели не попадает: она управляет флагами хода, а не является
+ * сообщением пользователя.
+ */
+data class SlashCommandAgentRequest(
+    val prompt: String,
+    val forceSearch: Boolean = false,
+    val forcePlan: Boolean = false
+)
+
+object SlashCommandRequests {
+
+    fun from(command: SlashCommand, args: String): SlashCommandAgentRequest? {
+        val prompt = args.trim()
+        if (prompt.isEmpty()) return null
+        return when (command.name) {
+            "plan" -> SlashCommandAgentRequest(prompt, forcePlan = true)
+            "search" -> SlashCommandAgentRequest(prompt, forceSearch = true)
+            else -> null
         }
     }
 }
