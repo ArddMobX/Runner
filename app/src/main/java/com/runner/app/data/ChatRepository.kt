@@ -60,6 +60,10 @@ class ChatRepository(private val dao: ChatDao) {
         dao.updateLastModel(sessionId, model)
     }
 
+    suspend fun updateCompactSummary(sessionId: String, summary: String?) {
+        dao.updateCompactSummary(sessionId, summary)
+    }
+
     suspend fun deleteSession(sessionId: String) {
         // Вместе с чатом убираем его картинки из кэша: иначе они остаются
         // навсегда, хотя в истории на них уже никто не ссылается. Удаляем
@@ -96,6 +100,75 @@ class ChatRepository(private val dao: ChatDao) {
 
     suspend fun deleteCustomCommand(id: String) {
         dao.deleteCustomCommand(id)
+    }
+
+    /**
+     * Копия чата для /fork: сообщения, контекст и модель.
+     *
+     * Картинки из chat_images копируются на диск: иначе удаление одной ветки
+     * снесло бы файлы, на которые ссылается вторая.
+     */
+    suspend fun forkSession(sessionId: String): SessionEntity? {
+        val original = dao.getSession(sessionId) ?: return null
+        val now = System.currentTimeMillis()
+        val prefix = "Ветка: "
+        val originalTitle = original.title.ifBlank { NEW_CHAT_TITLE }
+        val title = prefix + originalTitle.take(
+            (MAX_TITLE_LENGTH - prefix.length).coerceAtLeast(1)
+        )
+        val forked = SessionEntity(
+            id = UUID.randomUUID().toString(),
+            title = title,
+            createdAt = now,
+            updatedAt = now,
+            isPinned = false,
+            contextJson = original.contextJson,
+            lastModel = original.lastModel,
+            compactSummary = original.compactSummary
+        )
+        dao.insertSession(forked)
+        try {
+            dao.loadMessages(sessionId).forEach { message ->
+                dao.insertMessage(
+                    message.copy(
+                        id = UUID.randomUUID().toString(),
+                        sessionId = forked.id,
+                        imageUris = forkImageUris(message.imageUris)
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            // Не оставляем в списке чатов пустую или наполовину скопированную ветку.
+            dao.deleteSessionCascade(forked.id)
+            throw e
+        }
+        return forked
+    }
+
+    private fun forkImageUris(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val paths = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (paths.isEmpty()) return null
+        return paths.map { path ->
+            if (!path.contains("/chat_images/")) return@map path
+            val source = File(path)
+            if (!source.isFile) return@map path
+            try {
+                val parent = source.parentFile ?: return@map path
+                val extension = source.extension
+                    .takeIf { it.isNotBlank() }
+                    ?.let { ".$it" }
+                    .orEmpty()
+                val copy = File(
+                    parent,
+                    "${source.nameWithoutExtension}_fork_${UUID.randomUUID().toString().take(8)}$extension"
+                )
+                source.copyTo(copy, overwrite = false)
+                copy.absolutePath
+            } catch (_: Exception) {
+                path
+            }
+        }.joinToString(",")
     }
 
     companion object {

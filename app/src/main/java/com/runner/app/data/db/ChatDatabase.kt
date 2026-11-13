@@ -34,7 +34,9 @@ data class SessionEntity(
      */
     val contextJson: String = "",
     /** Название модели нейросети, которая последней использовалась в этой сессии. */
-    val lastModel: String? = null
+    val lastModel: String? = null,
+    /** Сводка после /compact: подмешивается в системный промпт. */
+    val compactSummary: String? = null
 )
 
 /** Сообщение сессии. role — имя MessageRole, чтобы слой БД не зависел от UI. */
@@ -189,6 +191,9 @@ interface ChatDao {
     @Query("UPDATE sessions SET lastModel = :model WHERE id = :id")
     suspend fun updateLastModel(id: String, model: String)
 
+    @Query("UPDATE sessions SET compactSummary = :summary WHERE id = :id")
+    suspend fun updateCompactSummary(id: String, summary: String?)
+
     @Query("UPDATE sessions SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchSession(id: String, updatedAt: Long)
 
@@ -228,7 +233,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, CustomCommandEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -303,6 +308,15 @@ abstract class ChatDatabase : RoomDatabase() {
         }
 
         /**
+         * v8 -> v9: сводка контекста после /compact.
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN compactSummary TEXT")
+            }
+        }
+
+        /**
          * v7 -> v8: свои команды. Таблица новая, история чатов не меняется.
          */
         private val MIGRATION_7_8 = object : Migration(7, 8) {
@@ -342,7 +356,8 @@ abstract class ChatDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
-                        MIGRATION_7_8
+                        MIGRATION_7_8,
+                        MIGRATION_8_9
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

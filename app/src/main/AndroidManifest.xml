@@ -156,7 +156,7 @@
                 android:resource="@xml/recognition_service" />
         </service>
 
-        <!-- FileProvider для съёмки с камеры -->
+        <!-- FileProvider для съёмки с камеры и экспорта чата -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

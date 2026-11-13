@@ -318,6 +318,51 @@ fun ChatScreen(
         inputState.clear()
     }
 
+    fun shareMarkdown(markdown: String) {
+        val title = currentSessionTitle.ifBlank { "Чат Runner" }
+        val safeName = title
+            .replace(Regex("[^\\p{L}\\p{N}_-]+"), "_")
+            .trim('_')
+            .take(40)
+            .ifBlank { "chat" }
+        try {
+            val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+            val file = File(exportsDir, "${safeName}_${System.currentTimeMillis()}.md")
+            file.writeText(markdown)
+            // В кэше держим только свежие выгрузки, чтобы он не рос годами.
+            exportsDir.listFiles()
+                ?.sortedByDescending { it.lastModified() }
+                ?.drop(10)
+                ?.forEach { it.delete() }
+
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val send = Intent(Intent.ACTION_SEND).apply {
+                // text/plain понимают почти все приложения, а расширение .md
+                // сохраняет формат файла.
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(context.contentResolver, title, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(send, "Экспорт чата")
+            if (context !is android.app.Activity) {
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Toast.makeText(
+                context,
+                "Не удалось открыть экспорт: ${e.message ?: "нет приложения"}",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     /**
      * Локальные команды не уходят в модель: они меняют состояние приложения
      * и показывают короткий результат тостом. Неизвестный слэш сюда не
@@ -372,6 +417,54 @@ fun ChatScreen(
             "sessions" -> {
                 onOpenDrawer()
                 true
+            }
+            "compact" -> {
+                viewModel.compactContext(args)
+                true
+            }
+            "export" -> {
+                val markdown = viewModel.buildChatMarkdown()
+                if (markdown.isBlank()) {
+                    Toast.makeText(context, "В чате пока нечего экспортировать", Toast.LENGTH_SHORT).show()
+                    false
+                } else {
+                    shareMarkdown(markdown)
+                    true
+                }
+            }
+            "diff" -> {
+                val changes = messages.flatMap { it.fileChanges }
+                if (changes.isEmpty()) {
+                    Toast.makeText(context, "В этом чате не было изменений файлов", Toast.LENGTH_SHORT).show()
+                    false
+                } else {
+                    changesSheet = changes
+                    true
+                }
+            }
+            "fork" -> {
+                viewModel.forkCurrentChat()
+                true
+            }
+            "init" -> {
+                when {
+                    appSettings.defaultWorkingDir.isBlank() -> {
+                        Toast.makeText(
+                            context,
+                            "Сначала выбери рабочую папку проекта",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        false
+                    }
+                    appSettings.readOnlyMode -> {
+                        Toast.makeText(context, "Режим только чтения включён", Toast.LENGTH_SHORT).show()
+                        false
+                    }
+                    else -> {
+                        viewModel.createProjectInstructions()
+                        true
+                    }
+                }
             }
             "status" -> {
                 statusSheet = buildStatusInfo()
@@ -469,6 +562,16 @@ fun ChatScreen(
                     Toast.makeText(context, "Сейчас нечего останавливать", Toast.LENGTH_SHORT).show()
                 }
                 true
+            }
+            "undo" -> {
+                val entry = lastUndoable
+                if (entry == null) {
+                    Toast.makeText(context, "Нечего отменять", Toast.LENGTH_SHORT).show()
+                    false
+                } else {
+                    undoCandidate = entry
+                    true
+                }
             }
             else -> {
                 val request = SlashCommandRequests.from(command, args)

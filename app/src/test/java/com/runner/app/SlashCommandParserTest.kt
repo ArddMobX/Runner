@@ -97,6 +97,13 @@ class SlashCommandParserTest {
     }
 
     @Test
+    fun historyCommandsAreRegistered() {
+        listOf("compact", "export", "diff", "undo", "fork", "init").forEach { name ->
+            assertNotNull(SlashCommands.find(name))
+        }
+    }
+
+    @Test
     fun planCommandSendsOnlyTheTaskWithPlanFlag() {
         val parsed = SlashCommandParser.parse("/plan Разбери Download")
         val request = parsed?.let { SlashCommandRequests.from(it.command, it.args) }

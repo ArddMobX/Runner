@@ -117,6 +117,12 @@ object SlashCommands {
             group = SlashCommandGroup.HELP
         ),
         SlashCommand(
+            name = "undo",
+            title = "Отменить",
+            description = "Отменить последнюю обратимую операцию",
+            group = SlashCommandGroup.TASK
+        ),
+        SlashCommand(
             name = "rename",
             title = "Переименовать",
             description = "Задать текущему чату новое имя",
@@ -128,6 +134,37 @@ object SlashCommands {
             name = "sessions",
             title = "Чаты",
             description = "Открыть список сохранённых чатов",
+            group = SlashCommandGroup.CHAT
+        ),
+        SlashCommand(
+            name = "compact",
+            title = "Сжать контекст",
+            description = "Заменить историю короткой сводкой",
+            group = SlashCommandGroup.CHAT,
+            argsHint = "что сохранить"
+        ),
+        SlashCommand(
+            name = "export",
+            title = "Экспорт",
+            description = "Сохранить чат в Markdown",
+            group = SlashCommandGroup.CHAT
+        ),
+        SlashCommand(
+            name = "diff",
+            title = "Изменения",
+            description = "Показать изменения файлов за сессию",
+            group = SlashCommandGroup.CHAT
+        ),
+        SlashCommand(
+            name = "fork",
+            title = "Ветка",
+            description = "Создать копию чата и продолжить в ней",
+            group = SlashCommandGroup.CHAT
+        ),
+        SlashCommand(
+            name = "init",
+            title = "Инструкции проекта",
+            description = "Создать RUNNER.md в рабочей папке",
             group = SlashCommandGroup.CHAT
         ),
         SlashCommand(
