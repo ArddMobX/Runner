@@ -1,12 +1,10 @@
 package com.runner.app.ui.components
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,7 +53,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.ui.theme.RobotoMono
-import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import java.time.Instant
 import java.time.LocalDate
@@ -391,29 +388,13 @@ fun AppDrawerContent(
  */
 @Composable
 private fun NewChatButton(onClick: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val background by animateColorAsState(
-        targetValue = if (pressed) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
-        } else {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-        },
-        animationSpec = MotionTokens.fluidTween(180),
-        label = "new_chat_press"
-    )
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(background)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runner.app.service.AgentExecutionService
+import com.runner.app.util.CrashReportManager
 import com.runner.app.util.HapticManager
 import com.runner.app.util.ImageUtils
 import com.runner.app.util.TaskNotificationManager
@@ -40,6 +41,7 @@ import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -1656,9 +1658,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sessionId = _currentSessionId.value
         if (sessionId == null) {
             viewModelScope.launch {
-                val session = repository.createSession()
-                loadSession(session.id)
-                sendMessage(prompt, images)
+                try {
+                    val session = repository.createSession()
+                    loadSession(session.id)
+                    sendMessage(prompt, images)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    CrashReportManager.setLastError("Не удалось создать чат: ${e.stackTraceToString()}")
+                    appendSystemInfo(
+                        "Не удалось открыть чат: ${e.message ?: e.javaClass.simpleName}.",
+                        null
+                    )
+                }
             }
             return
         }
@@ -1796,6 +1808,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 updateToolScope()
 
                 runAgentLoop(sessionId, provider, model)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Незакрытое исключение в корутине viewModelScope роняет всё
+                // приложение. Превращаем его в понятное сообщение, а стек
+                // оставляем в отчёте о сбое для разбора.
+                CrashReportManager.setLastError("Сбой выполнения: ${e.stackTraceToString()}")
+                hapticManager.onError(_settings.value)
+                appendSystemInfo(
+                    "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
+                            "Стек сохранён в отчёте о сбое (Настройки → Диагностика).",
+                    null
+                )
             } finally {
                 finishDryRunIfNeeded()
                 _isRunning.value = false
@@ -1886,6 +1911,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 persistContext(sessionId)
                 repository.updateSessionModel(sessionId, model)
                 runAgentLoop(sessionId, provider, model)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CrashReportManager.setLastError("Сбой выполнения: ${e.stackTraceToString()}")
+                hapticManager.onError(_settings.value)
+                appendSystemInfo(
+                    "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
+                            "Стек сохранён в отчёте о сбое (Настройки → Диагностика).",
+                    null
+                )
             } finally {
                 finishDryRunIfNeeded()
                 _isRunning.value = false
@@ -2062,8 +2097,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // В автономном режиме (autoApproveInWorkingDir) сформированный план передаётся на исполнение сразу
-        val needsApproval = !_settings.value.autoApproveInWorkingDir && planSteps.any { ToolDispatcher.isCriticalOperation(it.tool) }
+        // В автономном режиме (autoApproveInWorkingDir) сформированный план передаётся на исполнение сразу.
+        // В Live-режиме тоже: приложение уже свёрнуто, карточку плана пользователь
+        // не увидит, а задача встанет намертво. Защита там другая - подтверждения
+        // действий на плавающей карточке.
+        val needsApproval = !_settings.value.liveModeEnabled &&
+                !_settings.value.autoApproveInWorkingDir &&
+                planSteps.any { ToolDispatcher.isCriticalOperation(it.tool) }
         if (!needsApproval) {
             approvedPlanSteps = planSteps
             return planNoteText()
@@ -2641,7 +2681,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // ниже: текст, прочитанный из файла или буфера, - единственная
             // защита, которую нельзя отключать режимами.
             fromUntrusted -> true
-            remembered -> _settings.value.confirmEveryStep
+            // Галочка «Больше не спрашивать это действие» - осознанное решение
+            // пользователя по конкретной операции: оно важнее общего режима
+            // «спрашивать каждый шаг», иначе галочка выглядит сломанной.
+            remembered -> false
             // Действия на экране в Live-режиме спрашивает плавающая карточка
             // (LiveAgentManager.requestConfirmation, с учётом liveFullAccess),
             // а не шторка в чате: шторка в этот момент перекрыта оверлеем и
@@ -2685,25 +2728,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             hapticManager.onConfirmationRequired(_settings.value)
             val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
 
-            val decision = suspendCancellableCoroutine { continuation ->
-                _pendingConfirmation.value = ConfirmationRequest(
-                    toolName = call.name,
-                    title = info.title,
-                    details = info.details,
-                    warning = info.warning,
-                    preview = info.preview,
-                    items = info.items,
-                    canRemember = canRemember,
-                    onDecision = { userDecision ->
-                        if (continuation.isActive) continuation.resume(userDecision)
-                    }
+            val decision = if (_settings.value.liveModeEnabled) {
+                // Live-задача сразу свернула приложение: шторка подтверждения
+                // в чате оказалась бы за пределами экрана, а задача - в вечном
+                // ожидании. Спрашиваем там, где пользователь реально смотрит, -
+                // на плавающей карточке.
+                val approved = com.runner.app.ui.LiveAgentManager.requestConfirmation(
+                    liveConfirmationPrompt(info)
                 )
-                if (!isAppInForeground && _settings.value.notifyOnCompletion) {
-                    TaskNotificationManager.notifyConfirmationRequired(
-                        getApplication(),
-                        sessionId = sessionId,
-                        actionTitle = info.title
+                ConfirmationDecision(approved = approved)
+            } else {
+                suspendCancellableCoroutine { continuation ->
+                    _pendingConfirmation.value = ConfirmationRequest(
+                        toolName = call.name,
+                        title = info.title,
+                        details = info.details,
+                        warning = info.warning,
+                        preview = info.preview,
+                        items = info.items,
+                        canRemember = canRemember,
+                        onDecision = { userDecision ->
+                            if (continuation.isActive) continuation.resume(userDecision)
+                        }
                     )
+                    if (!isAppInForeground && _settings.value.notifyOnCompletion) {
+                        TaskNotificationManager.notifyConfirmationRequired(
+                            getApplication(),
+                            sessionId = sessionId,
+                            actionTitle = info.title
+                        )
+                    }
                 }
             }
             _pendingConfirmation.value = null
@@ -3107,6 +3161,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val first = conversationJson.optJSONObject(0) ?: return
         if (first.optString("role") != "system") return
         conversationJson.put(0, systemMessage())
+    }
+
+    /**
+     * Короткий текст подтверждения для плавающей Live-карточки: заголовок
+     * и одна-две строки деталей. Полную портянку в мини-карточку не влезет,
+     * а пользователю нужно понять, что именно произойдёт.
+     */
+    private fun liveConfirmationPrompt(info: ToolDispatcher.CriticalActionInfo): String {
+        val details = info.details
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .take(2)
+            .joinToString(" · ")
+        return buildString {
+            append("Подтвердите действие: ")
+            append(info.title)
+            if (details.isNotBlank()) {
+                append(". ")
+                append(details)
+            }
+            if (info.items.isNotEmpty()) {
+                append(". Объектов: ")
+                append(info.items.size)
+            }
+        }.take(280)
     }
 
     /**

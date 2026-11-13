@@ -3,6 +3,7 @@ package com.runner.app.ui.components
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -36,21 +37,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.runner.app.service.RunnerAccessibilityService
-import com.runner.app.ui.theme.GoogleSans
-import com.runner.app.ui.components.RunnerIcons
+import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.theme.StatusWarning
 
 /**
  * Шторка настройки разрешений для Live-режима (автопилота):
  * специальные возможности для действий на экране и наложение поверх других окон.
+ *
+ * Все цвета берутся из темы: шторка должна выглядеть частью Material You,
+ * а не отдельным тёмным островком со своей палитрой.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,7 +89,7 @@ fun LivePermissionSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF141416),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Column(
@@ -100,8 +103,8 @@ fun LivePermissionSheet(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape),
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.32f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -115,16 +118,14 @@ fun LivePermissionSheet(
                 Column {
                     Text(
                         text = "Live-режим (Автопилот)",
-                        fontFamily = GoogleSans,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Выполнение действий на экране в реальном времени",
-                        fontFamily = GoogleSans,
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.6f)
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -133,10 +134,8 @@ fun LivePermissionSheet(
 
             Text(
                 text = "В этом режиме Runner сворачивается и по вашей команде взаимодействует с экраном: нажимает кнопки, ищет элементы и вводит текст прямо перед вашими глазами. Для работы требуются два разрешения:",
-                fontFamily = GoogleSans,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                color = Color.White.copy(alpha = 0.8f)
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -190,7 +189,9 @@ fun LivePermissionSheet(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,9 +199,7 @@ fun LivePermissionSheet(
             ) {
                 Text(
                     text = if (hasAccessibility && hasOverlay) "Включить Live-режим" else "Предоставьте оба разрешения",
-                    fontFamily = GoogleSans,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
 
@@ -218,10 +217,14 @@ private fun PermissionCard(
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF1E1E22),
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            if (isGranted) Color(0xFF4DE1C1).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f)
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(
+            0.8.dp,
+            if (isGranted) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            }
         ),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -231,30 +234,34 @@ private fun PermissionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = if (isGranted) RunnerIcons.CheckCircle else RunnerIcons.Error,
                         contentDescription = null,
-                        tint = if (isGranted) Color(0xFF4DE1C1) else Color(0xFFE5A030),
+                        tint = if (isGranted) StatusSuccess else StatusWarning,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = title,
-                        fontFamily = GoogleSans,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = Color.White
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 if (isGranted) {
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Включено",
-                        fontFamily = GoogleSans,
-                        fontSize = 12.sp,
-                        color = Color(0xFF4DE1C1),
-                        fontWeight = FontWeight.Medium
+                        style = MaterialTheme.typography.labelMedium,
+                        color = StatusSuccess,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -262,23 +269,20 @@ private fun PermissionCard(
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = description,
-                fontFamily = GoogleSans,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                color = Color.White.copy(alpha = 0.65f)
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             if (!isGranted) {
                 Spacer(modifier = Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onGrantClick,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = "Настроить в системе",
-                        fontFamily = GoogleSans,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
             }

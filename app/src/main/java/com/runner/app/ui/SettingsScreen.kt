@@ -2011,9 +2011,17 @@ private fun ProvidersList(
                             RoundedCornerShape(8.dp)
                         )
                         .clickable {
-                            val id = if (!alreadyAdded) preset.id else "preset_${preset.id}_${System.currentTimeMillis()}"
-                            viewModel.saveProvider(preset.copy(id = id, apiKey = ""))
-                            onEdit(id)
+                            // Пресет уже есть в списке - открываем его,
+                            // а не плодим второй провайдер с тем же адресом.
+                            val existing = providers.firstOrNull {
+                                it.baseUrl == preset.baseUrl || it.id == preset.id
+                            }
+                            if (existing != null) {
+                                onEdit(existing.id)
+                                return@clickable
+                            }
+                            viewModel.saveProvider(preset.copy(apiKey = ""))
+                            onEdit(preset.id)
                         }
                         .padding(horizontal = 11.dp, vertical = 7.dp)
                 ) {
@@ -2496,6 +2504,43 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     fontSize = 11.5.sp,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
+            }
+
+            if (appSettings.approvedOperationSignatures.isNotEmpty()) {
+                SettingsDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Запомненные разрешения",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "Действий без повторного подтверждения: " +
+                                    appSettings.approvedOperationSignatures.size,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.updateSettings(
+                                appSettings.copy(approvedOperationSignatures = emptySet())
+                            )
+                        }
+                    ) {
+                        Text(
+                            text = "Забыть",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
             }
 
             SettingsDivider()
@@ -4584,8 +4629,8 @@ private fun AccessSettings(
             Column(modifier = Modifier.padding(14.dp)) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f),
-                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.35f)),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -4782,8 +4827,8 @@ private fun AccessSettings(
             Column(modifier = Modifier.padding(14.dp)) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
-                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(

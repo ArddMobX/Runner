@@ -81,7 +81,11 @@ class ProviderStore(context: Context) {
             val json = SecureStore.decrypt(blob) ?: prefs.getString(KEY_BLOB_FALLBACK, null)
             if (json != null) {
                 val parsed = parse(json)
-                if (!parsed.isNullOrEmpty()) return parsed
+                if (!parsed.isNullOrEmpty()) {
+                    val migrated = migrateStalePresets(parsed)
+                    if (migrated != parsed) saveProviders(migrated)
+                    return migrated
+                }
             }
         }
 
@@ -179,6 +183,33 @@ class ProviderStore(context: Context) {
         return providers
     }
 
+    /**
+     * Одноразовая миграция старых стартовых списков моделей.
+     *
+     * Пресеты Token Harbor, Clean API, AbniBots, ProxyAPI и VseGPT приезжали
+     * с моделями 2024 года (gpt-4o, claude-3-5-sonnet, gemini-2.0-flash).
+     * Новые установки получают актуальный список сразу, а у существующих
+     * в настройках лежит сохранённая копия. Меняем её только если список
+     * в точности равен старому стартовому набору: значит, пользователь его
+     * не обновлял и не добавлял свои модели, и ничего не потеряет.
+     */
+    private fun migrateStalePresets(providers: List<Provider>): List<Provider> {
+        return providers.map { provider ->
+            val legacy = LEGACY_SEED_MODELS[provider.id] ?: return@map provider
+            val currentIds = provider.models.map { it.id }.toSet()
+            if (currentIds != legacy) return@map provider
+            val preset = PRESETS.firstOrNull { it.id == provider.id } ?: return@map provider
+            provider.copy(
+                models = preset.models,
+                selectedModel = if (provider.selectedModel in legacy) {
+                    preset.selectedModel
+                } else {
+                    provider.selectedModel
+                }
+            )
+        }
+    }
+
     private fun serialize(providers: List<Provider>): JSONArray = JSONArray().apply {
         providers.forEach { provider ->
             put(
@@ -260,6 +291,22 @@ class ProviderStore(context: Context) {
         const val DEFAULT_PROVIDER_ID = "groq"
 
         /**
+         * Старые стартовые списки пресетов: по ним узнаём установки, где
+         * список моделей ни разу не обновляли. Ключ - id провайдера.
+         */
+        private val LEGACY_SEED_MODELS: Map<String, Set<String>> = mapOf(
+            "tokenharbor" to setOf("gpt-4o", "claude-3-5-sonnet", "gemini-2.0-flash", "deepseek-chat"),
+            "cleanapi" to setOf("gpt-4o", "claude-3-5-sonnet", "gemini-2.0-flash"),
+            "abnibots" to setOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"),
+            "proxyapi" to setOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet-20241022"),
+            "vsegpt" to setOf("openai/gpt-4o", "anthropic/claude-3-5-sonnet"),
+            "together" to setOf(
+                "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                "Qwen/Qwen2.5-72B-Instruct-Turbo"
+            )
+        )
+
+        /**
          * Готовые пресеты провайдеров для быстрой настройки без ручного ввода Base URL и моделей.
          */
         val PRESETS: List<Provider> = listOf(
@@ -268,65 +315,65 @@ class ProviderStore(context: Context) {
                 name = "Token Harbor",
                 baseUrl = "https://tokenharbor.ai/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("claude-3-5-sonnet"),
-                    ModelInfo("gemini-2.0-flash"),
-                    ModelInfo("deepseek-chat")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("claude-sonnet-4.5"),
+                    ModelInfo("gemini-2.5-flash"),
+                    ModelInfo("deepseek-v4-pro")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             ),
             Provider(
                 id = "cleanapi",
                 name = "Clean API",
                 baseUrl = "https://cleanapis.com/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("claude-3-5-sonnet"),
-                    ModelInfo("gemini-2.0-flash")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("claude-sonnet-4.5"),
+                    ModelInfo("gemini-2.5-flash")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             ),
             Provider(
                 id = "abnibots",
                 name = "AbniBots",
                 baseUrl = "https://api.abnibots.ru/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("gpt-4o-mini"),
-                    ModelInfo("claude-3-5-sonnet")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-6-luna"),
+                    ModelInfo("claude-sonnet-4.5")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             ),
             Provider(
                 id = "proxyapi",
                 name = "ProxyAPI",
                 baseUrl = "https://api.proxyapi.ru/openai/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("gpt-4o-mini"),
-                    ModelInfo("claude-3-5-sonnet-20241022")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-6-luna"),
+                    ModelInfo("claude-sonnet-4.5")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             ),
             Provider(
                 id = "vsegpt",
                 name = "VseGPT",
                 baseUrl = "https://api.vsegpt.ru/v1",
                 models = listOf(
-                    ModelInfo("openai/gpt-4o"),
-                    ModelInfo("anthropic/claude-3-5-sonnet")
+                    ModelInfo("openai/gpt-5.4-nano"),
+                    ModelInfo("anthropic/claude-sonnet-4.5")
                 ),
-                selectedModel = "openai/gpt-4o"
+                selectedModel = "openai/gpt-5.4-nano"
             ),
             Provider(
                 id = "together",
                 name = "Together AI",
                 baseUrl = "https://api.together.xyz/v1",
                 models = listOf(
-                    ModelInfo("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-                    ModelInfo("Qwen/Qwen2.5-72B-Instruct-Turbo")
+                    ModelInfo("meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo"),
+                    ModelInfo("Qwen/Qwen3.8-72B-Instruct-Turbo")
                 ),
-                selectedModel = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+                selectedModel = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo"
             ),
             Provider(
                 id = "groq",
@@ -442,34 +489,34 @@ class ProviderStore(context: Context) {
                 name = "Token Harbor",
                 baseUrl = "https://tokenharbor.ai/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("claude-3-5-sonnet"),
-                    ModelInfo("gemini-2.0-flash"),
-                    ModelInfo("deepseek-chat")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("claude-sonnet-4.5"),
+                    ModelInfo("gemini-2.5-flash"),
+                    ModelInfo("deepseek-v4-pro")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             ),
             Provider(
                 id = "cleanapi",
                 name = "Clean API",
                 baseUrl = "https://cleanapis.com/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("claude-3-5-sonnet"),
-                    ModelInfo("gemini-2.0-flash")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("claude-sonnet-4.5"),
+                    ModelInfo("gemini-2.5-flash")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             ),
             Provider(
                 id = "abnibots",
                 name = "AbniBots",
                 baseUrl = "https://api.abnibots.ru/v1",
                 models = listOf(
-                    ModelInfo("gpt-4o"),
-                    ModelInfo("gpt-4o-mini"),
-                    ModelInfo("claude-3-5-sonnet")
+                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-6-luna"),
+                    ModelInfo("claude-sonnet-4.5")
                 ),
-                selectedModel = "gpt-4o"
+                selectedModel = "gpt-5.4-nano"
             )
         )
     }

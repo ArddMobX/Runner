@@ -2460,14 +2460,14 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f)), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)), RoundedCornerShape(10.dp))
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = RunnerIcons.BugReport,
             contentDescription = null,
-            tint = Color(0xFFEF4444),
+            tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(18.dp)
         )
         Spacer(modifier = Modifier.width(9.dp))

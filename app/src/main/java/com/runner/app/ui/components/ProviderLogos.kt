@@ -725,6 +725,98 @@ object ProviderLogos {
     }
 
 
+    /** Token Harbor: монограмма T. */
+    val TokenHarbor: ImageVector by lazy {
+        logo("TokenHarbor") {
+            moveTo(4.5f, 4f)
+            lineTo(19.5f, 4f)
+            lineTo(19.5f, 7f)
+            lineTo(13.5f, 7f)
+            lineTo(13.5f, 20f)
+            lineTo(10.5f, 20f)
+            lineTo(10.5f, 7f)
+            lineTo(4.5f, 7f)
+            close()
+        }
+    }
+
+    /** Clean API: монограмма C. */
+    val CleanApi: ImageVector by lazy {
+        logo("CleanApi") {
+            moveTo(16.93f, 5.70f)
+            arcTo(8f, 8f, 0f, true, false, 16.93f, 18.30f)
+            lineTo(15.02f, 15.86f)
+            arcTo(4.9f, 4.9f, 0f, true, true, 15.02f, 8.14f)
+            close()
+        }
+    }
+
+    /** AbniBots: монограмма A. */
+    val AbniBots: ImageVector by lazy {
+        logo("AbniBots") {
+            moveTo(12f, 3.2f)
+            lineTo(21.2f, 20.8f)
+            lineTo(17.6f, 20.8f)
+            lineTo(15.9f, 17.2f)
+            lineTo(8.1f, 17.2f)
+            lineTo(6.4f, 20.8f)
+            lineTo(2.8f, 20.8f)
+            close()
+        }
+    }
+
+    /** ProxyAPI: монограмма P. */
+    val ProxyApi: ImageVector by lazy {
+        logo("ProxyApi") {
+            moveTo(5f, 3.5f)
+            lineTo(13.5f, 3.5f)
+            arcTo(5f, 5f, 0f, false, true, 13.5f, 13.5f)
+            lineTo(8.5f, 13.5f)
+            lineTo(8.5f, 20.5f)
+            lineTo(5f, 20.5f)
+            close()
+            // Отверстие буквы: встречное направление обхода.
+            moveTo(8.5f, 6f)
+            lineTo(8.5f, 11.2f)
+            lineTo(13.2f, 11.2f)
+            arcTo(2.6f, 2.6f, 0f, false, true, 13.2f, 6f)
+            close()
+        }
+    }
+
+    /** VseGPT: монограмма V. */
+    val VseGpt: ImageVector by lazy {
+        logo("VseGpt") {
+            moveTo(3f, 3.8f)
+            lineTo(7.4f, 3.8f)
+            lineTo(12f, 16.4f)
+            lineTo(16.6f, 3.8f)
+            lineTo(21f, 3.8f)
+            lineTo(14.1f, 20.2f)
+            lineTo(9.9f, 20.2f)
+            close()
+        }
+    }
+
+    /** Together AI: два сцепленных кольца. */
+    val Together: ImageVector by lazy {
+        logo("Together") {
+            ring(8.7f, 12f, 5.6f, 2.9f)
+            ring(15.3f, 12f, 5.6f, 2.9f)
+        }
+    }
+
+    private fun PathBuilder.ring(cx: Float, cy: Float, radius: Float, innerRadius: Float) {
+        moveTo(cx - radius, cy)
+        arcTo(radius, radius, 0f, true, true, cx + radius, cy)
+        arcTo(radius, radius, 0f, true, true, cx - radius, cy)
+        close()
+        moveTo(cx - innerRadius, cy)
+        arcTo(innerRadius, innerRadius, 0f, true, false, cx + innerRadius, cy)
+        arcTo(innerRadius, innerRadius, 0f, true, false, cx - innerRadius, cy)
+        close()
+    }
+
     /**
      * Подбор логотипа по названию модели и провайдера.
      *
@@ -772,6 +864,12 @@ object ProviderLogos {
             key.contains("meta") || key.contains("llama") -> Meta
             key.contains("perplexity") -> Perplexity
             key.contains("qwen") || key.contains("alibaba") -> Qwen
+            key.contains("token harbor") || key.contains("tokenharbor") -> TokenHarbor
+            key.contains("clean api") || key.contains("cleanapi") -> CleanApi
+            key.contains("abnibots") -> AbniBots
+            key.contains("proxyapi") || key.contains("proxy api") -> ProxyApi
+            key.contains("vsegpt") || key.contains("vse gpt") -> VseGpt
+            key.contains("together") -> Together
             else -> null
         }
     }

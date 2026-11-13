@@ -15,6 +15,7 @@ import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,8 +32,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,10 +54,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -69,7 +69,9 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.runner.app.MainActivity
 import com.runner.app.service.TouchVisualizerOverlay
-import com.runner.app.ui.theme.GoogleSans
+import com.runner.app.ui.theme.StatusError
+import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.RunnerTheme
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.RunnerIcons
@@ -374,6 +376,7 @@ object LiveFloatingOverlay {
         val isExpanded = isExpandedState.value
         val state by LiveAgentManager.stateFlow.collectAsState()
         val context = LocalContext.current
+        val colors = MaterialTheme.colorScheme
 
         // Вопрос не должен висеть в свёрнутом кружке: разворачиваем карточку
         // сами, иначе подтверждение выглядит как зависшая задача.
@@ -383,35 +386,51 @@ object LiveFloatingOverlay {
             }
         }
 
+        // Статусные цвета берём из темы, а не из Tailwind-палитры: карточка
+        // должна жить в той же цветовой системе, что и остальное приложение.
         val visuals = when {
             state.status == LiveAgentManager.StepStatus.SUCCESS -> StatusVisuals(
-                color = Color(0xFF34D399),
+                color = StatusSuccess,
                 icon = RunnerIcons.Check,
                 title = "Готово"
             )
             state.status == LiveAgentManager.StepStatus.STOPPED -> StatusVisuals(
-                color = Color(0xFFFBBF24),
+                color = StatusWarning,
                 icon = RunnerIcons.PauseCircle,
                 title = "Остановлено"
             )
             state.status == LiveAgentManager.StepStatus.ERROR -> StatusVisuals(
-                color = Color(0xFFF87171),
+                color = StatusError,
                 icon = RunnerIcons.Error,
                 title = "Ошибка"
             )
             state.isPaused -> StatusVisuals(
-                color = Color(0xFFFBBF24),
+                color = StatusWarning,
                 icon = RunnerIcons.PauseCircle,
                 title = "Пауза"
             )
             else -> StatusVisuals(
-                color = MaterialTheme.colorScheme.primary,
+                color = colors.primary,
                 icon = RunnerIcons.TouchApp,
                 title = "Runner Live"
             )
         }
 
         val isFinished = state.status != LiveAgentManager.StepStatus.RUNNING
+
+        // Имя пакета в карточке читается плохо: показываем название приложения,
+        // а если пакет не резолвится - возвращаемся к самому идентификатору.
+        val expectedLabel = remember(state.expectedPackage) {
+            val pkg = state.expectedPackage
+            if (pkg.isBlank()) {
+                ""
+            } else {
+                runCatching {
+                    val pm = context.packageManager
+                    pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                }.getOrDefault(pkg)
+            }
+        }
 
         Box(
             modifier = Modifier.padding(6.dp)
@@ -427,8 +446,8 @@ object LiveFloatingOverlay {
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF141416))
-                            .border(1.5.dp, visuals.color, CircleShape),
+                            .background(colors.surfaceContainerHigh)
+                            .border(1.5.dp, visuals.color.copy(alpha = 0.7f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -442,12 +461,9 @@ object LiveFloatingOverlay {
                     // Развернутая мини-карточка статуса
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF161618),
+                        color = colors.surfaceContainerHigh,
                         shadowElevation = 8.dp,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            visuals.color.copy(alpha = 0.5f)
-                        ),
+                        border = BorderStroke(1.dp, visuals.color.copy(alpha = 0.45f)),
                         modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)
                     ) {
                         Column(
@@ -472,10 +488,10 @@ object LiveFloatingOverlay {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = visuals.title,
-                                        fontFamily = GoogleSans,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = visuals.color
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = visuals.color,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
 
@@ -483,7 +499,7 @@ object LiveFloatingOverlay {
                                     modifier = Modifier
                                         .size(28.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF242428))
+                                        .background(colors.surfaceContainerHighest)
                                         .clickable {
                                             if (isFinished) {
                                                 LiveAgentManager.reset()
@@ -496,7 +512,7 @@ object LiveFloatingOverlay {
                                     Icon(
                                         imageVector = RunnerIcons.Close,
                                         contentDescription = if (isFinished) "Закрыть" else "Свернуть",
-                                        tint = Color.White.copy(alpha = 0.85f),
+                                        tint = colors.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -506,10 +522,9 @@ object LiveFloatingOverlay {
 
                             if (state.expectedPackage.isNotBlank()) {
                                 Text(
-                                    text = "Приложение: ${state.expectedPackage}",
-                                    fontFamily = GoogleSans,
-                                    fontSize = 10.5.sp,
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    text = "Приложение: $expectedLabel",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -519,9 +534,8 @@ object LiveFloatingOverlay {
                             if (!isFinished) {
                                 Text(
                                     text = if (state.isPaused) "Пауза" else "Сейчас",
-                                    fontFamily = GoogleSans,
-                                    fontSize = 10.sp,
-                                    color = Color.White.copy(alpha = 0.4f)
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                             }
@@ -531,10 +545,12 @@ object LiveFloatingOverlay {
                                 text = state.stepDescription.ifEmpty {
                                     if (isFinished) "Задача завершена" else "Выполнение задачи..."
                                 },
-                                fontFamily = GoogleSans,
-                                fontSize = 15.sp,
-                                fontWeight = if (isFinished) FontWeight.Normal else FontWeight.Medium,
-                                color = Color.White,
+                                style = if (isFinished) {
+                                    MaterialTheme.typography.bodyMedium
+                                } else {
+                                    MaterialTheme.typography.bodyLarge
+                                },
+                                color = colors.onSurface,
                                 maxLines = 4,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -548,9 +564,8 @@ object LiveFloatingOverlay {
                                     } else {
                                         "Шаг ${state.stepIndex}"
                                     },
-                                    fontFamily = GoogleSans,
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.6f)
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = colors.onSurfaceVariant
                                 )
                             }
 
@@ -562,9 +577,8 @@ object LiveFloatingOverlay {
                                 previousSteps.forEach { recent ->
                                     Text(
                                         text = "· $recent",
-                                        fontFamily = GoogleSans,
-                                        fontSize = 11.sp,
-                                        color = Color.White.copy(alpha = 0.45f),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -578,15 +592,18 @@ object LiveFloatingOverlay {
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF231F14))
-                                        .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                        .background(colors.surfaceContainer)
+                                        .border(
+                                            1.dp,
+                                            StatusWarning.copy(alpha = 0.45f),
+                                            RoundedCornerShape(12.dp)
+                                        )
                                         .padding(10.dp)
                                 ) {
                                     Text(
                                         text = prompt,
-                                        fontFamily = GoogleSans,
-                                        fontSize = 12.sp,
-                                        color = Color(0xFFFDE68A)
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(
@@ -598,22 +615,20 @@ object LiveFloatingOverlay {
                                             shape = RoundedCornerShape(10.dp),
                                             modifier = Modifier.weight(1f).height(34.dp)
                                         ) {
-                                            Text("Отмена", fontFamily = GoogleSans, fontSize = 11.sp)
+                                            Text("Отмена", style = MaterialTheme.typography.labelMedium)
                                         }
-                                        ElevatedButton(
+                                        Button(
                                             onClick = onConfirmAction,
-                                            colors = ButtonDefaults.elevatedButtonColors(
-                                                containerColor = Color(0xFFF59E0B),
-                                                contentColor = Color.Black
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = colors.primary,
+                                                contentColor = colors.onPrimary
                                             ),
                                             shape = RoundedCornerShape(10.dp),
                                             modifier = Modifier.weight(1f).height(34.dp)
                                         ) {
                                             Text(
-                                                text = "Да",
-                                                fontFamily = GoogleSans,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 11.sp
+                                                text = "Подтвердить",
+                                                style = MaterialTheme.typography.labelMedium
                                             )
                                         }
                                     }
@@ -623,16 +638,22 @@ object LiveFloatingOverlay {
                             Spacer(modifier = Modifier.height(12.dp))
 
                             if (isFinished) {
-                                if (state.status == LiveAgentManager.StepStatus.ERROR || state.status == LiveAgentManager.StepStatus.STOPPED) {
+                                if (state.status == LiveAgentManager.StepStatus.ERROR) {
                                     OutlinedButton(
                                         onClick = {
-                                            CrashReportManager.copyReport(context, "Сбой в Live-режиме: ${state.stepDescription}")
+                                            CrashReportManager.copyReport(
+                                                context,
+                                                "Сбой в Live-режиме: ${state.stepDescription}"
+                                            )
                                         },
                                         colors = ButtonDefaults.outlinedButtonColors(
-                                            contentColor = Color(0xFFFCA5A5)
+                                            contentColor = colors.error
                                         ),
                                         shape = RoundedCornerShape(12.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f)),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            colors.error.copy(alpha = 0.4f)
+                                        ),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(36.dp)
@@ -645,8 +666,7 @@ object LiveFloatingOverlay {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = "Скопировать отчет о сбое",
-                                            fontFamily = GoogleSans,
-                                            fontSize = 12.sp
+                                            style = MaterialTheme.typography.labelMedium
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(8.dp))
@@ -664,9 +684,9 @@ object LiveFloatingOverlay {
                                             .weight(1f)
                                             .height(38.dp)
                                     ) {
-                                        Text("Закрыть", fontFamily = GoogleSans, fontSize = 12.sp)
+                                        Text("Закрыть", style = MaterialTheme.typography.labelLarge)
                                     }
-                                    ElevatedButton(
+                                    Button(
                                         onClick = {
                                             try {
                                                 val intent = Intent(context, MainActivity::class.java).apply {
@@ -679,9 +699,9 @@ object LiveFloatingOverlay {
                                             } catch (_: Exception) {}
                                             LiveAgentManager.reset()
                                         },
-                                        colors = ButtonDefaults.elevatedButtonColors(
-                                            containerColor = visuals.color,
-                                            contentColor = Color.White
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = colors.primary,
+                                            contentColor = colors.onPrimary
                                         ),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier
@@ -690,9 +710,7 @@ object LiveFloatingOverlay {
                                     ) {
                                         Text(
                                             text = "В Runner",
-                                            fontFamily = GoogleSans,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp
+                                            style = MaterialTheme.typography.labelLarge
                                         )
                                     }
                                 }
@@ -716,15 +734,14 @@ object LiveFloatingOverlay {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = if (state.isPaused) "Продолжить" else "Пауза",
-                                            fontFamily = GoogleSans,
-                                            fontSize = 12.sp
+                                            style = MaterialTheme.typography.labelLarge
                                         )
                                     }
-                                    ElevatedButton(
+                                    Button(
                                         onClick = onStop,
-                                        colors = ButtonDefaults.elevatedButtonColors(
-                                            containerColor = Color(0xFF381A1A),
-                                            contentColor = Color(0xFFFF6B6B)
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = colors.errorContainer,
+                                            contentColor = colors.onErrorContainer
                                         ),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier
@@ -739,9 +756,7 @@ object LiveFloatingOverlay {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = "Стоп",
-                                            fontFamily = GoogleSans,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp
+                                            style = MaterialTheme.typography.labelLarge
                                         )
                                     }
                                 }
@@ -753,8 +768,8 @@ object LiveFloatingOverlay {
                                     ) {
                                         Text(
                                             text = "Забрать управление",
-                                            fontFamily = GoogleSans,
-                                            fontSize = 11.sp
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = colors.onSurfaceVariant
                                         )
                                     }
                                 }
