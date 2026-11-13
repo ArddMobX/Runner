@@ -22,6 +22,8 @@ import com.runner.app.data.InstructionProfile
 import com.runner.app.data.ChatRepository
 import com.runner.app.data.ColorSource
 import com.runner.app.data.ConnectionTestResult
+import com.runner.app.data.FileChange
+import com.runner.app.data.FileChangeKind
 import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
@@ -37,6 +39,7 @@ import com.runner.app.data.db.ChatDatabase
 import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
+import com.runner.app.tools.FileChangeTracker
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
@@ -657,6 +660,8 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis(),
     /** Источники веб-поиска: показываются строкой под карточкой инструмента. */
     val sources: List<WebSource> = emptyList(),
+    /** Файловые изменения шага: карточки «создан/изменён/удалён». */
+    val fileChanges: List<FileChange> = emptyList(),
     /** Полное время ответа агента на задачу. */
     val durationMs: Long? = null,
     /** Время работы конкретного инструмента. */
@@ -2609,6 +2614,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var toolDurationMs: Long? = null
         // Источники, найденные web_search/web_fetch: приклеиваются к карточке.
         val webSources = mutableListOf<WebSource>()
+        // Снимок файла ДО операции: для diff перезаписи нужен старый текст.
+        val changeProbe = withContext(Dispatchers.IO) {
+            FileChangeTracker.prepare(call.name, call.arguments)
+        }
 
         // Проверка опасности идёт здесь, в момент исполнения, и не зависит от
         // того, был ли план. Предодобрение плана снимает шторку только для тех
@@ -2910,6 +2919,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val autoApprovedUntrusted = !declined && fromUntrusted && !needConfirm
 
         val isError = !declined && looksLikeToolError(output)
+        val fileChanges = if (!declined && !isError) {
+            withContext(Dispatchers.IO) {
+                listOfNotNull(FileChangeTracker.finish(changeProbe, output))
+            }
+        } else {
+            emptyList()
+        }
         val baseSummary = ToolDispatcher.summarizeResult(output)
         val summary = if (autoApprovedUntrusted && baseSummary.isNotBlank()) {
             "⚠ $baseSummary"
@@ -2929,7 +2945,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isRunning = false,
                     isError = isError,
                     isDeclined = declined,
-                    sources = webSources.toList()
+                    sources = webSources.toList(),
+                    fileChanges = fileChanges
                 )
             } else {
                 message
@@ -2949,7 +2966,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDeclined = declined,
                 createdAt = System.currentTimeMillis(),
                 toolDurationMs = toolDurationMs,
-                sourcesJson = sourcesToJson(webSources)
+                sourcesJson = sourcesToJson(webSources),
+                changesJson = changesToJson(fileChanges)
             )
         )
 
@@ -3345,8 +3363,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         tokensPerSecond = tokensPerSecond,
-        sourcesJson = sourcesToJson(sources)
+        sourcesJson = sourcesToJson(sources),
+        changesJson = changesToJson(fileChanges)
     )
+
+    private fun changesToJson(changes: List<FileChange>): String? {
+        if (changes.isEmpty()) return null
+        return JSONArray().apply {
+            changes.forEach { change ->
+                put(
+                    JSONObject().apply {
+                        put("kind", change.kind.name)
+                        put("path", change.path)
+                        put("itemCount", change.itemCount)
+                        change.bytes?.let { put("bytes", it) }
+                        put("added", change.linesAdded)
+                        put("removed", change.linesRemoved)
+                        change.diff?.let { put("diff", it.take(8_000)) }
+                    }
+                )
+            }
+        }.toString()
+    }
+
+    private fun parseChanges(json: String?): List<FileChange> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val array = JSONArray(json)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val kind = runCatching {
+                    FileChangeKind.valueOf(item.optString("kind"))
+                }.getOrNull() ?: return@mapNotNull null
+                val path = item.optString("path").trim()
+                if (path.isEmpty()) return@mapNotNull null
+                FileChange(
+                    kind = kind,
+                    path = path,
+                    itemCount = item.optInt("itemCount", 1).coerceAtLeast(1),
+                    bytes = item.optLong("bytes", -1).takeIf { it >= 0 },
+                    linesAdded = item.optInt("added", 0).coerceAtLeast(0),
+                    linesRemoved = item.optInt("removed", 0).coerceAtLeast(0),
+                    diff = item.optString("diff").takeIf { it.isNotBlank() }
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     private fun sourcesToJson(sources: List<WebSource>): String? {
         if (sources.isEmpty()) return null
@@ -3407,6 +3471,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         tokensPerSecond = tokensPerSecond,
-        sources = parseSources(sourcesJson)
+        sources = parseSources(sourcesJson),
+        fileChanges = parseChanges(changesJson)
     )
 }

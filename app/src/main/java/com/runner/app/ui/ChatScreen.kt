@@ -112,17 +112,24 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
+import com.runner.app.data.FileChange
+import com.runner.app.data.FileChangeKind
 import com.runner.app.data.WebSource
+import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.AgentStatusIndicator
@@ -215,6 +222,8 @@ fun ChatScreen(
     var previewSource by remember { mutableStateOf<WebPreviewSource?>(null) }
     // Шторка источников веб-поиска: null — закрыта.
     var sourcesSheet by remember { mutableStateOf<List<WebSource>?>(null) }
+    // Шторка файловых изменений с диффами.
+    var changesSheet by remember { mutableStateOf<List<FileChange>?>(null) }
     var showLivePermissionSheet by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
@@ -336,6 +345,13 @@ fun ChatScreen(
                     Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
                 }
             }
+        )
+    }
+
+    changesSheet?.let { changes ->
+        FileChangesSheet(
+            changes = changes,
+            onDismiss = { changesSheet = null }
         )
     }
 
@@ -591,6 +607,7 @@ fun ChatScreen(
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
+                                            onOpenChanges = { changesSheet = it },
                                             onAction = { action ->
                                                 when (action) {
                                                     MessageAction.OPEN_SETTINGS -> onOpenSettings()
@@ -610,6 +627,7 @@ fun ChatScreen(
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
+                                            onOpenChanges = { changesSheet = it },
                                             onApprovePlan = { viewModel.resolvePlan(true) },
                                             onRejectPlan = { viewModel.resolvePlan(false) }
                                         )
@@ -1297,6 +1315,7 @@ private fun MessageItem(
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onOpenSources: (List<WebSource>) -> Unit,
+    onOpenChanges: (List<FileChange>) -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
@@ -2027,10 +2046,12 @@ private fun TaskActivityCard(
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onOpenSources: (List<WebSource>) -> Unit,
+    onOpenChanges: (List<FileChange>) -> Unit,
     onApprovePlan: () -> Unit,
     onRejectPlan: () -> Unit
 ) {
     val toolMessages = remember(messages) { messages.filter { it.role == MessageRole.TOOL_EXECUTION } }
+    val allChanges = remember(messages) { messages.flatMap { it.fileChanges } }
     val actionCount = toolMessages.size
     val hasError = toolMessages.any { it.isError }
     val anyRunning = toolMessages.any { it.isRunning }
@@ -2141,7 +2162,8 @@ private fun TaskActivityCard(
                             showStats = showStats,
                             onUndoTrash = onUndoTrash,
                             onOpenPreview = onOpenPreview,
-                            onOpenSources = onOpenSources
+                            onOpenSources = onOpenSources,
+                            onOpenChanges = onOpenChanges
                         )
 
                         else -> Unit
@@ -2155,7 +2177,21 @@ private fun TaskActivityCard(
                     showStats = showStats,
                     onUndoTrash = onUndoTrash,
                     onOpenPreview = onOpenPreview,
-                    onOpenSources = onOpenSources
+                    onOpenSources = onOpenSources,
+                    onOpenChanges = onOpenChanges
+                )
+            }
+
+            if (allChanges.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                    thickness = 0.5.dp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                ChangeTotalsRow(
+                    changes = allChanges,
+                    onOpenChanges = { onOpenChanges(allChanges) }
                 )
             }
         }
@@ -2223,7 +2259,8 @@ private fun TimelineStepRow(
     showStats: Boolean,
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
-    onOpenSources: (List<WebSource>) -> Unit
+    onOpenSources: (List<WebSource>) -> Unit,
+    onOpenChanges: (List<FileChange>) -> Unit
 ) {
     val context = LocalContext.current
     var detailsExpanded by remember(message.id) { mutableStateOf(false) }
@@ -2278,8 +2315,9 @@ private fun TimelineStepRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val hasChanges = message.fileChanges.isNotEmpty()
                 val detailLine = buildString {
-                    if (!message.toolSummary.isNullOrBlank()) append(message.toolSummary)
+                    if (!hasChanges && !message.toolSummary.isNullOrBlank()) append(message.toolSummary)
                     if (showStats && !message.isRunning && message.toolDurationMs != null) {
                         if (isNotEmpty()) append(" · ")
                         append(formatDuration(message.toolDurationMs))
@@ -2307,6 +2345,20 @@ private fun TimelineStepRow(
                     modifier = Modifier
                         .size(14.dp)
                         .graphicsLayer { rotationZ = if (detailsExpanded) 180f else 0f }
+                )
+            }
+        }
+
+        if (message.fileChanges.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            message.fileChanges.forEach { change ->
+                ChangeLine(
+                    change = change,
+                    onClick = if (change.diff.isNullOrBlank()) {
+                        null
+                    } else {
+                        { onOpenChanges(message.fileChanges) }
+                    }
                 )
             }
         }
@@ -2583,6 +2635,380 @@ private fun ToolCard(
                     label = "Открыть превью ${preview.title}",
                     onClick = { onOpenPreview(preview) }
                 )
+            }
+        }
+    }
+}
+
+/** Компактная строка изменения под шагом: «Создан script.py · +42 · 2.1 KB». */
+@Composable
+private fun ChangeLine(
+    change: FileChange,
+    onClick: (() -> Unit)?
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = changeIcon(change.kind),
+            contentDescription = null,
+            tint = changeColor(change.kind),
+            modifier = Modifier.size(13.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = changeLabel(change),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.5.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (onClick != null) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Дифф",
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+/** Итоговая строка хода: «Создано 2 · изменено 1 · удалено 3 · +54 −12». */
+@Composable
+private fun ChangeTotalsRow(
+    changes: List<FileChange>,
+    onOpenChanges: () -> Unit
+) {
+    val totals = remember(changes) { changeTotals(changes) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = RunnerIcons.Edit,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = totals.text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.5.sp,
+            lineHeight = 15.sp,
+            maxLines = 2,
+            modifier = Modifier.weight(1f)
+        )
+        if (changes.any { !it.diff.isNullOrBlank() }) {
+            TextButton(
+                onClick = onOpenChanges,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Дифф",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 11.5.sp
+                )
+            }
+        }
+    }
+}
+
+private data class ChangeTotals(
+    val created: Int,
+    val modified: Int,
+    val deleted: Int,
+    val moved: Int,
+    val copied: Int,
+    val added: Int,
+    val removed: Int
+) {
+    val text: String
+        get() = buildString {
+            append("Итог: ")
+            val parts = buildList {
+                if (created > 0) add("создано $created")
+                if (modified > 0) add("изменено $modified")
+                if (deleted > 0) add("удалено $deleted")
+                if (moved > 0) add("перемещено $moved")
+                if (copied > 0) add("скопировано $copied")
+            }
+            if (parts.isEmpty()) append("без изменений") else append(parts.joinToString(" · "))
+            if (added > 0 || removed > 0) {
+                append(" · ")
+                if (added > 0) append("+").append(added)
+                if (added > 0 && removed > 0) append(" ")
+                if (removed > 0) append("−").append(removed)
+            }
+        }
+}
+
+private fun changeTotals(changes: List<FileChange>): ChangeTotals {
+    var created = 0
+    var modified = 0
+    var deleted = 0
+    var moved = 0
+    var copied = 0
+    var added = 0
+    var removed = 0
+    changes.forEach { change ->
+        when (change.kind) {
+            FileChangeKind.CREATED, FileChangeKind.DIR_CREATED -> created += change.itemCount
+            FileChangeKind.MODIFIED -> modified += change.itemCount
+            FileChangeKind.DELETED -> deleted += change.itemCount
+            FileChangeKind.MOVED -> moved += change.itemCount
+            FileChangeKind.COPIED -> copied += change.itemCount
+        }
+        added += change.linesAdded
+        removed += change.linesRemoved
+    }
+    return ChangeTotals(created, modified, deleted, moved, copied, added, removed)
+}
+
+@Composable
+private fun changeIcon(kind: FileChangeKind): ImageVector = when (kind) {
+    FileChangeKind.CREATED -> RunnerIcons.Add
+    FileChangeKind.MODIFIED -> RunnerIcons.Edit
+    FileChangeKind.DELETED -> RunnerIcons.Delete
+    FileChangeKind.MOVED -> RunnerIcons.FolderOpen
+    FileChangeKind.COPIED -> RunnerIcons.ContentCopy
+    FileChangeKind.DIR_CREATED -> RunnerIcons.Folder
+}
+
+@Composable
+private fun changeColor(kind: FileChangeKind): Color = when (kind) {
+    FileChangeKind.CREATED, FileChangeKind.DIR_CREATED -> StatusSuccess
+    FileChangeKind.MODIFIED -> MaterialTheme.colorScheme.primary
+    FileChangeKind.DELETED -> StatusWarning
+    FileChangeKind.MOVED, FileChangeKind.COPIED -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+private fun changeLabel(change: FileChange): String {
+    val name = change.displayPath
+    val base = when (change.kind) {
+        FileChangeKind.CREATED -> if (change.itemCount == 1) {
+            "Создан $name"
+        } else {
+            "Создано ${PluralUtils.files(change.itemCount)}"
+        }
+        FileChangeKind.MODIFIED -> if (change.itemCount == 1) {
+            "Изменён $name"
+        } else {
+            "Изменено ${PluralUtils.files(change.itemCount)}"
+        }
+        FileChangeKind.DELETED -> if (change.itemCount == 1) {
+            "Удалён $name"
+        } else {
+            "Удалено ${PluralUtils.files(change.itemCount)}"
+        }
+        FileChangeKind.MOVED -> if (change.itemCount == 1) {
+            "Перемещён $name"
+        } else {
+            "Перемещено ${PluralUtils.files(change.itemCount)}"
+        }
+        FileChangeKind.COPIED -> "Скопирован $name"
+        FileChangeKind.DIR_CREATED -> "Создана папка $name"
+    }
+    val numbers = buildList {
+        if (change.linesAdded > 0) add("+${change.linesAdded}")
+        if (change.linesRemoved > 0) add("−${change.linesRemoved}")
+    }
+    val size = change.bytes
+        ?.takeIf { it > 0 }
+        ?.let { ToolDispatcher.formatFileSize(it) }
+    return buildString {
+        append(base)
+        if (numbers.isNotEmpty()) {
+            append(" · ")
+            append(numbers.joinToString(" "))
+        }
+        if (size != null) {
+            append(" · ")
+            append(size)
+        }
+    }
+}
+
+/** Шторка изменений: по карточке на файл, внутри — построчный diff. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FileChangesSheet(
+    changes: List<FileChange>,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val totalFiles = changes.sumOf { it.itemCount }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(32.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Изменения",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = PluralUtils.files(totalFiles),
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Красным — удалённые строки, зелёным — добавленные.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 20.dp)
+            ) {
+                items(changes) { change ->
+                    FileChangeCard(change = change)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileChangeCard(change: FileChange) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(
+            0.7.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    imageVector = changeIcon(change.kind),
+                    contentDescription = null,
+                    tint = changeColor(change.kind),
+                    modifier = Modifier
+                        .padding(top = 1.dp)
+                        .size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = changeLabel(change),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    if (change.itemCount > 1) {
+                        Text(
+                            text = change.displayPath,
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            val diff = change.diff
+            if (!diff.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(
+                        0.5.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = diffAnnotated(diff),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            } else if (change.kind == FileChangeKind.MODIFIED) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Построчный diff недоступен: файл слишком большой или не читается.",
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun diffAnnotated(diff: String): AnnotatedString {
+    val colors = MaterialTheme.colorScheme
+    return remember(diff, colors) {
+        buildAnnotatedString {
+            val lines = diff.lines()
+            lines.forEachIndexed { index, line ->
+                val color = when {
+                    line.startsWith("+") -> StatusSuccess
+                    line.startsWith("-") -> colors.error
+                    line.startsWith("…") -> colors.outline
+                    else -> colors.onSurfaceVariant
+                }
+                withStyle(SpanStyle(color = color)) { append(line) }
+                if (index != lines.lastIndex) append("\n")
             }
         }
     }

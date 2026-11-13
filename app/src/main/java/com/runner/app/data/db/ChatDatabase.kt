@@ -73,7 +73,9 @@ data class MessageEntity(
     /** JSON-список путей к прикреплённым изображениям. */
     val imageUris: String? = null,
     /** JSON-список источников веб-поиска для шторки под карточкой инструмента. */
-    val sourcesJson: String? = null
+    val sourcesJson: String? = null,
+    /** JSON-список файловых изменений шага: создан/изменён/удалён. */
+    val changesJson: String? = null
 )
 
 /**
@@ -187,7 +189,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -252,6 +254,15 @@ abstract class ChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6 -> v7: файловые изменения шага для карточек «создан/изменён/удалён».
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN changesJson TEXT")
+            }
+        }
+
         fun get(context: Context): ChatDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -259,7 +270,14 @@ abstract class ChatDatabase : RoomDatabase() {
                     ChatDatabase::class.java,
                     "runner_chat.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7
+                    )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                     .also { instance = it }
