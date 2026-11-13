@@ -369,7 +369,7 @@ fun WorkspaceFolderSheet(
                         )
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = "Не спрашивать подтверждения на операции внутри этой папки. Агент сможет самостоятельно создавать и изменять проект.",
+                            text = "Не спрашивать подтверждения на файловые операции внутри этой папки. Агент сможет сам создавать и менять проект. Shell-команды и пути за пределами папки всё равно требуют подтверждения.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp

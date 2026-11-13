@@ -173,6 +173,7 @@ import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
+import com.runner.app.util.PrefatoryText
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
 import com.runner.app.ui.components.RunnerIcons
@@ -1893,16 +1894,19 @@ private fun MessageItem(
                 }
 
                 val hasContent = message.content.isNotBlank()
+                // Служебные обещания вроде «Сейчас проверю папку» — часть
+                // хода, а не готовый ответ. Копировать и озвучивать их нечего.
+                val canActOnContent = hasContent && !PrefatoryText.isPrefatory(message.content)
                 val hasStats = showStats && (message.durationMs != null || message.tokensPerSecond != null || message.promptTokens != null || message.completionTokens != null)
 
-                if (hasContent || hasStats) {
+                if (canActOnContent || hasStats) {
                     @OptIn(ExperimentalLayoutApi::class)
                     FlowRow(
                         modifier = Modifier.padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (hasContent) {
+                        if (canActOnContent) {
                             val isCurrentSpeaking = isSpeaking && activeUtteranceId == message.id
                             @Suppress("DEPRECATION")
                             val volumeIcon = RunnerIcons.VolumeUp
@@ -1941,7 +1945,7 @@ private fun MessageItem(
                     }
                 }
 
-                if (isLastAssistantMessage && hasContent) {
+                if (isLastAssistantMessage && canActOnContent) {
                     val followUps = remember(message.content) {
                         SmartFollowUpGenerator.generate(message.content)
                     }
@@ -2576,6 +2580,7 @@ private fun appendSegment(segment: List<ChatMessage>, out: MutableList<ChatListI
         val message = meaningful[index]
         if (message.role == MessageRole.ASSISTANT &&
             message.content.isNotBlank() &&
+            !PrefatoryText.isPrefatory(message.content) &&
             index > lastActivityIndex
         ) {
             finalIndex = index
@@ -3458,7 +3463,7 @@ private fun TaskTotalsRow(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Файлы: ${totals.body}",
+                    text = fileTotalsText(totals),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp,
                     lineHeight = 15.sp,
@@ -3477,7 +3482,7 @@ private fun TaskTotalsRow(
                 errors.isNotEmpty() -> "Ошибки"
                 else -> "Отклонено"
             }
-            val names = failedSteps.take(3).joinToString("; ") { it.content }
+            val names = failedSteps.take(3).joinToString("; ") { failedStepLabel(it) }
             val suffix = if (failedSteps.size > 3) " и ещё ${failedSteps.size - 3}" else ""
             Text(
                 text = "$label: $names$suffix",
@@ -3499,24 +3504,90 @@ private data class ChangeTotals(
     val copied: Int,
     val added: Int,
     val removed: Int
-) {
-    val body: String
-        get() = buildString {
-            val parts = buildList {
-                if (created > 0) add("создано $created")
-                if (modified > 0) add("изменено $modified")
-                if (deleted > 0) add("удалено $deleted")
-                if (moved > 0) add("перемещено $moved")
-                if (copied > 0) add("скопировано $copied")
-            }
-            if (parts.isEmpty()) append("без изменений") else append(parts.joinToString(" · "))
-            if (added > 0 || removed > 0) {
-                append(" · ")
-                if (added > 0) append("+").append(added)
-                if (added > 0 && removed > 0) append(" ")
-                if (removed > 0) append("−").append(removed)
+)
+
+/** Сводка по файлам: создание зеленеет, удаление краснеет, правки янтарные. */
+@Composable
+private fun fileTotalsText(totals: ChangeTotals): AnnotatedString {
+    val createdColor = StatusSuccess
+    val modifiedColor = StatusWarning
+    val deletedColor = MaterialTheme.colorScheme.error
+    val movedColor = MaterialTheme.colorScheme.primary
+    return buildAnnotatedString {
+        append("Файлы: ")
+        var first = true
+        fun next() {
+            if (!first) append(" · ")
+            first = false
+        }
+        if (totals.created > 0) {
+            next()
+            withStyle(SpanStyle(color = createdColor)) {
+                append("создано ${totals.created}")
             }
         }
+        if (totals.modified > 0) {
+            next()
+            withStyle(SpanStyle(color = modifiedColor)) {
+                append("изменено ${totals.modified}")
+            }
+        }
+        if (totals.deleted > 0) {
+            next()
+            withStyle(SpanStyle(color = deletedColor)) {
+                append("удалено ${totals.deleted}")
+            }
+        }
+        if (totals.moved > 0) {
+            next()
+            withStyle(SpanStyle(color = movedColor)) {
+                append("перемещено ${totals.moved}")
+            }
+        }
+        if (totals.copied > 0) {
+            next()
+            withStyle(SpanStyle(color = movedColor)) {
+                append("скопировано ${totals.copied}")
+            }
+        }
+        if (totals.added > 0 || totals.removed > 0) {
+            next()
+            if (totals.added > 0) {
+                withStyle(SpanStyle(color = createdColor)) {
+                    append("+${totals.added}")
+                }
+            }
+            if (totals.added > 0 && totals.removed > 0) append(" ")
+            if (totals.removed > 0) {
+                withStyle(SpanStyle(color = deletedColor)) {
+                    append("-${totals.removed}")
+                }
+            }
+        }
+    }
+}
+
+/** Человеческая подпись упавшего шага вместо безликого «Выполняю команду». */
+private fun failedStepLabel(step: ChatMessage): String {
+    val summary = step.toolSummary
+        ?.takeIf { it.isNotBlank() && !it.startsWith("Выполнено", ignoreCase = true) }
+    if (summary != null) return summary
+
+    val rawName = step.toolName?.substringAfterLast(':')?.takeIf { it.isNotBlank() }
+    return when (rawName) {
+        "run_shell_command" -> "shell-команда"
+        "write_file" -> "запись файла"
+        "delete_file" -> "удаление файла"
+        "move_file" -> "перемещение файла"
+        "copy_file" -> "копирование файла"
+        "create_dir" -> "создание папки"
+        "ui_click", "ui_long_click", "ui_type", "ui_scroll", "ui_global_action" ->
+            "действие на экране"
+        "web_search" -> "поиск в сети"
+        "web_fetch" -> "чтение страницы"
+        null -> "действие"
+        else -> rawName
+    }
 }
 
 private fun changeTotals(changes: List<FileChange>): ChangeTotals {
