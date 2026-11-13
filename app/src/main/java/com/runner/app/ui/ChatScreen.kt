@@ -136,7 +136,10 @@ import com.runner.app.tools.TrashStore
 import com.runner.app.ui.commands.CommandStatusInfo
 import com.runner.app.ui.commands.CommandToolsInfo
 import com.runner.app.ui.commands.SlashCommand
+import com.runner.app.ui.commands.SlashCommandAgentRequest
 import com.runner.app.ui.commands.SlashCommandRequests
+import com.runner.app.ui.commands.SlashCommands
+import com.runner.app.ui.commands.toSlashCommand
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
@@ -199,6 +202,7 @@ fun ChatScreen(
     val appSettings by viewModel.settings.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val currentSessionTitle by viewModel.currentSessionTitle.collectAsState()
+    val customCommands by viewModel.customCommands.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val rmsLevel by viewModel.rmsLevel.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
@@ -211,6 +215,16 @@ fun ChatScreen(
     var undoCandidate by remember { mutableStateOf<TrashStore.TrashEntry?>(null) }
 
     val inputState = rememberChatInputState()
+    val allCommands = remember(customCommands) {
+        // Своя команда не должна перекрывать встроенную, даже если в базе
+        // когда-то окажется старая запись с занятым именем.
+        val reserved = SlashCommands.all
+            .flatMap { listOf(it.name) + it.aliases }
+            .toSet()
+        SlashCommands.all + customCommands
+            .filter { it.name.lowercase() !in reserved }
+            .map { it.toSlashCommand() }
+    }
     var showModelPicker by remember { mutableStateOf(false) }
     var showFolderSheet by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -289,6 +303,21 @@ fun ChatScreen(
         )
     }
 
+    fun sendAgentRequest(request: SlashCommandAgentRequest) {
+        if (appSettings.liveModeEnabled) {
+            (context as? android.app.Activity)?.moveTaskToBack(true)
+        }
+        viewModel.sendMessage(
+            prompt = request.prompt,
+            images = inputState.selectedImages,
+            forceSearch = request.forceSearch || inputState.webSearch,
+            forceThinking = inputState.think,
+            forcePlan = request.forcePlan
+        )
+        // Вложения уже ушли в запрос, в поле им делать нечего.
+        inputState.clear()
+    }
+
     /**
      * Локальные команды не уходят в модель: они меняют состояние приложения
      * и показывают короткий результат тостом. Неизвестный слэш сюда не
@@ -336,18 +365,7 @@ fun ChatScreen(
                     ).show()
                     false
                 } else {
-                    if (appSettings.liveModeEnabled) {
-                        (context as? android.app.Activity)?.moveTaskToBack(true)
-                    }
-                    viewModel.sendMessage(
-                        prompt = request.prompt,
-                        images = inputState.selectedImages,
-                        forceSearch = request.forceSearch || inputState.webSearch,
-                        forceThinking = inputState.think,
-                        forcePlan = request.forcePlan
-                    )
-                    // Вложения уже ушли в запрос, в поле им делать нечего.
-                    inputState.clear()
+                    sendAgentRequest(request)
                     true
                 }
             }
@@ -452,7 +470,15 @@ fun ChatScreen(
                 }
                 true
             }
-            else -> false
+            else -> {
+                val request = SlashCommandRequests.from(command, args)
+                if (request == null) {
+                    false
+                } else {
+                    sendAgentRequest(request)
+                    true
+                }
+            }
         }
     }
 
@@ -580,7 +606,10 @@ fun ChatScreen(
     }
 
     if (showCommandHelp) {
-        SlashCommandHelpSheet(onDismiss = { showCommandHelp = false })
+        SlashCommandHelpSheet(
+            commands = allCommands,
+            onDismiss = { showCommandHelp = false }
+        )
     }
 
     statusSheet?.let { info ->
@@ -983,6 +1012,7 @@ fun ChatScreen(
                     )
                 },
                 onStop = { viewModel.stopGeneration() },
+                commands = allCommands,
                 onCommand = { command, args -> runSlashCommand(command, args) },
                 onStartListening = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {

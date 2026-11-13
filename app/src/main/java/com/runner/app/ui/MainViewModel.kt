@@ -36,6 +36,7 @@ import com.runner.app.data.ThemeStore
 import com.runner.app.data.ToolCall
 import com.runner.app.data.WebSource
 import com.runner.app.data.db.ChatDatabase
+import com.runner.app.data.db.CustomCommandEntity
 import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
@@ -44,6 +45,7 @@ import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.tools.WebTools
+import com.runner.app.ui.commands.CustomCommandValidation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
@@ -741,6 +743,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { query -> repository.observeSessions(query) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Свои команды из настроек. Нужны и чату, и экрану редактирования. */
+    val customCommands: StateFlow<List<CustomCommandEntity>> =
+        repository.observeCustomCommands()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /**
      * Сниппеты совпадений для списка чатов: поиск идёт и по содержимому
      * сообщений, поэтому без сниппета непонятно, почему чат попал в выдачу.
@@ -1318,6 +1325,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.renameSession(sessionId, clean)
             if (_currentSessionId.value == sessionId) {
                 _currentSessionTitle.value = clean
+            }
+        }
+    }
+
+    // --- Свои команды ---
+
+    /**
+     * Сохраняет свою команду. Возвращает текст ошибки или null при успехе:
+     * редактору так проще показать проблему прямо под полем.
+     */
+    suspend fun saveCustomCommand(
+        id: String?,
+        name: String,
+        description: String,
+        prompt: String,
+        argsHint: String
+    ): String? {
+        val normalized = CustomCommandValidation.normalizeName(name)
+        CustomCommandValidation.validateName(normalized)?.let { return it }
+        CustomCommandValidation.validatePrompt(prompt)?.let { return it }
+
+        return try {
+            if (repository.customCommandNameTaken(normalized, id)) {
+                "Команда /$normalized уже есть"
+            } else {
+                val existing = id?.let { repository.getCustomCommand(it) }
+                val now = System.currentTimeMillis()
+                repository.saveCustomCommand(
+                    CustomCommandEntity(
+                        id = id ?: UUID.randomUUID().toString(),
+                        name = normalized,
+                        description = description.trim()
+                            .take(CustomCommandValidation.MAX_DESCRIPTION_LENGTH),
+                        prompt = prompt.trim(),
+                        argsHint = argsHint.trim()
+                            .take(CustomCommandValidation.MAX_ARGS_HINT_LENGTH),
+                        createdAt = existing?.createdAt ?: now,
+                        updatedAt = now
+                    )
+                )
+                null
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Не удалось сохранить команду: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    fun deleteCustomCommand(id: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCustomCommand(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Команда останется в списке: Flow покажет актуальное состояние.
             }
         }
     }

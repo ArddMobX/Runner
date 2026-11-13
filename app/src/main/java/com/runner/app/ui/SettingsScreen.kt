@@ -142,6 +142,7 @@ private sealed interface SettingsRoute {
     data object Providers : SettingsRoute
     data class ProviderEdit(val providerId: String) : SettingsRoute
     data object Agent : SettingsRoute
+    data object Commands : SettingsRoute
     data object Access : SettingsRoute
 
     /** Журнал обратимых операций: удаления и перемещения. */
@@ -168,6 +169,7 @@ fun SettingsScreen(
         SettingsRoute.Providers -> "Провайдеры"
         is SettingsRoute.ProviderEdit -> "Провайдер"
         SettingsRoute.Agent -> "Агент"
+        SettingsRoute.Commands -> "Свои команды"
         SettingsRoute.Access -> "Доступы"
         SettingsRoute.Trash -> "Корзина"
         SettingsRoute.ShellLog -> "Журнал команд"
@@ -233,6 +235,8 @@ fun SettingsScreen(
 
                 SettingsRoute.Agent -> AgentSettings(viewModel) { route = it }
 
+                SettingsRoute.Commands -> CustomCommandsScreen(viewModel)
+
                 SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
 
                 SettingsRoute.Trash -> TrashListScreen(viewModel)
@@ -269,6 +273,7 @@ private fun SettingsRoot(
     val allPermissionsGranted = hasStorage && hasContacts && hasCall && hasAudio
     val connectionState by viewModel.connectionTestState.collectAsState()
     val themeConfig by viewModel.themeConfig.collectAsState()
+    val customCommands by viewModel.customCommands.collectAsState()
     val context = LocalContext.current
     var showReportPreviewDialog by remember { mutableStateOf(false) }
 
@@ -322,6 +327,13 @@ private fun SettingsRoot(
                 description = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() } ?: "Вся память",
                 icon = RunnerIcons.FolderSpecial,
                 route = SettingsRoute.Agent
+            ),
+            SearchableSetting(
+                title = "Свои команды",
+                section = "Агент",
+                description = if (customCommands.isEmpty()) "Нет команд" else "Сохранено: ${customCommands.size}",
+                icon = RunnerIcons.Terminal,
+                route = SettingsRoute.Commands
             ),
             SearchableSetting(
                 title = "Разрешения и доступы",
@@ -669,6 +681,17 @@ private fun SettingsRoot(
                     } ?: "Вся память",
                     onClick = { onNavigate(SettingsRoute.Agent) },
                     icon = RunnerIcons.FolderSpecial
+                )
+                SettingsDivider()
+                SettingsRow(
+                    label = "Свои команды",
+                    value = if (customCommands.isEmpty()) {
+                        "Нет команд"
+                    } else {
+                        "${customCommands.size} шт."
+                    },
+                    onClick = { onNavigate(SettingsRoute.Commands) },
+                    icon = RunnerIcons.Terminal
                 )
             }
 

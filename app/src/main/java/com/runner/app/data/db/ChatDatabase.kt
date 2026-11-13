@@ -13,6 +13,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -76,6 +77,27 @@ data class MessageEntity(
     val sourcesJson: String? = null,
     /** JSON-список файловых изменений шага: создан/изменён/удалён. */
     val changesJson: String? = null
+)
+
+/**
+ * Своя команда поля ввода: /review, /test и подобные.
+ *
+ * Имя хранится без слэша и в нижнем регистре. Промпт — шаблон, в который
+ * подставляется текст после команды. Уникальный индекс не даёт двум
+ * командам называться одинаково.
+ */
+@Entity(
+    tableName = "custom_commands",
+    indices = [Index(value = ["name"], unique = true)]
+)
+data class CustomCommandEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String = "",
+    val prompt: String,
+    val argsHint: String = "",
+    val createdAt: Long,
+    val updatedAt: Long
 )
 
 /**
@@ -185,11 +207,28 @@ interface ChatDao {
         deleteMessagesOf(id)
         deleteSession(id)
     }
+
+    // --- Свои команды ---
+
+    @Query("SELECT * FROM custom_commands ORDER BY name COLLATE NOCASE ASC")
+    fun observeCustomCommands(): Flow<List<CustomCommandEntity>>
+
+    @Query("SELECT * FROM custom_commands WHERE id = :id LIMIT 1")
+    suspend fun getCustomCommand(id: String): CustomCommandEntity?
+
+    @Query("SELECT COUNT(*) FROM custom_commands WHERE name = :name AND id != :excludeId")
+    suspend fun countCustomCommands(name: String, excludeId: String): Int
+
+    @Upsert
+    suspend fun upsertCustomCommand(command: CustomCommandEntity)
+
+    @Query("DELETE FROM custom_commands WHERE id = :id")
+    suspend fun deleteCustomCommand(id: String)
 }
 
 @Database(
-    entities = [SessionEntity::class, MessageEntity::class],
-    version = 7,
+    entities = [SessionEntity::class, MessageEntity::class, CustomCommandEntity::class],
+    version = 8,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -263,6 +302,32 @@ abstract class ChatDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 -> v8: свои команды. Таблица новая, история чатов не меняется.
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS custom_commands (
+                        id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        prompt TEXT NOT NULL,
+                        argsHint TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_custom_commands_name " +
+                            "ON custom_commands (name)"
+                )
+            }
+        }
+
         fun get(context: Context): ChatDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -276,7 +341,8 @@ abstract class ChatDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
-                        MIGRATION_6_7
+                        MIGRATION_6_7,
+                        MIGRATION_7_8
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

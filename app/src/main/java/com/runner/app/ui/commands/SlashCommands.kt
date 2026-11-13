@@ -5,6 +5,7 @@ enum class SlashCommandGroup(val label: String) {
     TASK("Задача"),
     CHAT("Чат"),
     MODES("Режимы"),
+    CUSTOM("Свои"),
     HELP("Справка")
 }
 
@@ -25,9 +26,20 @@ data class SlashCommand(
     /** Команда с обязательным аргументом не выполнится без него. */
     val requiresArgs: Boolean = false,
     /** Разрешена ли команда, пока агент работает. */
-    val availableWhileRunning: Boolean = false
+    val availableWhileRunning: Boolean = false,
+    /** Своя команда из настроек, а не встроенная. */
+    val isCustom: Boolean = false,
+    /** Шаблон промпта для своей команды. */
+    val promptTemplate: String? = null
 ) {
     val invocation: String get() = "/$name"
+
+    /**
+     * Нужно ли после выбора команды оставить поле открытым для аргументов.
+     * Свои команды всегда дают дописать аргументы, даже если они не обязательны.
+     */
+    val takesArgs: Boolean
+        get() = requiresArgs || !argsHint.isNullOrBlank() || isCustom
 }
 
 /** Разобранная команда: имя уже найдено в реестре, аргументы очищены. */
@@ -139,16 +151,15 @@ object SlashCommands {
     )
 
     /** Поиск по имени и алиасам. Регистр не важен, слэш можно не убирать. */
-    fun find(nameOrAlias: String): SlashCommand? {
+    fun find(nameOrAlias: String): SlashCommand? = findIn(all, nameOrAlias)
+
+    fun findIn(commands: List<SlashCommand>, nameOrAlias: String): SlashCommand? {
         val clean = nameOrAlias.trim().removePrefix("/").lowercase()
         if (clean.isEmpty()) return null
-        return all.firstOrNull { command ->
+        return commands.firstOrNull { command ->
             command.name == clean || command.aliases.any { it.lowercase() == clean }
         }
     }
-
-    fun inGroup(group: SlashCommandGroup): List<SlashCommand> =
-        all.filter { it.group == group }
 }
 
 /**
@@ -162,12 +173,15 @@ object SlashCommandParser {
 
     private val COMMAND_PATTERN = Regex("^/([^\\s/]+)(?:\\s+([\\s\\S]*))?$")
 
-    fun parse(text: String): ParsedSlashCommand? {
+    fun parse(
+        text: String,
+        commands: List<SlashCommand> = SlashCommands.all
+    ): ParsedSlashCommand? {
         val trimmed = text.trim()
         if (!trimmed.startsWith("/")) return null
 
         val match = COMMAND_PATTERN.matchEntire(trimmed) ?: return null
-        val command = SlashCommands.find(match.groupValues[1]) ?: return null
+        val command = SlashCommands.findIn(commands, match.groupValues[1]) ?: return null
         return ParsedSlashCommand(command, match.groupValues[2].trim())
     }
 
@@ -175,14 +189,17 @@ object SlashCommandParser {
      * Команды для палитры. Показываем только пока вводится первое слово:
      * после пробела начинаются аргументы, и палитра больше не нужна.
      */
-    fun paletteMatches(text: String): List<SlashCommand> {
+    fun paletteMatches(
+        text: String,
+        commands: List<SlashCommand> = SlashCommands.all
+    ): List<SlashCommand> {
         if (!text.startsWith("/")) return emptyList()
         if (text.any { it.isWhitespace() }) return emptyList()
 
         val query = text.removePrefix("/").lowercase()
-        if (query.isEmpty()) return SlashCommands.all
+        if (query.isEmpty()) return commands
 
-        return SlashCommands.all.filter { command ->
+        return commands.filter { command ->
             command.name.startsWith(query) ||
                     command.aliases.any { alias -> alias.lowercase().startsWith(query) }
         }
@@ -205,6 +222,11 @@ data class SlashCommandAgentRequest(
 object SlashCommandRequests {
 
     fun from(command: SlashCommand, args: String): SlashCommandAgentRequest? {
+        command.promptTemplate?.let { template ->
+            val prompt = CustomCommandValidation.expandPrompt(template, args)
+            return prompt.takeIf { it.isNotBlank() }?.let { SlashCommandAgentRequest(it) }
+        }
+
         val prompt = args.trim()
         if (prompt.isEmpty()) return null
         return when (command.name) {

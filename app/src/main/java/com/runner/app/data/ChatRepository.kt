@@ -1,6 +1,7 @@
 package com.runner.app.data
 
 import com.runner.app.data.db.ChatDao
+import com.runner.app.data.db.CustomCommandEntity
 import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
@@ -76,6 +77,25 @@ class ChatRepository(private val dao: ChatDao) {
     /** Убирает всё, что появилось в сессии после указанного момента. */
     suspend fun deleteMessagesAfter(sessionId: String, timestamp: Long) {
         dao.deleteMessagesAfter(sessionId, timestamp)
+    }
+
+    // --- Свои команды ---
+
+    fun observeCustomCommands(): Flow<List<CustomCommandEntity>> =
+        dao.observeCustomCommands()
+
+    suspend fun getCustomCommand(id: String): CustomCommandEntity? =
+        dao.getCustomCommand(id)
+
+    suspend fun customCommandNameTaken(name: String, excludeId: String? = null): Boolean =
+        dao.countCustomCommands(name, excludeId.orEmpty()) > 0
+
+    suspend fun saveCustomCommand(command: CustomCommandEntity) {
+        dao.upsertCustomCommand(command)
+    }
+
+    suspend fun deleteCustomCommand(id: String) {
+        dao.deleteCustomCommand(id)
     }
 
     companion object {

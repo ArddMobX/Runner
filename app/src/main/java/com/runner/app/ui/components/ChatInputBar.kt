@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.runner.app.ui.commands.SlashCommand
 import com.runner.app.ui.commands.SlashCommandParser
+import com.runner.app.ui.commands.SlashCommands
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.bounceClick
 import kotlinx.coroutines.Dispatchers
@@ -156,6 +157,8 @@ fun ChatInputBar(
     sendOnEnter: Boolean = false,
     onSend: (String, List<Uri>) -> Unit,
     onStop: () -> Unit,
+    /** Встроенные и свои команды. Свои приходят из Room и меняются на лету. */
+    commands: List<SlashCommand> = SlashCommands.all,
     /** Возвращает true, если команда выполнена и текст можно очистить. */
     onCommand: ((SlashCommand, String) -> Boolean)? = null,
     onStartListening: (() -> Unit)? = null,
@@ -178,7 +181,7 @@ fun ChatInputBar(
     val paletteCommands = if (onCommand == null) {
         emptyList()
     } else {
-        SlashCommandParser.paletteMatches(rawText)
+        SlashCommandParser.paletteMatches(rawText, commands)
     }
 
     var showAttachMenu by remember { mutableStateOf(false) }
@@ -258,7 +261,7 @@ fun ChatInputBar(
             executeCommand(command, "")
             return
         }
-        if (command.requiresArgs) {
+        if (command.takesArgs) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             inputState.setText("${command.invocation} ")
             focusRequester.requestFocus()
@@ -274,7 +277,7 @@ fun ChatInputBar(
         // Команда перехватывается до отправки. Неизвестный слэш остаётся
         // обычным текстом, чтобы пути вида /storage/... не ломались.
         if (onCommand != null && trimmed.startsWith("/")) {
-            val parsed = SlashCommandParser.parse(trimmed)
+            val parsed = SlashCommandParser.parse(trimmed, commands)
             if (parsed != null) {
                 executeCommand(parsed.command, parsed.args)
                 return
@@ -283,7 +286,7 @@ fun ChatInputBar(
             // Неполное имя без пробелов: Enter не отправляет его модели.
             // Если подходит одна команда, выполняем её, иначе просим уточнить.
             if (trimmed.none { it.isWhitespace() }) {
-                val partial = SlashCommandParser.paletteMatches(trimmed)
+                val partial = SlashCommandParser.paletteMatches(trimmed, commands)
                 if (partial.size == 1) {
                     executeCommand(partial.first(), "")
                     return

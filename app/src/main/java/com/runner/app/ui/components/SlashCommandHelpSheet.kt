@@ -40,7 +40,10 @@ import com.runner.app.ui.commands.SlashCommands
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SlashCommandHelpSheet(onDismiss: () -> Unit) {
+fun SlashCommandHelpSheet(
+    commands: List<SlashCommand> = SlashCommands.all,
+    onDismiss: () -> Unit
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -87,8 +90,8 @@ fun SlashCommandHelpSheet(onDismiss: () -> Unit) {
                 contentPadding = PaddingValues(bottom = 20.dp)
             ) {
                 SlashCommandGroup.values().forEach { group ->
-                    val commands = SlashCommands.inGroup(group)
-                    if (commands.isNotEmpty()) {
+                    val groupCommands = commands.filter { it.group == group }
+                    if (groupCommands.isNotEmpty()) {
                         item(key = "group_${group.name}") {
                             Text(
                                 text = group.label.uppercase(),
@@ -99,10 +102,19 @@ fun SlashCommandHelpSheet(onDismiss: () -> Unit) {
                                 modifier = Modifier.padding(top = 10.dp, bottom = 3.dp)
                             )
                         }
-                        items(commands, key = { it.name }) { command ->
+                        items(groupCommands, key = { it.name }) { command ->
                             CommandHelpRow(command)
                         }
                     }
+                }
+                item(key = "custom_hint") {
+                    Text(
+                        text = "Свои команды добавляются в Настройки, раздел «Свои команды».",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(top = 14.dp)
+                    )
                 }
             }
         }
