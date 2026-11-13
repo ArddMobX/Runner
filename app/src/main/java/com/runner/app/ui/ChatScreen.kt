@@ -133,6 +133,7 @@ import com.runner.app.data.FileChangeKind
 import com.runner.app.data.WebSource
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
+import com.runner.app.ui.commands.SlashCommand
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.AudioPreviewPlayer
@@ -146,6 +147,7 @@ import androidx.compose.animation.shrinkVertically
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
+import com.runner.app.ui.components.SlashCommandHelpSheet
 import com.runner.app.ui.components.StatusPulsingDot
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.components.WebPreviewDialog
@@ -229,6 +231,7 @@ fun ChatScreen(
     // Шторка файловых изменений с диффами.
     var changesSheet by remember { mutableStateOf<List<FileChange>?>(null) }
     var showLivePermissionSheet by remember { mutableStateOf(false) }
+    var showCommandHelp by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
     // Лента строится заранее: по ней же считается автоскролл. Раньше скролл
@@ -236,6 +239,134 @@ fun ChatScreen(
     // меньше, и индекс уезжал за пределы списка.
     val chatItems = remember(messages) { groupChatItems(messages) }
     val scope = rememberCoroutineScope()
+
+    /**
+     * Локальные команды не уходят в модель: они меняют состояние приложения
+     * и показывают короткий результат тостом. Неизвестный слэш сюда не
+     * попадает, его отправляет обычный путь сообщения.
+     */
+    fun runSlashCommand(command: SlashCommand, args: String): Boolean {
+        if (isRunning && !command.availableWhileRunning) {
+            Toast.makeText(
+                context,
+                "Дождись завершения задачи или нажми /stop",
+                Toast.LENGTH_SHORT
+            ).show()
+            return true
+        }
+
+        return when (command.name) {
+            "help" -> {
+                showCommandHelp = true
+                true
+            }
+            "new" -> {
+                if (messages.none { it.role != MessageRole.SYSTEM_INFO }) {
+                    Toast.makeText(context, "Текущий чат уже пуст", Toast.LENGTH_SHORT).show()
+                } else {
+                    LiveAgentManager.reset()
+                    // Новый чат не должен тянуть за собой вложения из старого.
+                    inputState.clear()
+                    viewModel.startNewChat()
+                }
+                true
+            }
+            "sessions" -> {
+                onOpenDrawer()
+                true
+            }
+            "rename" -> {
+                val cleanArgs = args.trim()
+                val sessionId = currentSessionId
+                when {
+                    cleanArgs.isEmpty() -> {
+                        Toast.makeText(
+                            context,
+                            "Использование: /rename новое имя",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        false
+                    }
+                    sessionId == null -> {
+                        Toast.makeText(context, "Нет активного чата", Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                    else -> {
+                        viewModel.renameSession(sessionId, cleanArgs)
+                        Toast.makeText(context, "Чат переименован", Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                }
+            }
+            "model" -> {
+                if (pendingConfirmation != null || pendingPlan != null) {
+                    Toast.makeText(
+                        context,
+                        "Сначала ответь на план или подтверждение",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    showModelPicker = true
+                }
+                true
+            }
+            "live" -> {
+                if (appSettings.liveModeEnabled) {
+                    viewModel.updateAppSettings { copy(liveModeEnabled = false) }
+                    LiveAgentManager.reset()
+                    Toast.makeText(context, "Live выключен", Toast.LENGTH_SHORT).show()
+                } else {
+                    val hasAccessibility = RunnerAccessibilityService.isEnabled(context)
+                    val hasOverlay = android.provider.Settings.canDrawOverlays(context)
+                    if (hasAccessibility && hasOverlay) {
+                        viewModel.updateAppSettings { copy(liveModeEnabled = true) }
+                        Toast.makeText(context, "Live включён", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showLivePermissionSheet = true
+                    }
+                }
+                true
+            }
+            "readonly" -> {
+                val enabled = !appSettings.readOnlyMode
+                viewModel.updateAppSettings { copy(readOnlyMode = enabled) }
+                Toast.makeText(
+                    context,
+                    if (enabled) "Только чтение включено" else "Только чтение выключено",
+                    Toast.LENGTH_SHORT
+                ).show()
+                true
+            }
+            "dryrun" -> {
+                val enabled = !appSettings.dryRunFirst
+                viewModel.updateAppSettings { copy(dryRunFirst = enabled) }
+                Toast.makeText(
+                    context,
+                    if (enabled) "Сухой прогон включён" else "Сухой прогон выключен",
+                    Toast.LENGTH_SHORT
+                ).show()
+                true
+            }
+            "think" -> {
+                inputState.think = !inputState.think
+                Toast.makeText(
+                    context,
+                    if (inputState.think) "Думать включено" else "Думать выключено",
+                    Toast.LENGTH_SHORT
+                ).show()
+                true
+            }
+            "stop" -> {
+                if (isRunning) {
+                    viewModel.stopGeneration()
+                } else {
+                    Toast.makeText(context, "Сейчас нечего останавливать", Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
+            else -> false
+        }
+    }
 
     // Плеер и синтез речи глушим при уходе с экрана:
     // иначе они продолжат звучать поверх других экранов
@@ -358,6 +489,10 @@ fun ChatScreen(
             changes = changes,
             onDismiss = { changesSheet = null }
         )
+    }
+
+    if (showCommandHelp) {
+        SlashCommandHelpSheet(onDismiss = { showCommandHelp = false })
     }
 
     undoCandidate?.let { entry ->
@@ -746,6 +881,7 @@ fun ChatScreen(
                     )
                 },
                 onStop = { viewModel.stopGeneration() },
+                onCommand = { command, args -> runSlashCommand(command, args) },
                 onStartListening = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         viewModel.startVoiceInput(

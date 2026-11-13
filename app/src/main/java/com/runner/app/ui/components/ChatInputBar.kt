@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -65,6 +67,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -75,6 +78,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.runner.app.ui.commands.SlashCommand
+import com.runner.app.ui.commands.SlashCommandParser
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.bounceClick
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +156,8 @@ fun ChatInputBar(
     sendOnEnter: Boolean = false,
     onSend: (String, List<Uri>) -> Unit,
     onStop: () -> Unit,
+    /** Возвращает true, если команда выполнена и текст можно очистить. */
+    onCommand: ((SlashCommand, String) -> Boolean)? = null,
     onStartListening: (() -> Unit)? = null,
     onStopListening: (() -> Unit)? = null,
     placeholder: String? = null,
@@ -159,6 +166,8 @@ fun ChatInputBar(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
+    val focusRequester = remember { FocusRequester() }
     val textValue = inputState.textFieldValue
     val rawText = textValue.text
     val selectedImages = inputState.selectedImages
@@ -166,6 +175,11 @@ fun ChatInputBar(
     val canSend = canSendMessage(hasContent = hasContent, isRunning = isRunning, isListening = isListening)
     var isFocused by remember { mutableStateOf(false) }
     val isActive = isFocused || hasContent || isListening
+    val paletteCommands = if (onCommand == null) {
+        emptyList()
+    } else {
+        SlashCommandParser.paletteMatches(rawText)
+    }
 
     var showAttachMenu by remember { mutableStateOf(false) }
     var currentCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -226,9 +240,65 @@ fun ChatInputBar(
         label = "input_border"
     )
 
+    /**
+     * Выполняет команду через экран чата. Возвращает true, если текст можно
+     * очистить. Изображения при этом остаются: команда не отправляет сообщение.
+     */
+    fun executeCommand(command: SlashCommand, args: String) {
+        val handler = onCommand ?: return
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (handler(command, args)) {
+            inputState.setText("")
+            focusManager.clearFocus()
+        }
+    }
+
+    fun pickPaletteCommand(command: SlashCommand) {
+        if (isRunning && !command.availableWhileRunning) {
+            executeCommand(command, "")
+            return
+        }
+        if (command.requiresArgs) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            inputState.setText("${command.invocation} ")
+            focusRequester.requestFocus()
+        } else {
+            executeCommand(command, "")
+        }
+    }
+
     fun handleSend() {
         val trimmed = inputState.text.trim()
         val images = inputState.selectedImages
+
+        // Команда перехватывается до отправки. Неизвестный слэш остаётся
+        // обычным текстом, чтобы пути вида /storage/... не ломались.
+        if (onCommand != null && trimmed.startsWith("/")) {
+            val parsed = SlashCommandParser.parse(trimmed)
+            if (parsed != null) {
+                executeCommand(parsed.command, parsed.args)
+                return
+            }
+
+            // Неполное имя без пробелов: Enter не отправляет его модели.
+            // Если подходит одна команда, выполняем её, иначе просим уточнить.
+            if (trimmed.none { it.isWhitespace() }) {
+                val partial = SlashCommandParser.paletteMatches(trimmed)
+                if (partial.size == 1) {
+                    executeCommand(partial.first(), "")
+                    return
+                }
+                if (partial.size > 1) {
+                    Toast.makeText(
+                        context,
+                        "Уточни команду или выбери её из списка",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return
+                }
+            }
+        }
+
         if ((trimmed.isNotEmpty() || images.isNotEmpty()) && !isRunning) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             inputState.clear()
@@ -280,6 +350,15 @@ fun ChatInputBar(
                     )
                 }
             }
+        }
+
+        if (paletteCommands.isNotEmpty()) {
+            SlashCommandPalette(
+                commands = paletteCommands,
+                isRunning = isRunning,
+                onPick = { pickPaletteCommand(it) },
+                modifier = Modifier.padding(bottom = 7.dp)
+            )
         }
 
         Column(
@@ -372,6 +451,7 @@ fun ChatInputBar(
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                    .focusRequester(focusRequester)
                     .onFocusChanged { isFocused = it.isFocused }
                     .onKeyEvent { keyEvent ->
                         if (sendOnEnter && keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Enter && !keyEvent.isShiftPressed) {
