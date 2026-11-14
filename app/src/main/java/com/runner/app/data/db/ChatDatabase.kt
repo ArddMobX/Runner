@@ -78,7 +78,9 @@ data class MessageEntity(
     /** JSON-список источников веб-поиска для шторки под карточкой инструмента. */
     val sourcesJson: String? = null,
     /** JSON-список файловых изменений шага: создан/изменён/удалён. */
-    val changesJson: String? = null
+    val changesJson: String? = null,
+    /** JSON-список прикреплённых документов: путь, имя, тип, размер. */
+    val attachmentsJson: String? = null
 )
 
 /**
@@ -233,7 +235,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, CustomCommandEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -317,6 +319,15 @@ abstract class ChatDatabase : RoomDatabase() {
         }
 
         /**
+         * v9 -> v10: вложения-документы в пользовательских сообщениях.
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN attachmentsJson TEXT")
+            }
+        }
+
+        /**
          * v7 -> v8: свои команды. Таблица новая, история чатов не меняется.
          */
         private val MIGRATION_7_8 = object : Migration(7, 8) {
@@ -357,7 +368,8 @@ abstract class ChatDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

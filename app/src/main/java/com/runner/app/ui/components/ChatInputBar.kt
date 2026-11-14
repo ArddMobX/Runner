@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -75,14 +76,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.runner.app.data.SelectedFile
 import com.runner.app.ui.commands.SlashCommand
 import com.runner.app.ui.commands.SlashCommandParser
 import com.runner.app.ui.commands.SlashCommands
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.bounceClick
+import com.runner.app.util.DocumentExtractor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.runner.app.ui.components.RunnerIcons
@@ -103,6 +107,9 @@ class ChatInputState(initialText: String = "") {
     )
 
     var selectedImages by mutableStateOf<List<Uri>>(emptyList())
+
+    /** Документы: PDF, DOCX, таблицы, текст и код. */
+    var selectedFiles by mutableStateOf<List<SelectedFile>>(emptyList())
 
     /** Принудительный веб-поиск перед ответом. */
     var webSearch by mutableStateOf(false)
@@ -128,9 +135,18 @@ class ChatInputState(initialText: String = "") {
         selectedImages = selectedImages.filter { it != uri }
     }
 
+    fun addFiles(files: List<SelectedFile>) {
+        selectedFiles = (selectedFiles + files).distinctBy { it.uri }.take(5)
+    }
+
+    fun removeFile(file: SelectedFile) {
+        selectedFiles = selectedFiles.filter { it.uri != file.uri }
+    }
+
     fun clear() {
         textFieldValue = TextFieldValue("")
         selectedImages = emptyList()
+        selectedFiles = emptyList()
     }
 }
 
@@ -155,7 +171,7 @@ fun ChatInputBar(
     isListening: Boolean = false,
     rmsLevel: Float = 0f,
     sendOnEnter: Boolean = false,
-    onSend: (String, List<Uri>) -> Unit,
+    onSend: (String, List<Uri>, List<SelectedFile>) -> Unit,
     onStop: () -> Unit,
     /** Встроенные и свои команды. Свои приходят из Room и меняются на лету. */
     commands: List<SlashCommand> = SlashCommands.all,
@@ -174,7 +190,10 @@ fun ChatInputBar(
     val textValue = inputState.textFieldValue
     val rawText = textValue.text
     val selectedImages = inputState.selectedImages
-    val hasContent = rawText.isNotBlank() || selectedImages.isNotEmpty()
+    val selectedFiles = inputState.selectedFiles
+    val hasContent = rawText.isNotBlank() ||
+            selectedImages.isNotEmpty() ||
+            selectedFiles.isNotEmpty()
     val canSend = canSendMessage(hasContent = hasContent, isRunning = isRunning, isListening = isListening)
     var isFocused by remember { mutableStateOf(false) }
     val isActive = isFocused || hasContent || isListening
@@ -193,6 +212,35 @@ fun ChatInputBar(
     ) { uris ->
         if (uris.isNotEmpty()) {
             inputState.addImages(uris)
+        }
+    }
+
+    // Документы: системный пикер отдаёт content:// URI. Сразу проверяем
+    // формат и размер, чтобы не тащить в чат заведомо нечитаемый файл.
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val accepted = mutableListOf<SelectedFile>()
+        var rejected = 0
+        uris.forEach { uri ->
+            val file = DocumentExtractor.readMeta(context, uri) ?: return@forEach
+            val tooBig = file.sizeBytes > DocumentExtractor.MAX_FILE_BYTES
+            if (tooBig || !DocumentExtractor.isSupported(file.name, file.mime)) {
+                rejected++
+            } else {
+                accepted += file
+            }
+        }
+        if (accepted.isNotEmpty()) {
+            inputState.addFiles(accepted)
+        }
+        if (rejected > 0) {
+            Toast.makeText(
+                context,
+                "Пропущено файлов: $rejected. Поддерживаются PDF, DOCX, XLSX, PPTX, текст и код до 25 МБ.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -273,6 +321,7 @@ fun ChatInputBar(
     fun handleSend() {
         val trimmed = inputState.text.trim()
         val images = inputState.selectedImages
+        val files = inputState.selectedFiles
 
         // Команда перехватывается до отправки. Неизвестный слэш остаётся
         // обычным текстом, чтобы пути вида /storage/... не ломались.
@@ -302,10 +351,10 @@ fun ChatInputBar(
             }
         }
 
-        if ((trimmed.isNotEmpty() || images.isNotEmpty()) && !isRunning) {
+        if ((trimmed.isNotEmpty() || images.isNotEmpty() || files.isNotEmpty()) && !isRunning) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             inputState.clear()
-            onSend(trimmed, images)
+            onSend(trimmed, images, files)
         }
     }
 
@@ -355,6 +404,23 @@ fun ChatInputBar(
             }
         }
 
+        if (selectedFiles.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp, start = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(selectedFiles, key = { it.uri.toString() }) { file ->
+                    SelectedFileChip(
+                        file = file,
+                        onRemove = { inputState.removeFile(file) }
+                    )
+                }
+            }
+        }
+
         if (paletteCommands.isNotEmpty()) {
             SlashCommandPalette(
                 commands = paletteCommands,
@@ -383,7 +449,7 @@ fun ChatInputBar(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = if (textValue.text.contains('\n')) Alignment.Bottom else Alignment.CenterVertically
             ) {
-            // Кнопка «+»: быстрое меню прикрепления — камера или галерея.
+            // Кнопка «+»: файл, камера или галерея.
             // Идеально сбалансирована по центру, размеру (38dp) и форме с кнопкой микрофона/отправки.
             Box(
                 modifier = Modifier.size(38.dp),
@@ -402,7 +468,7 @@ fun ChatInputBar(
                 ) {
                     Icon(
                         imageVector = RunnerIcons.Add,
-                        contentDescription = "Прикрепить фото или сделать снимок",
+                        contentDescription = "Прикрепить файл, фото или сделать снимок",
                         tint = if (!isRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
                         modifier = Modifier.size(20.dp)
                     )
@@ -413,6 +479,31 @@ fun ChatInputBar(
                     onDismissRequest = { showAttachMenu = false },
                     modifier = Modifier.clip(RoundedCornerShape(18.dp))
                 ) {
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text("Файл", fontSize = 14.sp)
+                                Text(
+                                    text = "PDF, DOCX, XLSX, PPTX, текст и код",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = RunnerIcons.Article,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showAttachMenu = false
+                            filePickerLauncher.launch(arrayOf("*/*"))
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Камера", fontSize = 14.sp) },
                         leadingIcon = {
@@ -616,6 +707,65 @@ private fun InputModeChip(
             fontSize = 11.5.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium
         )
+    }
+}
+
+/** Компактная плашка выбранного документа с крестиком. */
+@Composable
+private fun SelectedFileChip(
+    file: SelectedFile,
+    onRemove: () -> Unit
+) {
+    val extension = file.name.substringAfterLast('.', "").lowercase()
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(
+                BorderStroke(
+                    0.6.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                ),
+                RoundedCornerShape(14.dp)
+            )
+            .padding(start = 7.dp, end = 3.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AttachmentBadge(name = file.name, size = 32.dp)
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(
+                text = file.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 150.dp)
+            )
+            Text(
+                text = attachmentTypeName(extension) + " · " +
+                        DocumentExtractor.formatSize(file.sizeBytes),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.5.sp,
+                maxLines = 1
+            )
+        }
+        Spacer(modifier = Modifier.width(3.dp))
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = RunnerIcons.Close,
+                contentDescription = "Убрать файл",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
+        }
     }
 }
 

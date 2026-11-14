@@ -41,6 +41,12 @@ object ChatMarkdownExporter {
                         if (message.imageUris.isNotEmpty()) {
                             append("\nВложения: ${message.imageUris.size} изображений.\n")
                         }
+                        if (message.attachments.isNotEmpty()) {
+                            append("\nФайлы:\n")
+                            message.attachments.forEach { attachment ->
+                                append("- ").append(attachment.name).append('\n')
+                            }
+                        }
                     }
 
                     MessageRole.ASSISTANT -> {

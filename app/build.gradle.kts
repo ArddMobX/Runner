@@ -292,6 +292,9 @@ dependencies {
     // Zip4j for archive operations
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 
+    // PDF: извлечение текста для вложений. Лёгкая Android-версия PDFBox.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
     // Room — история чатов
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

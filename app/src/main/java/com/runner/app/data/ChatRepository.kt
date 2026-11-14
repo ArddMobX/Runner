@@ -74,6 +74,9 @@ class ChatRepository(private val dao: ChatDao) {
                 ?.map { it.trim() }
                 ?.filter { it.contains("/chat_images/") }
                 ?.forEach { path -> runCatching { File(path).delete() } }
+            attachmentPaths(message.attachmentsJson)
+                .filter { it.contains("/chat_files/") }
+                .forEach { path -> runCatching { File(path).delete() } }
         }
         dao.deleteSessionCascade(sessionId)
     }
@@ -133,7 +136,8 @@ class ChatRepository(private val dao: ChatDao) {
                     message.copy(
                         id = UUID.randomUUID().toString(),
                         sessionId = forked.id,
-                        imageUris = forkImageUris(message.imageUris)
+                        imageUris = forkImageUris(message.imageUris),
+                        attachmentsJson = forkAttachmentsJson(message.attachmentsJson)
                     )
                 )
             }
@@ -149,31 +153,54 @@ class ChatRepository(private val dao: ChatDao) {
         if (raw.isNullOrBlank()) return null
         val paths = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         if (paths.isEmpty()) return null
-        return paths.map { path ->
-            if (!path.contains("/chat_images/")) return@map path
-            val source = File(path)
-            if (!source.isFile) return@map path
-            try {
-                val parent = source.parentFile ?: return@map path
-                val extension = source.extension
-                    .takeIf { it.isNotBlank() }
-                    ?.let { ".$it" }
-                    .orEmpty()
-                val copy = File(
-                    parent,
-                    "${source.nameWithoutExtension}_fork_${UUID.randomUUID().toString().take(8)}$extension"
-                )
-                source.copyTo(copy, overwrite = false)
-                copy.absolutePath
-            } catch (_: Exception) {
-                path
-            }
-        }.joinToString(",")
+        return paths.map { path -> forkFile(path, "/chat_images/") ?: path }.joinToString(",")
+    }
+
+    /**
+     * Вложения лежат JSON-массивом. Копируем сами файлы и подменяем пути,
+     * иначе удаление одной ветки снесло бы файлы второй.
+     */
+    private fun forkAttachmentsJson(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        return ATTACHMENT_PATH_REGEX.replace(raw) { match ->
+            val path = match.groupValues[1]
+            val copied = forkFile(path, "/chat_files/") ?: return@replace match.value
+            "\"path\":\"$copied\""
+        }
+    }
+
+    private fun attachmentPaths(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return ATTACHMENT_PATH_REGEX.findAll(raw).map { it.groupValues[1] }.toList()
+    }
+
+    private fun forkFile(path: String, marker: String): String? {
+        if (!path.contains(marker)) return null
+        val source = File(path)
+        if (!source.isFile) return null
+        return try {
+            val parent = source.parentFile ?: return null
+            val extension = source.extension
+                .takeIf { it.isNotBlank() }
+                ?.let { ".$it" }
+                .orEmpty()
+            val copy = File(
+                parent,
+                "${source.nameWithoutExtension}_fork_${UUID.randomUUID().toString().take(8)}$extension"
+            )
+            source.copyTo(copy, overwrite = false)
+            copy.absolutePath
+        } catch (_: Exception) {
+            null
+        }
     }
 
     companion object {
         const val NEW_CHAT_TITLE = "Новый чат"
         const val MAX_TITLE_LENGTH = 60
+
+        /** Путь внутри JSON-вложения. Формат контролируем сами. */
+        private val ATTACHMENT_PATH_REGEX = Regex("\"path\"\\s*:\\s*\"([^\"]+)\"")
 
         /**
          * Экранирует спецсимволы LIKE. Запросы в ChatDao объявлены с

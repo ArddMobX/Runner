@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -141,7 +142,9 @@ import com.runner.app.ui.commands.SlashCommandRequests
 import com.runner.app.ui.commands.SlashCommands
 import com.runner.app.ui.commands.toSlashCommand
 import com.runner.app.util.CrashReportManager
+import com.runner.app.data.ChatAttachment
 import com.runner.app.ui.components.AgentStatusIndicator
+import com.runner.app.ui.components.AttachmentBadge
 import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.CommandStatusSheet
@@ -160,6 +163,7 @@ import com.runner.app.ui.components.StatusPulsingDot
 import com.runner.app.ui.components.ToolOutputView
 import com.runner.app.ui.components.WebPreviewDialog
 import com.runner.app.ui.components.WebPreviewSource
+import com.runner.app.ui.components.attachmentTypeName
 import com.runner.app.ui.components.findWebPreviewInMarkdown
 import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
@@ -173,6 +177,7 @@ import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
+import com.runner.app.util.DocumentExtractor
 import com.runner.app.util.PrefatoryText
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
@@ -313,7 +318,8 @@ fun ChatScreen(
             images = inputState.selectedImages,
             forceSearch = request.forceSearch || inputState.webSearch,
             forceThinking = inputState.think,
-            forcePlan = request.forcePlan
+            forcePlan = request.forcePlan,
+            files = inputState.selectedFiles
         )
         // Вложения уже ушли в запрос, в поле им делать нечего.
         inputState.clear()
@@ -1104,7 +1110,7 @@ fun ChatScreen(
                 sendOnEnter = appSettings.sendOnEnter,
                 placeholder = if (appSettings.liveModeEnabled) "Опишите действие на экране..." else "Задать задачу или сказать голосом...",
                 isLiveMode = appSettings.liveModeEnabled,
-                onSend = { text, images ->
+                onSend = { text, images, files ->
                     if (appSettings.liveModeEnabled) {
                         (context as? android.app.Activity)?.moveTaskToBack(true)
                     }
@@ -1112,7 +1118,8 @@ fun ChatScreen(
                         text,
                         images,
                         forceSearch = inputState.webSearch,
-                        forceThinking = inputState.think
+                        forceThinking = inputState.think,
+                        files = files
                     )
                 },
                 onStop = { viewModel.stopGeneration() },
@@ -1776,6 +1783,16 @@ private fun MessageItem(
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                             }
+                            if (message.attachments.isNotEmpty()) {
+                                if (message.content.isNotBlank() || message.imageUris.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(7.dp))
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    message.attachments.forEach { attachment ->
+                                        UserAttachmentCard(attachment)
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -2040,6 +2057,91 @@ private fun MessageImageItem(path: String) {
         ) {
             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
         }
+    }
+}
+
+/**
+ * Вложение в сообщении пользователя: имя, тип и размер. Нажатие открывает
+ * файл в приложении, которое выбрано по умолчанию для этого типа.
+ */
+@Composable
+private fun UserAttachmentCard(attachment: ChatAttachment) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val extension = attachment.extension
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f))
+            .border(
+                BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                ),
+                RoundedCornerShape(12.dp)
+            )
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                openAttachment(context, attachment)
+            }
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AttachmentBadge(name = attachment.name, size = 30.dp)
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = attachment.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            Text(
+                text = attachmentTypeName(extension) + " · " +
+                        DocumentExtractor.formatSize(attachment.sizeBytes),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.5.sp,
+                maxLines = 1
+            )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Icon(
+            imageVector = RunnerIcons.OpenInNew,
+            contentDescription = "Открыть файл",
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+            modifier = Modifier.size(14.dp)
+        )
+    }
+}
+
+private fun openAttachment(context: Context, attachment: ChatAttachment) {
+    try {
+        val file = File(attachment.path)
+        val uri = when {
+            file.isFile -> FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+
+            attachment.path.startsWith("content://") -> Uri.parse(attachment.path)
+            else -> Uri.parse(attachment.path)
+        }
+        val mime = attachment.mime.ifBlank { "*/*" }
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, mime)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: Exception) {
+        Toast.makeText(
+            context,
+            "Не нашлось приложения для этого файла",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 }
 
