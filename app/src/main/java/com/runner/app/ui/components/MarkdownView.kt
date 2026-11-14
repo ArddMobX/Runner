@@ -3,6 +3,8 @@ package com.runner.app.ui.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
@@ -15,6 +17,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.*
@@ -59,6 +65,16 @@ sealed class MarkdownElement {
     data class NumberedItem(val number: String, val text: String) : MarkdownElement()
     data class Blockquote(val text: String) : MarkdownElement()
     data class Paragraph(val text: String) : MarkdownElement()
+
+    /**
+     * Отдельная ссылка в тексте. Модель часто выдаёт голые URL строками:
+     * длинная ссылка ломает вёрстку и не нажимается. Такая строка
+     * превращается в скруглённую карточку и открывается в браузере.
+     */
+    data class LinkCard(
+        val url: String,
+        val title: String? = null
+    ) : MarkdownElement()
 }
 
 enum class TableAlignment {
@@ -175,6 +191,7 @@ fun MarkdownView(
                         is MarkdownElement.Table -> TableElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.Blockquote -> BlockquoteElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.Paragraph -> ParagraphElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.LinkCard -> LinkCardElement(element)
                     }
                 }
             }
@@ -218,12 +235,52 @@ private fun HeaderElement(
             showCursor = isStreaming
         )
     }
-    Text(
+    LinkAwareText(
         text = annotated,
         style = style,
         color = MaterialTheme.colorScheme.onSurface,
         inlineContent = if (isStreaming) cursorInlineContent(primaryColor, cursorHeight = 16.dp, exitAlpha = exitAlpha) else emptyMap(),
         modifier = Modifier.padding(top = topPadding)
+    )
+}
+
+/**
+ * Text с кликабельными аннотациями URL. Не перехватывает обычные нажатия:
+ * выделение текста и скролл работают как раньше, открывается только ссылка.
+ */
+@Composable
+private fun LinkAwareText(
+    text: AnnotatedString,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    inlineContent: Map<String, InlineTextContent> = emptyMap()
+) {
+    val context = LocalContext.current
+    // Держим результат раскладки в обычном массиве, а не в state: запись
+    // в state из onTextLayout запускала бы лишний цикл рекомпозиции.
+    val layoutHolder = remember { arrayOfNulls<TextLayoutResult>(1) }
+    Text(
+        text = text,
+        style = style,
+        color = color,
+        inlineContent = inlineContent,
+        onTextLayout = { layoutHolder[0] = it },
+        modifier = modifier.pointerInput(text) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                val release = waitForUpOrCancellation() ?: return@awaitEachGesture
+                val offset = layoutHolder[0]
+                    ?.getOffsetForPosition(release.position)
+                    ?: return@awaitEachGesture
+                val url = text.getStringAnnotations("URL", offset, offset)
+                    .firstOrNull()
+                    ?.item
+                    ?: return@awaitEachGesture
+                release.consume()
+                openLink(context, url)
+            }
+        }
     )
 }
 
@@ -635,10 +692,9 @@ private fun BlockquoteElement(
             )
             .padding(10.dp)
     ) {
-        Text(
+        LinkAwareText(
             text = annotated,
-            fontStyle = FontStyle.Italic,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             inlineContent = if (isStreaming) cursorInlineContent(primaryColor, exitAlpha = exitAlpha) else emptyMap()
         )
@@ -707,7 +763,7 @@ private fun MarkdownText(
                 showCursor = isStreaming
             )
         }
-        Text(
+        LinkAwareText(
             text = annotated,
             style = style,
             color = color,
@@ -783,6 +839,139 @@ private fun ParagraphElement(
         isStreaming = isStreaming,
         exitAlpha = exitAlpha
     )
+}
+
+/**
+ * Ссылка как отдельная плашка в стиле Material You: без голого длинного URL,
+ * с доменом, путём и понятной зоной нажатия. Открывается системным браузером,
+ * который выбран по умолчанию.
+ */
+@Composable
+private fun LinkCardElement(element: MarkdownElement.LinkCard) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val primary = MaterialTheme.colorScheme.primary
+    val host = remember(element.url) { linkHost(element.url) }
+    val detail = remember(element.url) { linkDetail(element.url) }
+    val title = element.title?.takeIf { it.isNotBlank() } ?: host.ifBlank { element.url }
+
+    Surface(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            openLink(context, element.url)
+        },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(
+            0.6.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = RunnerIcons.Public,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                if (detail.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = detail,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = RunnerIcons.OpenInNew,
+                contentDescription = "Открыть в браузере",
+                tint = primary.copy(alpha = 0.75f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+private fun openLink(context: Context, url: String) {
+    if (!isWebUrl(url)) return
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: Exception) {
+        Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun isWebUrl(url: String): Boolean =
+    url.startsWith("http://", ignoreCase = true) ||
+            url.startsWith("https://", ignoreCase = true)
+
+internal fun linkHost(url: String): String {
+    val host = try {
+        java.net.URI(url).host.orEmpty()
+    } catch (_: Exception) {
+        ""
+    }.ifBlank {
+        url.substringAfter("://", url).substringBefore('/').substringBefore(':')
+    }
+    return host.removePrefix("www.")
+}
+
+internal fun linkDetail(url: String): String {
+    val uri = try {
+        java.net.URI(url)
+    } catch (_: Exception) {
+        return ""
+    }
+    val path = uri.rawPath.orEmpty().trimEnd('/')
+    val query = uri.rawQuery.orEmpty()
+    val detail = buildString {
+        if (path.isNotBlank()) append(path)
+        if (query.isNotBlank()) {
+            if (path.isNotBlank()) append('?') else append("/?")
+            append(query)
+        }
+    }
+    return if (detail.length <= 64) detail else detail.take(61).trimEnd('/', '?', '&') + "…"
+}
+
+/** Короткая подпись для ссылки внутри абзаца, чтобы не рвать строку URL-ом. */
+internal fun prettyLinkLabel(url: String): String {
+    val host = linkHost(url)
+    if (host.isBlank()) return url
+    val path = linkDetail(url)
+    val label = if (path.isBlank()) host else "$host$path"
+    return if (label.length <= 46) label else label.take(43).trimEnd('/', '?', '&', '.') + "…"
 }
 
 
@@ -1358,7 +1547,16 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             continue
         }
 
-        // 6. Regular paragraph / empty line
+        // 7. Отдельная ссылка: длинный URL не должен занимать пол-экрана
+        // голым текстом. Превращаем его в карточку с доменом и путём.
+        val standaloneLink = parseStandaloneLinkCard(trimmed)
+        if (standaloneLink != null) {
+            elements.add(standaloneLink)
+            i++
+            continue
+        }
+
+        // 8. Regular paragraph / empty line
         if (trimmed.isNotEmpty()) {
             elements.add(MarkdownElement.Paragraph(line))
         }
@@ -1367,6 +1565,59 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
     }
 
     return elements
+}
+
+private val STANDALONE_MD_LINK = Regex("""^\[([^\]]+)]\((https?://[^)\s]+)\)$""")
+private val STANDALONE_BARE_LINK = Regex("""^<?(https?://[^\s<>]+)>?$""")
+
+/**
+ * Строка целиком состоит из ссылки. Markdown-ссылка сохраняет свой текст
+ * как заголовок, голая ссылка получает домен.
+ */
+private fun parseStandaloneLinkCard(line: String): MarkdownElement.LinkCard? {
+    // Модель любит оборачивать ссылку в жирный или курсив. Снимаем
+    // внешние маркеры, иначе строка не опознается как отдельная ссылка.
+    val clean = line
+        .removeSurrounding("**")
+        .removeSurrounding("__")
+        .removeSurrounding("*")
+        .removeSurrounding("_")
+        .trim()
+    STANDALONE_MD_LINK.matchEntire(clean)?.let { match ->
+        val url = match.groupValues[2].trim()
+        if (url.isNotBlank()) {
+            return MarkdownElement.LinkCard(
+                url = url,
+                title = match.groupValues[1].trim().takeIf { it.isNotBlank() }
+            )
+        }
+    }
+    STANDALONE_BARE_LINK.matchEntire(clean)?.let { match ->
+        val url = trimUrlTail(match.groupValues[1])
+        if (url.isNotBlank()) {
+            return MarkdownElement.LinkCard(url = url)
+        }
+    }
+    return null
+}
+
+/**
+ * Убирает хвостовую пунктуацию вокруг ссылки, но не трогает закрывающие
+ * скобки, которые принадлежат самому адресу (например, Wikipedia).
+ */
+internal fun trimUrlTail(raw: String): String {
+    var end = raw.length
+    while (end > 0) {
+        val ch = raw[end - 1]
+        when {
+            ch == '.' || ch == ',' || ch == ';' || ch == ':' -> end--
+            ch == ')' && raw.take(end).count { it == '(' } < raw.take(end).count { it == ')' } -> end--
+            ch == ']' && raw.take(end).count { it == '[' } < raw.take(end).count { it == ']' } -> end--
+            ch == '}' && raw.take(end).count { it == '{' } < raw.take(end).count { it == '}' } -> end--
+            else -> break
+        }
+    }
+    return raw.substring(0, end)
 }
 
 /**
@@ -1383,7 +1634,10 @@ fun renderInlineMarkdown(
     return buildAnnotatedString {
         var cursor = 0
 
-        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|~~.*?~~|\\$.*?\\$|\\[.*?\\]\\(.*?\\))")
+        val regex = Regex(
+            "(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|~~.*?~~|\\$.*?\\$|" +
+                    "\\[.*?\\]\\(.*?\\)|<?https?://[^\\s<>]+>?)"
+        )
         val matches = regex.findAll(sanitized)
 
         for (match in matches) {
@@ -1394,11 +1648,29 @@ fun renderInlineMarkdown(
             val token = match.value
 
             when {
-                // Bold (**text**)
+                // Bold (**text**), в том числе жирная ссылка.
                 token.startsWith("**") && token.endsWith("**") && token.length >= 4 -> {
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                    append(token.substring(2, token.length - 2))
-                    pop()
+                    val inner = token.substring(2, token.length - 2)
+                    val link = STANDALONE_MD_LINK.matchEntire(inner)
+                    if (link != null) {
+                        val linkText = link.groupValues[1]
+                        val url = link.groupValues[2]
+                        val start = length
+                        pushStyle(
+                            SpanStyle(
+                                color = primaryColor,
+                                fontWeight = FontWeight.Bold,
+                                textDecoration = TextDecoration.Underline
+                            )
+                        )
+                        append(linkText)
+                        pop()
+                        addStringAnnotation("URL", url, start, length)
+                    } else {
+                        pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                        append(inner)
+                        pop()
+                    }
                 }
 
                 // Italic (*text*)
@@ -1445,17 +1717,51 @@ fun renderInlineMarkdown(
                     pop()
                 }
 
-                // Links ([text](url))
+                // Markdown-ссылки ([text](url)): подпись остаётся осмысленной,
+                // адрес прячется в аннотацию и открывается по нажатию.
                 token.startsWith("[") && token.contains("](") && token.endsWith(")") -> {
                     val linkText = token.substringAfter("[").substringBefore("]")
+                    val url = token.substringAfter("](").substringBeforeLast(")")
+                    if (isWebUrl(url)) {
+                        val start = length
+                        pushStyle(
+                            SpanStyle(
+                                color = primaryColor,
+                                textDecoration = TextDecoration.Underline
+                            )
+                        )
+                        append(linkText)
+                        pop()
+                        addStringAnnotation("URL", url, start, length)
+                    } else {
+                        // file://, javascript: и прочие схемы не должны
+                        // превращаться в кликабельную ссылку из ответа модели.
+                        append(linkText)
+                    }
+                }
+
+                // Голые ссылки: в абзаце показываем короткий домен с путём,
+                // а саму ссылку кладём в аннотацию.
+                token.startsWith("http://") || token.startsWith("https://") ||
+                        token.startsWith("<http://") || token.startsWith("<https://") -> {
+                    val clean = if (token.startsWith("<") && token.endsWith(">")) {
+                        token.substring(1, token.length - 1)
+                    } else {
+                        token
+                    }
+                    val url = trimUrlTail(clean)
+                    val tail = clean.substring(url.length)
+                    val start = length
                     pushStyle(
                         SpanStyle(
                             color = primaryColor,
                             textDecoration = TextDecoration.Underline
                         )
                     )
-                    append(linkText)
+                    append(prettyLinkLabel(url))
                     pop()
+                    addStringAnnotation("URL", url, start, length)
+                    append(tail)
                 }
 
                 else -> append(token)
