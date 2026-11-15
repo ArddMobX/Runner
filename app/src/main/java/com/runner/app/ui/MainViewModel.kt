@@ -47,8 +47,10 @@ import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.tools.FileChangeTracker
+import com.runner.app.tools.ShizukuBridge
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ShellPathParser
+import com.runner.app.tools.TermuxBridge
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.tools.WebTools
@@ -392,6 +394,8 @@ private val PATH_ARGS: Map<String, List<String>> = mapOf(
  */
 private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
     "run_shell_command" to listOf("command"),
+    "termux_run" to listOf("command"),
+    "shizuku_run" to listOf("command"),
     "open_url" to listOf("url"),
     "open_app" to listOf("app"),
     "organize_downloads" to listOf("category"),
@@ -432,7 +436,7 @@ private val KNOWN_PLAN_TOOLS: Set<String> = setOf(
     "create_dir", "move_file", "copy_file", "search_files", "create_archive",
     "extract_archive", "organize_downloads", "get_storage_summary",
     "find_largest_files", "find_junk_files", "clipboard_read", "clipboard_write",
-    "run_shell_command", "open_app", "open_url",
+    "run_shell_command", "termux_run", "shizuku_run", "open_app", "open_url",
     // Live-инструменты: план Live-задачи тоже состоит из именованных шагов.
     "ui_inspect", "ui_click", "ui_long_click", "ui_type", "ui_scroll",
     "ui_global_action", "ui_wait", "ui_wait_for", "ui_target", "ui_finish"
@@ -554,7 +558,9 @@ private val UNTRUSTED_OUTPUT_TOOLS: Set<String> = setOf(
     "list_dir",
     "clipboard_read",
     "web_search",
-    "web_fetch"
+    "web_fetch",
+    "termux_run",
+    "shizuku_run"
 )
 
 /**
@@ -725,7 +731,7 @@ private fun buildSnippets(matches: List<MessageMatch>, query: String): Map<Strin
  */
 private const val PLAN_SYSTEM_PROMPT = """
 Ты планировщик мобильного агента Runner для Android. Разложи задачу пользователя на пошаговый план работы с инструментами.
-Доступные инструменты: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file, search_files, create_archive, extract_archive, organize_downloads, get_storage_summary, find_largest_files, find_junk_files, clipboard_read, clipboard_write, run_shell_command, open_app, open_url.
+Доступные инструменты: list_dir, get_folder_summary, read_file, write_file, delete_file, create_dir, move_file, copy_file, search_files, create_archive, extract_archive, organize_downloads, get_storage_summary, find_largest_files, find_junk_files, clipboard_read, clipboard_write, run_shell_command, termux_run, shizuku_run, open_app, open_url.
 Правила вывода:
 - Выведи ТОЛЬКО нумерованный список шагов, по одному на строку: "1. имя_инструмента - что сделать".
 - Используй только инструменты из списка выше.
@@ -3283,15 +3289,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return ToolDispatcher.deleteSelectedFiles(allIds.filter { it in selected })
         }
         return ToolDispatcher.execute(
-            call.name,
-            call.arguments,
-            getApplication(),
-            _settings.value.shellOutsideStorage,
-            _settings.value.allowRootShell,
-            _settings.value.liveFullAccess,
-            _settings.value.liveConfirmEveryStep,
-            _settings.value.webSearchApiKey,
-            onWebSources
+            toolName = call.name,
+            argumentsJson = call.arguments,
+            context = getApplication(),
+            shellOutsideStorage = _settings.value.shellOutsideStorage,
+            allowRootShell = _settings.value.allowRootShell,
+            liveFullAccess = _settings.value.liveFullAccess,
+            liveConfirmEveryStep = _settings.value.liveConfirmEveryStep,
+            webSearchApiKey = _settings.value.webSearchApiKey,
+            termuxEnabled = _settings.value.termuxEnabled,
+            shizukuEnabled = _settings.value.shizukuEnabled,
+            shouldStop = { stopRequested },
+            onWebSources = onWebSources
         )
     }
 
@@ -3366,10 +3375,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // модель должна сразу узнать отказ. Песочница путей сюда не входит:
         // её отказ срабатывает при выполнении, после подтверждения - так
         // пользователь видит, что именно предлагалось выполнить.
-        val isShellCall = call.name.substringAfterLast(":") == "run_shell_command"
+        val cleanToolNameForGate = call.name.substringAfterLast(":")
+        val isShellCall = cleanToolNameForGate in ToolDispatcher.SHELL_LIKE_TOOL_NAMES
+        val isAndroidShellCall = cleanToolNameForGate == "run_shell_command"
         val commandLine = if (isShellCall) shellCommandOf(call.arguments) else ""
         val shellPreRefusal = if (isShellCall && commandLine.isNotEmpty()) {
-            ToolDispatcher.shellPreRefusal(commandLine, _settings.value.allowRootShell)
+            // Termux и Shizuku живут в своём окружении: их root-гейт не тот,
+            // что у системного su. Но катастрофические команды и удаление
+            // данных приложений запрещены так же.
+            ToolDispatcher.shellPreRefusal(
+                commandLine,
+                allowRootShell = if (isAndroidShellCall) _settings.value.allowRootShell else true
+            )
         } else {
             null
         }
@@ -3377,6 +3394,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Подключение инструментов - не операция над файлами, а часть диалога:
         // ни подтверждений, ни режимов у неё быть не должно.
         val isEnableTools = call.name.substringAfterLast(":") == ToolDispatcher.ENABLE_TOOLS
+
+        // Мост выключен: не показываем подтверждение ради операции, которая
+        // всё равно не выполнится. Сразу говорим, что включить.
+        val bridgeError = when (cleanToolNameForGate) {
+            "termux_run" -> when {
+                !_settings.value.termuxEnabled ->
+                    "Ошибка: Termux-мост выключен. Включите его в настройках агента " +
+                            "и выдайте Runner разрешение «Run commands in Termux environment»."
+
+                !TermuxBridge.isInstalled(getApplication()) ->
+                    "Ошибка: Termux не установлен. Установите Termux с F-Droid или GitHub."
+
+                !TermuxBridge.hasRunCommandPermission(getApplication()) ->
+                    "Ошибка: нет разрешения com.termux.permission.RUN_COMMAND. " +
+                            "Откройте настройки Android → Приложения → Runner → Дополнительные " +
+                            "разрешения → «Run commands in Termux environment»."
+
+                else -> null
+            }
+
+            "shizuku_run" -> when {
+                !_settings.value.shizukuEnabled ->
+                    "Ошибка: Shizuku-мост выключен. Включите его в настройках агента."
+
+                !_settings.value.termuxEnabled ->
+                    "Ошибка: Shizuku-мост работает через Termux, но Termux-мост выключен. " +
+                            "Включите оба моста."
+
+                !TermuxBridge.isInstalled(getApplication()) ->
+                    "Ошибка: для Shizuku-моста нужен Termux."
+
+                !ShizukuBridge.isInstalled(getApplication()) ->
+                    "Ошибка: Shizuku не установлен. Установите Shizuku и настройте rish."
+
+                else -> null
+            }
+
+            else -> null
+        }
 
         // Режим «не спрашивать вообще» снимает диалог для всех опасных действий.
         // Исключение одно: аргументы, пришедшие из недоверенного вывода (файл,
@@ -3456,6 +3512,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val needConfirm = when {
             isEnableTools -> false
+            bridgeError != null -> false
             // Заблокированное не подтверждаем: спрашивать нечего, ответ уже дан
             // заранее - самим включением режима.
             blockedByDryRun -> false
@@ -3512,6 +3569,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "Инструмент '${call.name.substringAfterLast(":")}' работает только в Live-режиме, " +
                     "а он выключен. Не пытайся управлять экраном: реши задачу иначе или " +
                     "попроси пользователя включить Live-режим кнопкой в шапке чата."
+        } else if (bridgeError != null) {
+            bridgeError
         } else if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             hapticManager.onConfirmationRequired(_settings.value)
@@ -3582,15 +3641,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // «Полный доступ в Live» работали лишь тогда, когда операция шла
             // через подтверждение, а без подтверждений молча игнорировались.
             val result = ToolDispatcher.execute(
-                call.name,
-                call.arguments,
-                getApplication(),
-                _settings.value.shellOutsideStorage,
-                _settings.value.allowRootShell,
-                _settings.value.liveFullAccess,
-                _settings.value.liveConfirmEveryStep,
-                _settings.value.webSearchApiKey
-            ) { webSources += it }
+                toolName = call.name,
+                argumentsJson = call.arguments,
+                context = getApplication(),
+                shellOutsideStorage = _settings.value.shellOutsideStorage,
+                allowRootShell = _settings.value.allowRootShell,
+                liveFullAccess = _settings.value.liveFullAccess,
+                liveConfirmEveryStep = _settings.value.liveConfirmEveryStep,
+                webSearchApiKey = _settings.value.webSearchApiKey,
+                termuxEnabled = _settings.value.termuxEnabled,
+                shizukuEnabled = _settings.value.shizukuEnabled,
+                shouldStop = { stopRequested },
+                onWebSources = { webSources += it }
+            )
             toolDurationMs = System.currentTimeMillis() - startedAt
             result
         }
@@ -3973,9 +4036,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun deviceCapabilitiesNote(): String {
         val settings = _settings.value
         val context = getApplication<Application>()
-        val hasTermux = isPackageInstalled(context, "com.termux")
-        val hasShizuku = isPackageInstalled(context, "moe.shizuku.privileged.api")
+        val hasTermux = TermuxBridge.isInstalled(context)
+        val hasTermuxPermission = TermuxBridge.hasRunCommandPermission(context)
+        val hasShizuku = ShizukuBridge.isInstalled(context)
         val hasAccessibility = RunnerAccessibilityService.instance != null
+        val termuxStatus = when {
+            !hasTermux -> "не установлен"
+            !settings.termuxEnabled -> "установлен, мост выключен"
+            !hasTermuxPermission -> "установлен, разрешение RUN_COMMAND не выдано"
+            else -> "мост включён, команды доступны через termux_run"
+        }
+        val shizukuStatus = when {
+            !hasShizuku -> "не установлен"
+            !settings.shizukuEnabled -> "установлен, мост выключен"
+            !settings.termuxEnabled -> "установлен, но Termux-мост выключен"
+            else -> "мост через rish включён, команды доступны через shizuku_run"
+        }
         return buildString {
             appendLine("СОСТОЯНИЕ УСТРОЙСТВА (обновляется автоматически):")
             appendLine("- Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
@@ -3989,31 +4065,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appendLine("- Рабочая папка: ${settings.defaultWorkingDir.ifBlank { "не задана" }}")
             appendLine("- Shell вне памяти: ${if (settings.shellOutsideStorage) "включён" else "выключен"}")
             appendLine("- Root-команды: ${if (settings.allowRootShell) "разрешены" else "запрещены"}")
-            appendLine(
-                "- Termux: " + if (hasTermux) {
-                    "установлен, но прямого моста в этой версии нет"
-                } else {
-                    "не установлен"
-                }
-            )
-            appendLine(
-                "- Shizuku: " + if (hasShizuku) {
-                    "установлен, но моста в этой версии нет"
-                } else {
-                    "не установлен"
-                }
-            )
+            appendLine("- Termux: $termuxStatus")
+            appendLine("- Shizuku: $shizukuStatus")
             appendLine("- Спецвозможности: ${if (hasAccessibility) "включены" else "выключены"}")
             appendLine("- Live-режим: ${if (settings.liveModeEnabled) "включён" else "выключен"}")
+            appendLine(
+                "Termux-команды (pkg, apt, python, ffmpeg) запускай через termux_run. " +
+                        "ADB-команды (pm, am, settings, cmd) — через shizuku_run. " +
+                        "run_shell_command для них не подходит."
+            )
             append("Если нужного доступа нет, назови конкретный тумблер или разрешение.")
         }
-    }
-
-    private fun isPackageInstalled(context: Context, packageName: String): Boolean = try {
-        context.packageManager.getPackageInfo(packageName, 0)
-        true
-    } catch (_: Exception) {
-        false
     }
 
     /**

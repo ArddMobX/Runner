@@ -606,6 +606,44 @@ object ToolDispatcher {
             required = listOf("command")
         ))
 
+        // 14b. termux_run — настоящий shell Termux, а не песочница Android.
+        tools.put(createToolFunction(
+            name = "termux_run",
+            description = "Выполняет команду в окружении Termux через RUN_COMMAND: bash, pkg, apt, " +
+                    "python, ffmpeg и другие пакеты Termux. Не используй run_shell_command для " +
+                    "pkg/apt/python/ffmpeg: там их нет. Требует включённый Termux-мост и разрешение " +
+                    "Runner в Termux.",
+            properties = JSONObject().apply {
+                put("command", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "Команда для Termux, например 'pkg update -y && pkg install -y ffmpeg'.")
+                })
+                put("timeout_seconds", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Таймаут в секундах (по умолчанию 60, максимум 300).")
+                })
+            },
+            required = listOf("command")
+        ))
+
+        // 14c. shizuku_run — ADB-команды через Shizuku и rish в Termux.
+        tools.put(createToolFunction(
+            name = "shizuku_run",
+            description = "Выполняет команду с ADB-правами через Shizuku и rish в Termux: pm, am, " +
+                    "settings, cmd и подобные. Требует установленный Shizuku и настроенный rish.",
+            properties = JSONObject().apply {
+                put("command", JSONObject().apply {
+                    put("type", "string")
+                    put("description", "ADB-команда, например 'pm list packages' или 'settings get global airplane_mode_on'.")
+                })
+                put("timeout_seconds", JSONObject().apply {
+                    put("type", "integer")
+                    put("description", "Таймаут в секундах (по умолчанию 60, максимум 300).")
+                })
+            },
+            required = listOf("command")
+        ))
+
         // 15. open_app
         tools.put(createToolFunction(
             name = "open_app",
@@ -915,7 +953,9 @@ object ToolDispatcher {
         "call_phone",
         "search_contacts",
         "web_search",
-        "web_fetch"
+        "web_fetch",
+        "termux_run",
+        "shizuku_run"
     )
 
     /**
@@ -1124,6 +1164,12 @@ object ToolDispatcher {
         liveConfirmEveryStep: Boolean = false,
         /** Ключ Tavily для веб-поиска. Пусто — используется DuckDuckGo без ключа. */
         webSearchApiKey: String = "",
+        /** Termux-мост включён пользователем. */
+        termuxEnabled: Boolean = false,
+        /** Shizuku-мост через rish включён пользователем. */
+        shizukuEnabled: Boolean = false,
+        /** Проверка «пользователь нажал Стоп» для долгих Termux/Shizuku-команд. */
+        shouldStop: () -> Boolean = { false },
         /** Источники, найденные веб-инструментами: UI складывает их в сообщение. */
         onWebSources: (List<WebSource>) -> Unit = {}
     ): String = withContext(Dispatchers.IO) {
@@ -1271,6 +1317,41 @@ object ToolDispatcher {
                     val command = args.optString("command", "").trim()
                     val timeout = args.optInt("timeout_seconds", 10).coerceIn(1, 30)
                     runShellCommand(command, timeout, shellOutsideStorage, allowRootShell, context)
+                }
+
+                // Termux: настоящий shell с pkg/apt/python/ffmpeg.
+                "termux_run" -> {
+                    if (!termuxEnabled) {
+                        "Termux-мост выключен. Включите его в настройках агента и выдайте " +
+                                "Runner разрешение «Run commands in Termux environment»."
+                    } else {
+                        val command = args.optString("command", "").trim()
+                        val timeout = args.optInt("timeout_seconds", 60).coerceIn(5, 300)
+                        TermuxBridge.run(
+                            context,
+                            command,
+                            timeout,
+                            label = "Termux",
+                            shouldStop = shouldStop
+                        )
+                    }
+                }
+
+                // Shizuku: ADB-команды через rish в Termux.
+                "shizuku_run" -> {
+                    if (!shizukuEnabled) {
+                        "Shizuku-мост выключен. Включите его в настройках агента."
+                    } else {
+                        val command = args.optString("command", "").trim()
+                        val timeout = args.optInt("timeout_seconds", 60).coerceIn(5, 300)
+                        ShizukuBridge.run(
+                            context,
+                            command,
+                            timeout,
+                            termuxEnabled,
+                            shouldStop = shouldStop
+                        )
+                    }
                 }
 
                 // Live UI automation
@@ -3809,6 +3890,8 @@ object ToolDispatcher {
         "organize_downloads",
         // произвольный код и системные изменения
         "run_shell_command",
+        "termux_run",
+        "shizuku_run",
         "clipboard_write",
         "open_app",
         "open_url",
@@ -3819,6 +3902,13 @@ object ToolDispatcher {
         "ui_long_click",
         "ui_type",
         "ui_global_action"
+    )
+
+    /** Инструменты, которые по смыслу являются shell-командами. */
+    val SHELL_LIKE_TOOL_NAMES: Set<String> = setOf(
+        "run_shell_command",
+        "termux_run",
+        "shizuku_run"
     )
 
     /** Всегда требует подтверждения пользователя. */
@@ -4055,6 +4145,26 @@ object ToolDispatcher {
                     preview = "Back, Home, Recents или шторка уведомлений."
                 )
             }
+            "termux_run" -> {
+                val command = args.optString("command", "").trim()
+                CriticalActionInfo(
+                    title = "Команда в Termux",
+                    details = "Команда: ${command.take(800)}",
+                    warning = "Выполняется в окружении Termux с правами Termux. " +
+                            "Команда может устанавливать пакеты и менять файлы Termux и общей памяти.",
+                    preview = "Termux: bash -lc \"${command.take(120)}\""
+                )
+            }
+            "shizuku_run" -> {
+                val command = args.optString("command", "").trim()
+                CriticalActionInfo(
+                    title = "Команда через Shizuku",
+                    details = "Команда: ${command.take(800)}",
+                    warning = "Выполняется с ADB-правами через Shizuku и rish. " +
+                            "Такие команды могут менять системные настройки и приложения.",
+                    preview = "Shizuku: rish -c \"${command.take(120)}\""
+                )
+            }
             else -> CriticalActionInfo(
                 title = "Выполнение операции",
                 details = "Инструмент: $cleanToolName",
@@ -4131,6 +4241,16 @@ object ToolDispatcher {
                 if (command.isNotBlank()) "Выполняю: ${compactShellCommand(command)}"
                 else "Выполняю команду"
             }
+            "termux_run" -> {
+                val command = args.optString("command", "").trim()
+                if (command.isNotBlank()) "Termux: ${compactShellCommand(command)}"
+                else "Команда в Termux"
+            }
+            "shizuku_run" -> {
+                val command = args.optString("command", "").trim()
+                if (command.isNotBlank()) "Shizuku: ${compactShellCommand(command)}"
+                else "Команда через Shizuku"
+            }
             "ui_inspect" -> "Анализирую экран"
             "ui_click" -> {
                 val label = args.optString("label", "").trim()
@@ -4188,6 +4308,8 @@ object ToolDispatcher {
         Regex("""^Найдено (\d+) источников""").find(flat)?.let {
             return "${it.groupValues[1]} источников"
         }
+        if (flat.contains("Ошибка Termux")) return "ошибка Termux"
+
         // Shell: код завершения важнее простыни вывода.
         Regex("""^Выполнено \(код (\d+)\)""").find(flat)?.let { match ->
             val code = match.groupValues[1]

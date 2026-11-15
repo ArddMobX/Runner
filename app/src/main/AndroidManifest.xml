@@ -33,10 +33,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Termux RUN_COMMAND: команды в окружении Termux (pkg, apt, python, ffmpeg). -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <!-- Для проверки Termux- и Shizuku-мостов по имени пакета. -->
+        <package android:name="com.termux" />
+        <package android:name="moe.shizuku.privileged.api" />
     </queries>
 
     <!--
@@ -90,6 +96,11 @@
         <service
             android:name=".service.AgentExecutionService"
             android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Результат RUN_COMMAND из Termux. PendingIntent приходит от Termux. -->
+        <receiver
+            android:name=".service.TermuxResultReceiver"
             android:exported="false" />
 
         <!-- Служба специальных возможностей для Live-режима агента Runner -->

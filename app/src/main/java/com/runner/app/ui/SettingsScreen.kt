@@ -87,6 +87,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,7 +121,9 @@ import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
+import com.runner.app.tools.ShizukuBridge
 import com.runner.app.tools.ShellLog
+import com.runner.app.tools.TermuxBridge
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.DONATE_GITHUB_REPO
@@ -134,6 +137,7 @@ import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
+import kotlinx.coroutines.launch
 import java.net.URI
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -2741,6 +2745,8 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             )
         }
 
+        BridgeSettings(viewModel, appSettings)
+
         WebSearchSettings(viewModel, appSettings)
 
         TrashSettings(viewModel, onNavigate)
@@ -2772,6 +2778,311 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             },
             dismissButton = {
                 TextButton(onClick = { showShellNoConfirmWarning = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Мосты в Termux и Shizuku. Это отдельный уровень доступа: команды уходят
+ * не в песочницу Android, а в полноценное окружение Termux.
+ */
+@Composable
+private fun BridgeSettings(
+    viewModel: MainViewModel,
+    appSettings: AppSettings
+) {
+    val context = LocalContext.current
+    val termuxInstalled = TermuxBridge.isInstalled(context)
+    val termuxPermission = TermuxBridge.hasRunCommandPermission(context)
+    val shizukuInstalled = ShizukuBridge.isInstalled(context)
+    var showTermuxWarning by remember { mutableStateOf(false) }
+    var showShizukuWarning by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var termuxTesting by remember { mutableStateOf(false) }
+    var shizukuTesting by remember { mutableStateOf(false) }
+
+    fun launchPackage(packageName: String) {
+        try {
+            val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } else {
+                Toast.makeText(context, "Приложение не найдено", Toast.LENGTH_SHORT).show()
+            }
+        } catch (_: Exception) {
+            Toast.makeText(context, "Не удалось открыть приложение", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    SettingsGroup("Мосты и доступ") {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Termux-мост",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = TermuxBridge.status(context),
+                        color = if (termuxInstalled && termuxPermission) {
+                            StatusSuccess
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.termuxEnabled,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            showTermuxWarning = true
+                        } else {
+                            viewModel.updateSettings(
+                                appSettings.copy(
+                                    termuxEnabled = false,
+                                    shizukuEnabled = false
+                                )
+                            )
+                        }
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Даёт pkg, apt, python, ffmpeg и настоящий bash. Нужен Termux " +
+                        "с F-Droid или GitHub, allow-external-apps=true в termux.properties " +
+                        "и разрешение Runner «Run commands in Termux environment».",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp
+            )
+            if (appSettings.termuxEnabled) {
+                Text(
+                    text = "Команды Termux могут ставить пакеты и менять файлы Termux " +
+                            "и общей памяти. Абсолютные запреты и защита данных приложений " +
+                            "всё равно действуют.",
+                    color = StatusWarning,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    enabled = !termuxTesting,
+                    onClick = {
+                        termuxTesting = true
+                        scope.launch {
+                            val result = TermuxBridge.run(
+                                context,
+                                "echo RUNNER_TERMUX_OK",
+                                timeoutSeconds = 15
+                            )
+                            termuxTesting = false
+                            Toast.makeText(
+                                context,
+                                if (result.contains("RUNNER_TERMUX_OK")) {
+                                    "Termux-мост работает"
+                                } else {
+                                    result.take(400)
+                                },
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                ) {
+                    Text(
+                        text = if (termuxTesting) "Проверяю…" else "Проверить",
+                        fontSize = 12.5.sp
+                    )
+                }
+                if (termuxInstalled) {
+                    TextButton(onClick = { launchPackage(TermuxBridge.TERMUX_PACKAGE) }) {
+                        Text("Открыть Termux", fontSize = 12.5.sp)
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        try {
+                            context.startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}")
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Откройте настройки приложения вручную",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                ) {
+                    Text("Разрешения Runner", fontSize = 12.5.sp)
+                }
+            }
+        }
+
+        SettingsDivider()
+
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Shizuku-мост",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = if (shizukuInstalled) {
+                            "Shizuku установлен, работает через rish в Termux"
+                        } else {
+                            "Shizuku не установлен"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.shizukuEnabled,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            showShizukuWarning = true
+                        } else {
+                            viewModel.updateSettings(
+                                appSettings.copy(shizukuEnabled = false)
+                            )
+                        }
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "ADB-команды: pm, am, settings, cmd. Нужны Shizuku, Termux-мост " +
+                        "и настроенный rish в домашней папке Termux.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp
+            )
+            if (appSettings.shizukuEnabled) {
+                Text(
+                    text = "Команды выполняются с ADB-правами и могут менять системные " +
+                            "настройки и приложения. Включайте только для конкретной задачи.",
+                    color = StatusWarning,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    enabled = !shizukuTesting,
+                    onClick = {
+                        shizukuTesting = true
+                        scope.launch {
+                            val result = ShizukuBridge.run(
+                                context,
+                                "id",
+                                timeoutSeconds = 20,
+                                termuxEnabled = true
+                            )
+                            shizukuTesting = false
+                            Toast.makeText(
+                                context,
+                                if (result.contains("uid=")) {
+                                    "Shizuku-мост работает"
+                                } else {
+                                    result.take(400)
+                                },
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                ) {
+                    Text(
+                        text = if (shizukuTesting) "Проверяю…" else "Проверить",
+                        fontSize = 12.5.sp
+                    )
+                }
+                if (shizukuInstalled) {
+                    TextButton(onClick = { launchPackage(ShizukuBridge.SHIZUKU_PACKAGE) }) {
+                        Text("Открыть Shizuku", fontSize = 12.5.sp)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showTermuxWarning) {
+        AlertDialog(
+            onDismissRequest = { showTermuxWarning = false },
+            title = { Text("Включить Termux-мост?") },
+            text = {
+                Text(
+                    "Runner сможет выполнять команды в окружении Termux: pkg, apt, python, " +
+                            "ffmpeg. Это не песочница Android, поэтому команды видят пакеты " +
+                            "и файлы Termux. Нужны Termux с F-Droid или GitHub, " +
+                            "allow-external-apps=true и разрешение Runner " +
+                            "«Run commands in Termux environment»."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateSettings(appSettings.copy(termuxEnabled = true))
+                        showTermuxWarning = false
+                    }
+                ) {
+                    Text("Включить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTermuxWarning = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    if (showShizukuWarning) {
+        AlertDialog(
+            onDismissRequest = { showShizukuWarning = false },
+            title = { Text("Включить Shizuku-мост?") },
+            text = {
+                Text(
+                    "Команды будут выполняться с ADB-правами через Shizuku и rish. " +
+                            "Нужны установленный Shizuku, Termux-мост и настроенный rish " +
+                            "в Termux. Это даёт pm, am, settings и cmd."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateSettings(
+                            appSettings.copy(
+                                shizukuEnabled = true,
+                                termuxEnabled = true
+                            )
+                        )
+                        showShizukuWarning = false
+                    }
+                ) {
+                    Text("Включить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showShizukuWarning = false }) {
                     Text("Отмена")
                 }
             }

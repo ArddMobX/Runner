@@ -105,6 +105,17 @@ data class AppSettings(
      */
     val shellNoConfirm: Boolean = false,
     /**
+     * Termux-мост: выполнять команды в настоящем окружении Termux
+     * через RUN_COMMAND. Даёт pkg, apt, python, ffmpeg и нормальный shell,
+     * которых нет в песочнице Android.
+     */
+    val termuxEnabled: Boolean = false,
+    /**
+     * Shizuku-мост через `rish` в Termux. Даёт ADB-команды: pm, am, settings, cmd.
+     * Требует установленный Shizuku и настроенный rish.
+     */
+    val shizukuEnabled: Boolean = false,
+    /**
      * Разрешить shell-командам запуск от root (`su`).
      *
      * Отдельный тумблер: root обходит и песочницу путей, и права приложения,
@@ -329,6 +340,8 @@ data class AppSettings(
             5. Запуск: open_app (приложение по названию или пакету), open_url (ссылка в браузере
                или в приложении, которое её обрабатывает).
             6. Связь и звонки: call_phone (реальный телефонный вызов по номеру или имени контакта), search_contacts (поиск в телефонной книге).
+            7. Termux и Shizuku: termux_run (pkg, apt, python, ffmpeg в окружении Termux),
+               shizuku_run (ADB-команды pm, am, settings, cmd через Shizuku и rish).
 
             ПРАВИЛА:
             - «Позвони X» или «Набери X» — сразу вызывай call_phone. Если указано имя контакта, call_phone сам найдёт его в контактах и совершит вызов. Если у контакта несколько номеров или найдено несколько совпадений, инструмент вернёт список — вежливо уточни у пользователя нужный номер. Если пользователь просит просто найти номер или контакт, используй search_contacts.
@@ -367,6 +380,10 @@ data class AppSettings(
               если не включён тумблер «Root-команды». Не пытайся обойти эти ограничения,
               не предлагай пользователю снимать их без явной необходимости и не проси
               root для обычных задач.
+            - pkg, apt, python, ffmpeg и другие пакеты Termux запускай только через
+              termux_run. run_shell_command их не видит. pm, am, settings и cmd запускай
+              через shizuku_run, если Shizuku-мост включён. Если мост выключен или нет
+              разрешения, назови конкретный тумблер и не подменяй команду суррогатом.
             - Кеш — это не данные. «Почисти кеш» означает удаление содержимого каталогов
               cache, и только их. Данные приложений не трогай никогда: команды вроде
               pm clear и удаление в /data запрещены навсегда, обходить запрет нельзя.
@@ -563,6 +580,8 @@ class SettingsStore(context: Context) {
                 .orEmpty(),
             shellOutsideStorage = prefs.getBoolean(KEY_SHELL_OUTSIDE_STORAGE, false),
             shellNoConfirm = prefs.getBoolean(KEY_SHELL_NO_CONFIRM, false),
+            termuxEnabled = prefs.getBoolean(KEY_TERMUX_ENABLED, false),
+            shizukuEnabled = prefs.getBoolean(KEY_SHIZUKU_ENABLED, false),
             allowRootShell = prefs.getBoolean(KEY_ALLOW_ROOT_SHELL, false),
             contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET),
             trashRetentionDays = prefs.getInt(
@@ -637,6 +656,8 @@ class SettingsStore(context: Context) {
             .putStringSet(KEY_APPROVED_SIGNATURES, settings.approvedOperationSignatures)
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
             .putBoolean(KEY_SHELL_NO_CONFIRM, settings.shellNoConfirm)
+            .putBoolean(KEY_TERMUX_ENABLED, settings.termuxEnabled)
+            .putBoolean(KEY_SHIZUKU_ENABLED, settings.shizukuEnabled)
             .putBoolean(KEY_ALLOW_ROOT_SHELL, settings.allowRootShell)
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
             .putInt(KEY_TRASH_RETENTION_DAYS, settings.trashRetentionDays)
@@ -720,6 +741,8 @@ class SettingsStore(context: Context) {
         const val KEY_APPROVED_SIGNATURES = "approved_operation_signatures"
         const val KEY_SHELL_OUTSIDE_STORAGE = "shell_outside_storage"
         const val KEY_SHELL_NO_CONFIRM = "shell_no_confirm"
+        const val KEY_TERMUX_ENABLED = "termux_enabled"
+        const val KEY_SHIZUKU_ENABLED = "shizuku_enabled"
         const val KEY_ALLOW_ROOT_SHELL = "allow_root_shell"
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
         const val KEY_TRASH_RETENTION_DAYS = "trash_retention_days"

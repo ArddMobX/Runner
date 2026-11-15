@@ -66,9 +66,13 @@ class LiveGateInvariantsTest {
     @Test
     fun dangerousSetCoversFilesAndDevice() {
         val dangerous = ToolDispatcher.DANGEROUS_OPERATIONS
-        assertEquals(16, dangerous.size)
+        assertEquals(18, dangerous.size)
         // Файловые операции и shell — на месте: список расширяли, а не заменяли.
-        assertTrue(dangerous.containsAll(setOf("delete_file", "write_file", "run_shell_command")))
+        assertTrue(
+            dangerous.containsAll(
+                setOf("delete_file", "write_file", "run_shell_command", "termux_run", "shizuku_run")
+            )
+        )
         // Действия на экране, меняющие состояние, входят целиком.
         assertTrue(
             dangerous.containsAll(
