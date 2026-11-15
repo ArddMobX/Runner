@@ -169,7 +169,7 @@ fun MarkdownView(
         }
     }
 
-    SelectionContainer {
+    val content: @Composable () -> Unit = {
         Column(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -196,6 +196,14 @@ fun MarkdownView(
                 }
             }
         }
+    }
+
+    // Пока текст течёт, выделение только мешает: SelectionContainer
+    // пересобирает оверлеи на каждом обновлении. Включаем его после стрима.
+    if (isStreaming) {
+        content()
+    } else {
+        SelectionContainer { content() }
     }
 }
 

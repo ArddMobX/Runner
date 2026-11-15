@@ -217,6 +217,37 @@ class ChatHistoryTest {
     }
 
     @Test
+    fun activeTurnKeepsAssistantTextInsideActivity() {
+        val u1 = ChatMessage(id = "u1", role = MessageRole.USER, content = "Сделай ролик")
+        val n1 = ChatMessage(id = "n1", role = MessageRole.NARRATION, content = "Пишу скрипт")
+        val t1 = ChatMessage(id = "t1", role = MessageRole.TOOL_EXECUTION, content = "Пишу make_video.sh", toolName = "write_file")
+        val a1 = ChatMessage(id = "a1", role = MessageRole.ASSISTANT, content = "Нашёл баг, исправляю")
+
+        val items = groupChatItems(listOf(u1, n1, t1, a1), activeTurn = true)
+
+        assertEquals(2, items.size)
+        assertTrue(items[0] is ChatListItem.Single)
+        assertTrue(items[1] is ChatListItem.TaskActivity)
+        val activity = items[1] as ChatListItem.TaskActivity
+        assertEquals("u1", activity.turnId)
+        assertEquals(listOf("n1", "t1", "a1"), activity.messages.map { it.id })
+    }
+
+    @Test
+    fun completedTurnPromotesFinalAnswer() {
+        val u1 = ChatMessage(id = "u1", role = MessageRole.USER, content = "Сделай ролик")
+        val t1 = ChatMessage(id = "t1", role = MessageRole.TOOL_EXECUTION, content = "Пишу make_video.sh", toolName = "write_file")
+        val a1 = ChatMessage(id = "a1", role = MessageRole.ASSISTANT, content = "Готово, ролик собран")
+
+        val items = groupChatItems(listOf(u1, t1, a1), activeTurn = false)
+
+        assertEquals(3, items.size)
+        assertTrue(items[1] is ChatListItem.TaskActivity)
+        assertTrue(items[2] is ChatListItem.Single)
+        assertEquals("a1", (items[2] as ChatListItem.Single).message.id)
+    }
+
+    @Test
     fun testCanSendMessage() {
         assertTrue(canSendMessage(hasContent = true, isRunning = false, isListening = false))
         assertFalse(canSendMessage(hasContent = false, isRunning = false, isListening = false))

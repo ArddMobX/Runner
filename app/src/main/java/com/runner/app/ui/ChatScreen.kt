@@ -106,6 +106,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -196,6 +197,13 @@ fun ChatScreen(
     val streamingReasoning by viewModel.streamingReasoning.collectAsState()
     val streamStartedAt by viewModel.streamStartedAt.collectAsState()
     val isRunning by viewModel.isRunning.collectAsState()
+    val hasStreaming = streamingText.isNotBlank()
+    val chatItems = remember(messages, isRunning, hasStreaming) {
+        groupChatItems(
+            messages,
+            activeTurn = isRunning || hasStreaming
+        )
+    }
     val currentStatus by viewModel.currentStatus.collectAsState()
     val liveState by LiveAgentManager.stateFlow.collectAsState()
     val provider by viewModel.activeProvider.collectAsState()
@@ -203,6 +211,11 @@ fun ChatScreen(
     val activeProviderId by viewModel.activeProviderId.collectAsState()
     val modelsLoadingFor by viewModel.modelsLoadingFor.collectAsState()
     val pendingConfirmation by viewModel.pendingConfirmation.collectAsState()
+    // Тап мимо шторки или «назад» сворачивает подтверждение в компактную
+    // плашку, а не отклоняет операцию. Новый запрос снова раскрывает шторку.
+    var confirmationCollapsed by remember(pendingConfirmation?.id) {
+        mutableStateOf(false)
+    }
     val pendingPlan by viewModel.pendingPlan.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
@@ -262,10 +275,6 @@ fun ChatScreen(
     var toolsSheet by remember { mutableStateOf<CommandToolsInfo?>(null) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
-    // Лента строится заранее: по ней же считается автоскролл. Раньше скролл
-    // использовал число сообщений, а рисуемых элементов после группировки
-    // меньше, и индекс уезжал за пределы списка.
-    val chatItems = remember(messages) { groupChatItems(messages) }
     val scope = rememberCoroutineScope()
 
     fun buildStatusInfo(): CommandStatusInfo {
@@ -602,23 +611,44 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (chatItems.isNotEmpty()) {
-            listState.animateScrollToItem(chatItems.size - 1)
+    // Лента не должна выдёргивать пользователя наверх, если он читает
+    // историю. Держим низ только когда он и так был внизу.
+    var stickToBottom by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        var previousIndex = -1
+        var previousOffset = -1
+        snapshotFlow {
+            Triple(
+                listState.isScrollInProgress,
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset
+            )
+        }.collect { (scrolling, index, offset) ->
+            if (scrolling) {
+                // Пользователь ушёл вверх: больше не тащим его вниз.
+                val movedBack = index < previousIndex ||
+                        (index == previousIndex && offset < previousOffset)
+                if (movedBack) stickToBottom = false
+            }
+            previousIndex = index
+            previousOffset = offset
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val atBottom = info.totalItemsCount > 0 &&
+                    lastVisible >= info.totalItemsCount - 2
+            if (!scrolling && atBottom) stickToBottom = true
         }
     }
-
-    var lastStreamingScrollPos by remember { mutableStateOf(0) }
-    LaunchedEffect(streamingText) {
-        if (streamingText.isNotEmpty()) {
-            val delta = streamingText.length - lastStreamingScrollPos
-            if (delta >= 40 || lastStreamingScrollPos == 0) {
-                lastStreamingScrollPos = streamingText.length
-                val target = messages.size
-                if (target >= 0) listState.scrollToItem(target)
-            }
-        } else {
-            lastStreamingScrollPos = 0
+    LaunchedEffect(chatItems.size, hasStreaming) {
+        if (stickToBottom && chatItems.isNotEmpty()) {
+            listState.scrollToItem(if (hasStreaming) chatItems.size else chatItems.lastIndex)
+        }
+    }
+    // Стрим растёт каждые 50 мс. Просто держим низ, без анимации и без
+    // пересчёта «на каждые 40 символов».
+    LaunchedEffect(streamingText.length) {
+        if (stickToBottom && streamingText.isNotEmpty() && chatItems.isNotEmpty()) {
+            listState.scrollToItem(chatItems.size)
         }
     }
 
@@ -664,13 +694,16 @@ fun ChatScreen(
     }
 
     pendingConfirmation?.let { request ->
-        ConfirmationBottomSheet(
-            request = request,
-            onConfirm = { selected, remember ->
-                viewModel.resolveConfirmation(true, selected, remember)
-            },
-            onReject = { viewModel.resolveConfirmation(false) }
-        )
+        if (!confirmationCollapsed) {
+            ConfirmationBottomSheet(
+                request = request,
+                onCollapse = { confirmationCollapsed = true },
+                onConfirm = { selected, remember ->
+                    viewModel.resolveConfirmation(true, selected, remember)
+                },
+                onReject = { viewModel.resolveConfirmation(false) }
+            )
+        }
     }
 
     val showStoragePrompt by viewModel.showStoragePrompt.collectAsState()
@@ -938,8 +971,10 @@ fun ChatScreen(
                     ) {
                         // Серии одинаковых вызовов схлопываем в один аккордеон,
                         // чтобы «Выполняю команду...» не захламляли экран.
-                        val chatItems = remember(messages) { groupChatItems(messages) }
                         val lastUserMessageId = remember(messages) { findLastUserMessageId(messages) }
+                        val lastUserTimestamp = remember(messages) {
+                            messages.lastOrNull { it.role == MessageRole.USER }?.timestamp ?: 0L
+                        }
                         val lastAssistantMessageId = remember(messages) {
                             messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.content.isNotBlank() }?.id
                         }
@@ -957,23 +992,28 @@ fun ChatScreen(
                                 key = {
                                     when (it) {
                                         is ChatListItem.Single -> it.message.id
-                                        is ChatListItem.TaskActivity -> "turn_${it.messages.first().id}"
+                                        is ChatListItem.TaskActivity ->
+                                            "turn_${it.turnId.ifBlank { "start" }}_${it.messages.first().id}"
                                     }
                                 }
                             ) { item ->
-                                // animateItemPlacement вместо мгновенного скачка:
-                                // когда выше появляется новая плашка, остальные
-                                // разъезжаются, а не прыгают на новое место
-                                Box(
-                                    modifier = Modifier.animateItemPlacement(
-                                        animationSpec = MotionTokens.fluidSpring()
-                                    )
-                                ) {
+                                // Никакого animateItemPlacement: на каждом
+                                // шаге агента он превращал ленту в дергающийся
+                                // список. Стабильные ключи важнее анимации.
+                                Box {
                                     when (item) {
                                         is ChatListItem.Single -> MessageItem(
                                             message = item.message,
                                             isLastUserMessage = item.message.id == lastUserMessageId,
                                             isLastAssistantMessage = (item.message.id == lastAssistantMessageId) && canShowFollowUps,
+                                            // Старые ответы остаются финальными и
+                                            // во время нового хода. Внутри активного
+                                            // хода кнопок нет до его завершения.
+                                            isFinalAnswer = item.message.role == MessageRole.ASSISTANT &&
+                                                    (
+                                                            item.message.timestamp < lastUserTimestamp ||
+                                                                    (!isRunning && streamingText.isBlank())
+                                                            ),
                                             onFollowUpClick = { prompt -> viewModel.sendMessage(prompt) },
                                             showToolDetails = appSettings.showToolDetails,
                                             showStats = appSettings.showStats,
@@ -1011,7 +1051,10 @@ fun ChatScreen(
                                             showStats = appSettings.showStats,
                                             planAwaitingId = pendingPlan?.id,
                                             isRunning = isRunning,
-                                            isActiveTurn = isRunning && item === chatItems.lastOrNull(),
+                                            isActiveTurn = isRunning && (
+                                                    item.turnId == lastUserMessageId ||
+                                                            (lastUserMessageId == null && item === chatItems.lastOrNull())
+                                                    ),
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
@@ -1025,13 +1068,7 @@ fun ChatScreen(
 
                             if (streamingText.isNotBlank()) {
                                 item(key = "streaming") {
-                                    Box(
-                                        modifier = Modifier.animateItemPlacement(
-                                            animationSpec = MotionTokens.fluidSpring()
-                                        )
-                                    ) {
-                                        StreamingBubble(text = streamingText)
-                                    }
+                                    StreamingBubble(text = streamingText)
                                 }
                             }
                         }
@@ -1100,6 +1137,19 @@ fun ChatScreen(
                     autoApprove = appSettings.autoApproveInWorkingDir,
                     onOpenFolderSheet = { showFolderSheet = true }
                 )
+            }
+
+            if (confirmationCollapsed) {
+                pendingConfirmation?.let { request ->
+                    PendingConfirmationBar(
+                        request = request,
+                        onExpand = { confirmationCollapsed = false },
+                        onConfirm = {
+                            viewModel.resolveConfirmation(true, null, false)
+                        },
+                        onReject = { viewModel.resolveConfirmation(false) }
+                    )
+                }
             }
 
             ChatInputBar(
@@ -1712,6 +1762,7 @@ private fun MessageItem(
     message: ChatMessage,
     @Suppress("UNUSED_PARAMETER") isLastUserMessage: Boolean = false,
     isLastAssistantMessage: Boolean = false,
+    isFinalAnswer: Boolean = false,
     onFollowUpClick: (String) -> Unit = {},
     showToolDetails: Boolean,
     showStats: Boolean,
@@ -1911,9 +1962,11 @@ private fun MessageItem(
                 }
 
                 val hasContent = message.content.isNotBlank()
-                // Служебные обещания вроде «Сейчас проверю папку» — часть
-                // хода, а не готовый ответ. Копировать и озвучивать их нечего.
-                val canActOnContent = hasContent && !PrefatoryText.isPrefatory(message.content)
+                // Кнопки живут только у настоящего финального ответа.
+                // Реплики внутри хода и временный текст стрима их не получают.
+                val canActOnContent = hasContent &&
+                        isFinalAnswer &&
+                        !PrefatoryText.isPrefatory(message.content)
                 val hasStats = showStats && (message.durationMs != null || message.tokensPerSecond != null || message.promptTokens != null || message.completionTokens != null)
 
                 if (canActOnContent || hasStats) {
@@ -2600,7 +2653,16 @@ private const val MIN_VISIBLE_REASONING_MS = 1_000L
  */
 internal sealed interface ChatListItem {
     data class Single(val message: ChatMessage) : ChatListItem
-    data class TaskActivity(val messages: List<ChatMessage>) : ChatListItem
+
+    /**
+     * [turnId] — id сообщения пользователя, к которому относится ход.
+     * Ключ ленты не должен меняться, пока ход живёт: иначе LazyColumn
+     * пересоздаёт карточку и лента дёргается.
+     */
+    data class TaskActivity(
+        val messages: List<ChatMessage>,
+        val turnId: String = ""
+    ) : ChatListItem
 }
 
 /**
@@ -2622,12 +2684,17 @@ internal fun findLastUserMessageId(messages: List<ChatMessage>): String? =
  * Раньше любой ASSISTANT разрывал группу, поэтому один длинный ход
  * рассыпался на десяток карточек с независимыми «Итог · N действий».
  */
-internal fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
+internal fun groupChatItems(
+    messages: List<ChatMessage>,
+    activeTurn: Boolean = false
+): List<ChatListItem> {
     val out = mutableListOf<ChatListItem>()
     var index = 0
+    var turnId = "start"
     while (index < messages.size) {
         val message = messages[index]
         if (message.role == MessageRole.USER) {
+            turnId = message.id
             out += ChatListItem.Single(message)
             index++
             continue
@@ -2638,7 +2705,16 @@ internal fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
             turn += messages[index]
             index++
         }
-        appendTurn(turn, out)
+        // Пока ход выполняется, не вынимаем из него «финальный ответ».
+        // Иначе реплика живёт отдельным сообщением, а потом переезжает
+        // в карточку хода: кнопки копирования появляются и исчезают,
+        // а лента прыгает на ровном месте.
+        val isLastTurn = index >= messages.size
+        if (isLastTurn && activeTurn) {
+            appendActiveTurn(turn, turnId, out)
+        } else {
+            appendTurn(turn, turnId, out)
+        }
     }
     return out
 }
@@ -2647,26 +2723,61 @@ internal fun groupChatItems(messages: List<ChatMessage>): List<ChatListItem> {
  * Раскладывает один ход на карточку активности и финальный ответ.
  * SYSTEM_INFO остаётся отдельной плашкой и не попадает в карточку хода.
  */
-private fun appendTurn(turn: List<ChatMessage>, out: MutableList<ChatListItem>) {
+private fun appendTurn(
+    turn: List<ChatMessage>,
+    turnId: String,
+    out: MutableList<ChatListItem>
+) {
     if (turn.isEmpty()) return
     var segment = mutableListOf<ChatMessage>()
     for (message in turn) {
         if (message.role == MessageRole.SYSTEM_INFO) {
-            appendSegment(segment, out)
+            appendSegment(segment, turnId, out)
             segment = mutableListOf()
             out += ChatListItem.Single(message)
         } else {
             segment += message
         }
     }
-    appendSegment(segment, out)
+    appendSegment(segment, turnId, out)
+}
+
+/**
+ * Активный ход целиком остаётся карточкой: финальный ответ ещё не наступил,
+ * даже если модель уже написала текст и собирается вызвать инструмент.
+ */
+private fun appendActiveTurn(
+    turn: List<ChatMessage>,
+    turnId: String,
+    out: MutableList<ChatListItem>
+) {
+    if (turn.isEmpty()) return
+    var segment = mutableListOf<ChatMessage>()
+    for (message in turn) {
+        if (message.role == MessageRole.SYSTEM_INFO) {
+            if (segment.isNotEmpty()) {
+                out += ChatListItem.TaskActivity(segment.toList(), turnId)
+                segment = mutableListOf()
+            }
+            out += ChatListItem.Single(message)
+        } else {
+            segment += message
+        }
+    }
+    if (segment.isNotEmpty()) {
+        out += ChatListItem.TaskActivity(segment, turnId)
+    }
 }
 
 /**
  * Внутри сегмента ищем последний содержательный ответ ассистента, после
  * которого уже не было действий. Это и есть финальный ответ хода.
  */
-private fun appendSegment(segment: List<ChatMessage>, out: MutableList<ChatListItem>) {
+private fun appendSegment(
+    segment: List<ChatMessage>,
+    turnId: String,
+    out: MutableList<ChatListItem>
+) {
     val meaningful = segment.filterNot {
         it.role == MessageRole.ASSISTANT && it.content.isBlank()
     }
@@ -2691,19 +2802,19 @@ private fun appendSegment(segment: List<ChatMessage>, out: MutableList<ChatListI
     }
 
     if (finalIndex < 0) {
-        out += ChatListItem.TaskActivity(meaningful)
+        out += ChatListItem.TaskActivity(meaningful, turnId)
         return
     }
 
     val activity = meaningful.subList(0, finalIndex)
     if (activity.isNotEmpty()) {
-        out += ChatListItem.TaskActivity(activity.toList())
+        out += ChatListItem.TaskActivity(activity.toList(), turnId)
     }
     out += ChatListItem.Single(meaningful[finalIndex])
 
     val trailing = meaningful.subList(finalIndex + 1, meaningful.size)
     if (trailing.isNotEmpty()) {
-        appendSegment(trailing, out)
+        appendSegment(trailing, turnId, out)
     }
 }
 
@@ -2767,20 +2878,24 @@ private fun TaskActivityCard(
     // Ход без инструментов (только план или комментарий) раскрываем сразу:
     // иначе от него останется пустая строка.
     var expanded by remember(messages.first().id) {
-        mutableStateOf(anyRunning || planAwaiting || toolMessages.isEmpty())
+        mutableStateOf(isActiveTurn || planAwaiting || toolMessages.isEmpty())
     }
-    // Пока ход идёт, карточка раскрыта. Когда закончился, сворачиваем сами:
-    // завершённый ход не должен оставлять простыню на весь экран.
-    LaunchedEffect(anyRunning, planAwaiting, toolMessages.isEmpty()) {
-        expanded = anyRunning || planAwaiting || toolMessages.isEmpty()
+    // Раскрыта весь ход, а не отдельный инструмент. Раньше здесь был
+    // anyRunning: между командами он становился false, карточка успевала
+    // схлопнуться и снова раскрыться, отсюда были прыжки.
+    LaunchedEffect(isActiveTurn, planAwaiting, toolMessages.isEmpty()) {
+        expanded = isActiveTurn || planAwaiting || toolMessages.isEmpty()
     }
 
     val startedAt = remember(messages) { messages.firstOrNull()?.timestamp ?: 0L }
     var elapsedMs by remember(messages.first().id) {
-        mutableStateOf(currentActivityElapsed(messages, startedAt, anyRunning && isRunning))
+        mutableStateOf(currentActivityElapsed(messages, startedAt, isActiveTurn))
     }
-    LaunchedEffect(messages, anyRunning, isRunning) {
-        if (anyRunning && isRunning) {
+    LaunchedEffect(messages, isActiveTurn, isRunning) {
+        // Таймер идёт весь ход, а не только пока крутится конкретный
+        // инструмент. Между командами агент думает, и время не должно
+        // замирать и снова стартовать.
+        if (isActiveTurn && isRunning) {
             while (true) {
                 elapsedMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(0)
                 kotlinx.coroutines.delay(1000)
@@ -2817,7 +2932,7 @@ private fun TaskActivityCard(
                                 hasError -> MaterialTheme.colorScheme.error
                                 planAwaiting -> StatusWarning
                                 hasDeclined -> StatusWarning
-                                anyRunning -> MaterialTheme.colorScheme.primary
+                                isActiveTurn || anyRunning -> MaterialTheme.colorScheme.primary
                                 else -> StatusSuccess
                             }
                         )
@@ -4561,14 +4676,103 @@ private fun StoragePromptSheet(
     }
 }
 
+/**
+ * Свёрнутое подтверждение: шторка ушла, но операция не отклонена.
+ * Тап по плашке возвращает полную шторку.
+ */
+@Composable
+private fun PendingConfirmationBar(
+    request: ConfirmationRequest,
+    onExpand: () -> Unit,
+    onConfirm: () -> Unit,
+    onReject: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(0.6.dp, StatusWarning.copy(alpha = 0.55f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 3.dp)
+            .clickable(onClick = onExpand)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = RunnerIcons.Warning,
+                contentDescription = null,
+                tint = StatusWarning,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Ожидает подтверждения",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = request.title,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            TextButton(
+                onClick = onReject,
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
+                Text(
+                    text = "Отклонить",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+            }
+            Button(
+                // Если внутри список файлов с галочками, из компактной
+                // плашки нельзя разрешать всё вслепую. Сначала раскрываем.
+                onClick = { if (request.items.isNotEmpty()) onExpand() else onConfirm() },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Text(
+                    text = if (request.items.isNotEmpty()) "Проверить" else "Разрешить",
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfirmationBottomSheet(
     request: ConfirmationRequest,
+    onCollapse: () -> Unit,
     onConfirm: (Set<String>?, Boolean) -> Unit,
     onReject: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    // Складываем шторку, но не отклоняем операцию. Отклонение — только
+    // отдельной кнопкой, иначе случайный тап по фону убивает задачу.
+    fun collapse() {
+        scope.launch {
+            try {
+                sheetState.hide()
+            } catch (_: Exception) {
+                // Шторка уже могла закрыться сама после свайпа или «назад».
+            } finally {
+                onCollapse()
+            }
+        }
+    }
 
     // Список объектов с галочками: по умолчанию отмечено всё
     var selectedIds by remember(request.id) {
@@ -4581,7 +4785,7 @@ private fun ConfirmationBottomSheet(
     val allSelected = !hasItems || selectedIds.size == request.items.size
 
     ModalBottomSheet(
-        onDismissRequest = onReject,
+        onDismissRequest = { collapse() },
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
@@ -4605,18 +4809,28 @@ private fun ConfirmationBottomSheet(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column {
-                Text(
-                    text = request.title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "Подтверждение операции",
-                    color = MaterialTheme.colorScheme.outline,
-                    fontSize = 12.5.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = request.title,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Подтверждение операции",
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 12.5.sp
+                    )
+                }
+                IconButton(onClick = { collapse() }) {
+                    Icon(
+                        imageVector = RunnerIcons.KeyboardArrowDown,
+                        contentDescription = "Свернуть подтверждение",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             Surface(

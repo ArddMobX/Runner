@@ -4126,7 +4126,11 @@ object ToolDispatcher {
                 val q = args.optString("query", "").trim()
                 if (q.isNotBlank()) "Ищу контакт «$q»" else "Ищу контакты"
             }
-            "run_shell_command" -> "Выполняю команду"
+            "run_shell_command" -> {
+                val command = args.optString("command", "").trim()
+                if (command.isNotBlank()) "Выполняю: ${compactShellCommand(command)}"
+                else "Выполняю команду"
+            }
             "ui_inspect" -> "Анализирую экран"
             "ui_click" -> {
                 val label = args.optString("label", "").trim()
@@ -4161,6 +4165,12 @@ object ToolDispatcher {
         }
     }
 
+    /** Компактная подпись shell-команды для строки хода. */
+    private fun compactShellCommand(command: String, limit: Int = 64): String {
+        val flat = command.replace(Regex("\\s+"), " ").trim()
+        return if (flat.length <= limit) flat else flat.take(limit - 1).trimEnd() + "…"
+    }
+
     /**
      * Короткая сводка результата для свёрнутой карточки: «143 файла», «свободно 24.3 GB».
      * Пустая строка, если ничего осмысленного вытащить не удалось.
@@ -4178,6 +4188,12 @@ object ToolDispatcher {
         Regex("""^Найдено (\d+) источников""").find(flat)?.let {
             return "${it.groupValues[1]} источников"
         }
+        // Shell: код завершения важнее простыни вывода.
+        Regex("""^Выполнено \(код (\d+)\)""").find(flat)?.let { match ->
+            val code = match.groupValues[1]
+            return if (code == "0") "код 0" else "ошибка, код $code"
+        }
+
         if (flat.startsWith("Источник: ")) {
             val chars = cleanOutput.substringAfter("Текст страницы:", "").trim().length
             return if (chars > 0) {

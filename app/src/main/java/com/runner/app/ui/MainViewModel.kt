@@ -47,6 +47,7 @@ import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.tools.FileChangeTracker
 import com.runner.app.tools.ShellLog
+import com.runner.app.tools.ShellPathParser
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
 import com.runner.app.tools.WebTools
@@ -56,6 +57,7 @@ import com.runner.app.ui.commands.formatCommandCount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +67,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -581,6 +584,10 @@ private val TOOL_ERROR_PREFIXES = listOf("Ошибка", "Не удалось", 
  * успешной. Теперь смотрим начало каждой строки.
  */
 private fun looksLikeToolError(output: String): Boolean {
+    // Shell не бросает исключение на ненулевой код: он возвращает
+    // «Выполнено (код 127)». Такую строку тоже считаем ошибкой, иначе
+    // упавшая команда выглядит зелёной.
+    if (SHELL_NONZERO_EXIT.containsMatchIn(output.trimStart())) return true
     val lines = output.lineSequence()
     for (raw in lines) {
         val line = raw.trimStart()
@@ -590,6 +597,8 @@ private fun looksLikeToolError(output: String): Boolean {
     }
     return false
 }
+
+private val SHELL_NONZERO_EXIT = Regex("""^Выполнено \(код [1-9]\d*\)""")
 
 /**
  * Аргумент похож на строку из недоверенного вывода?
@@ -733,7 +742,7 @@ data class ChatMessage(
     val tokensPerSecond: Double? = null
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val providerStore = ProviderStore(application)
@@ -831,11 +840,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Текст, который модель печатает прямо сейчас. */
     private val _streamingText = MutableStateFlow("")
-    val streamingText: StateFlow<String> = _streamingText.asStateFlow()
+
+    /**
+     * В UI отдаём не каждый SSE-токен, а срез раз в 50 мс. Иначе Compose
+     * перепарсивает весь Markdown на каждую дельту и текст дёргается.
+     * Внутри ViewModel остаётся полный [_streamingText] без задержек.
+     */
+    val streamingText: StateFlow<String> = _streamingText
+        .sample(50)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     /** Живые размышления текущего шага: показываются, пока модель думает. */
     private val _streamingReasoning = MutableStateFlow("")
-    val streamingReasoning: StateFlow<String> = _streamingReasoning.asStateFlow()
+    val streamingReasoning: StateFlow<String> = _streamingReasoning
+        .sample(80)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     /** Начало текущего хода: по нему UI считает прошедшее время. */
     private val _streamStartedAt = MutableStateFlow<Long?>(null)
@@ -2986,14 +3005,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 is AIResponseResult.ToolCallsResult -> {
                     val preText = result.assistantMessageJson.optString("content")
-                    // Текст перед инструментами больше не выбрасываем: в ленте
-                    // он становится живой репликой хода («Сейчас проверю...»).
-                    // В контекст отдельно не пишем — он уже внутри assistant
-                    // сообщения с tool_calls.
-                    if (preText.isNotBlank()) {
+                    // Текст перед инструментами остаётся только репликой хода.
+                    // Вторую ASSISTANT-копию не создаём: именно она выглядела
+                    // как финальный ответ и получала кнопки копирования.
+                    val preTextId = if (preText.isNotBlank()) {
                         _streamingText.value = ""
                         saveNarrationMessage(sessionId, preText)
+                    } else {
+                        null
                     }
+                    if (preTextId != null) turnAssistantId = preTextId
                     conversationJson.put(result.assistantMessageJson)
                     persistContext(sessionId)
 
@@ -3029,15 +3050,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // ответов tool. Следующий запрос за такую историю провайдер
                     // отклоняет (400), поэтому досылаем заглушки для невыполненных.
                     closeUnansweredToolCalls(sessionId, result, executed)
-
-                    if (preText.isNotBlank()) {
-                        turnAssistantId = saveAssistantMessage(
-                            sessionId = sessionId,
-                            text = preText,
-                            reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
-                            reasoningMs = metrics.reasoningMillis.takeIf { it > 0L }
-                        )
-                    }
 
                     if (loopDetected) {
                         val loopMessage = "Обнаружено зацикливание: модель $repeatedCalls-й раз подряд " +
@@ -3310,10 +3322,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (unsafeEscapes) {
                             false
                         } else {
-                            val pathTokens = Regex("""/[A-Za-z0-9_./*?@=+-]+""")
-                                .findAll(commandLine)
-                                .map { it.value }
-                                .toList()
+                            val pathTokens = ShellPathParser.pathTokens(commandLine)
                             pathTokens.all { token ->
                                 try {
                                     val canonical = java.io.File(token).canonicalPath
@@ -3680,17 +3689,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * список безымянных действий. В контекст отдельным сообщением не идёт,
      * потому что уже содержится в assistant-сообщении с tool_calls.
      */
-    private suspend fun saveNarrationMessage(sessionId: String, rawText: String) {
+    private suspend fun saveNarrationMessage(sessionId: String, rawText: String): String? {
         val cleaned = stripLeakedSystemPrompt(rawText).trim()
-        if (cleaned.isBlank()) return
+        if (cleaned.isBlank()) return null
         val text = if (cleaned.length > NARRATION_MAX_CHARS) {
             cleaned.take(NARRATION_MAX_CHARS).trimEnd() + "…"
         } else {
             cleaned
         }
-        if (_messages.value.lastOrNull { it.role == MessageRole.NARRATION }?.content == text) {
-            return
-        }
+        val last = _messages.value.lastOrNull()
+        if (last?.role == MessageRole.NARRATION && last.content == text) return last.id
         val message = ChatMessage(
             role = MessageRole.NARRATION,
             content = text,
@@ -3698,6 +3706,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         _messages.value = _messages.value + message
         repository.saveMessage(message.toEntity(sessionId))
+        return message.id
     }
 
     /**
