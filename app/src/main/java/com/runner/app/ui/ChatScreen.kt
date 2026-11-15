@@ -2482,6 +2482,7 @@ private fun StreamingBubble(text: String) {
 private fun PlanCard(
     message: ChatMessage,
     awaitingDecision: Boolean,
+    stepStates: List<PlanStepState> = emptyList(),
     onApprove: () -> Unit,
     onReject: () -> Unit
 ) {
@@ -2568,6 +2569,18 @@ private fun PlanCard(
                     )
                 } else {
                     steps.forEachIndexed { i, step ->
+                        val state = stepStates.getOrNull(i)
+                        val numberColor = when (state) {
+                            PlanStepState.DONE -> StatusSuccess
+                            PlanStepState.FAILED -> MaterialTheme.colorScheme.error
+                            PlanStepState.RUNNING -> StatusWarning
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                        val textColor = when (state) {
+                            PlanStepState.DONE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            PlanStepState.FAILED -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2575,8 +2588,12 @@ private fun PlanCard(
                             verticalAlignment = Alignment.Top
                         ) {
                             Text(
-                                text = "${i + 1}.",
-                                color = MaterialTheme.colorScheme.primary,
+                                text = when (state) {
+                                    PlanStepState.DONE -> "✓"
+                                    PlanStepState.FAILED -> "!"
+                                    else -> "${i + 1}."
+                                },
+                                color = numberColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.Monospace,
@@ -2584,7 +2601,7 @@ private fun PlanCard(
                             )
                             Text(
                                 text = step,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = textColor,
                                 fontSize = 12.5.sp,
                                 lineHeight = 18.sp,
                                 modifier = Modifier.weight(1f)
@@ -2642,6 +2659,49 @@ private fun parsePlanStepsUi(text: String): List<String> {
     val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
     return text.lines()
         .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
+}
+
+/** Имя инструмента из строки плана: "1. write_file - записать скрипт". */
+internal fun parsePlanStepTools(text: String): List<String> {
+    val stepRegex = Regex("""^\s*\d+[.)]\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:[-—:]|$)""")
+    return text.lines().mapNotNull { line ->
+        stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
+    }
+}
+
+internal enum class PlanStepState { PENDING, RUNNING, DONE, FAILED }
+
+/**
+ * Сопоставляет шаги плана с реальными вызовами по порядку. Это приближение,
+ * но оно честно показывает, где агент находится, вместо безликого «Ход задачи».
+ */
+internal fun computePlanStepStates(
+    planTools: List<String>,
+    toolMessages: List<ChatMessage>
+): List<PlanStepState> {
+    if (planTools.isEmpty()) return emptyList()
+    var cursor = 0
+    return planTools.map { tool ->
+        var matchIndex = -1
+        for (index in cursor until toolMessages.size) {
+            val name = toolMessages[index].toolName?.substringAfterLast(':')
+            if (name == tool) {
+                matchIndex = index
+                break
+            }
+        }
+        if (matchIndex < 0) {
+            PlanStepState.PENDING
+        } else {
+            cursor = matchIndex + 1
+            val message = toolMessages[matchIndex]
+            when {
+                message.isRunning -> PlanStepState.RUNNING
+                message.isError || message.isDeclined -> PlanStepState.FAILED
+                else -> PlanStepState.DONE
+            }
+        }
+    }
 }
 
 /** Ниже этого порога «Думал N мс» считаем шумом и не показываем. */
@@ -2846,6 +2906,17 @@ private fun TaskActivityCard(
     onRejectPlan: () -> Unit
 ) {
     val toolMessages = remember(messages) { messages.filter { it.role == MessageRole.TOOL_EXECUTION } }
+    val planMessage = remember(messages) { messages.firstOrNull { it.role == MessageRole.PLAN } }
+    val planSteps = remember(planMessage?.content) {
+        planMessage?.let { parsePlanStepsUi(it.content) }.orEmpty()
+    }
+    val planTools = remember(planMessage?.content) {
+        planMessage?.let { parsePlanStepTools(it.content) }.orEmpty()
+    }
+    val stepStates = remember(planTools, toolMessages) {
+        computePlanStepStates(planTools, toolMessages)
+    }
+    val currentPlanStep = stepStates.indexOfFirst { it != PlanStepState.DONE }
     val allChanges = remember(messages) { messages.flatMap { it.fileChanges } }
     val distinctSources = remember(toolMessages) {
         toolMessages.flatMap { it.sources }.distinctBy { it.url }.size
@@ -2938,12 +3009,25 @@ private fun TaskActivityCard(
                         )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Ход задачи",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Column {
+                    Text(
+                        text = "Ход задачи",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (planSteps.isNotEmpty()) {
+                        Text(
+                            text = if (currentPlanStep < 0) {
+                                "План выполнен"
+                            } else {
+                                "Шаг ${currentPlanStep + 1} из ${planSteps.size}"
+                            },
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = formatTimelineElapsed(elapsedMs),
@@ -2976,6 +3060,7 @@ private fun TaskActivityCard(
                         MessageRole.PLAN -> PlanCard(
                             message = message,
                             awaitingDecision = message.id == planAwaitingId,
+                            stepStates = stepStates,
                             onApprove = onApprovePlan,
                             onReject = onRejectPlan
                         )

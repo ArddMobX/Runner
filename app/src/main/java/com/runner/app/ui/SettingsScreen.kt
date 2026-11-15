@@ -2079,6 +2079,7 @@ private fun ProvidersList(
 @Composable
 private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
     val appSettings by viewModel.settings.collectAsState()
+    var showShellNoConfirmWarning by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -2677,6 +2678,59 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             SettingsDivider()
 
+            // Shell без подтверждения: отдельный тумблер, чтобы можно было
+            // доверять командам, но оставить вопросы для удаления и записи.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Shell без подтверждения",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = if (appSettings.shellNoConfirm) {
+                            "Команды выполняются сразу"
+                        } else {
+                            "Каждая команда спрашивает разрешение"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Switch(
+                    checked = appSettings.shellNoConfirm,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            showShellNoConfirmWarning = true
+                        } else {
+                            viewModel.updateSettings(
+                                appSettings.copy(shellNoConfirm = false)
+                            )
+                        }
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+            if (appSettings.shellNoConfirm) {
+                Text(
+                    text = "Команды shell запускаются сразу, без шторки подтверждения. " +
+                            "Абсолютные запреты (pm clear, удаление данных приложений), root-гейт, " +
+                            "режим «только чтение» и сухой прогон остаются. Включайте только " +
+                            "если понимаете риск.",
+                    color = StatusWarning,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                )
+            }
+
+            SettingsDivider()
+
             // Журнал: что агент пытался выполнить в shell и чем это закончилось.
             // Нужен, чтобы разбирать инциденты по фактам, а не по памяти модели.
             SettingsRow(
@@ -2692,6 +2746,36 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
         TrashSettings(viewModel, onNavigate)
 
         Spacer(modifier = Modifier.height(12.dp))
+    }
+
+    if (showShellNoConfirmWarning) {
+        AlertDialog(
+            onDismissRequest = { showShellNoConfirmWarning = false },
+            title = { Text("Выполнять shell без подтверждения?") },
+            text = {
+                Text(
+                    "Все shell-команды будут запускаться сразу. Абсолютные запреты " +
+                            "(pm clear, удаление данных приложений), root-гейт, режим " +
+                            "«только чтение» и сухой прогон остаются. Включайте только " +
+                            "если понимаете риск."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateSettings(appSettings.copy(shellNoConfirm = true))
+                        showShellNoConfirmWarning = false
+                    }
+                ) {
+                    Text("Включить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showShellNoConfirmWarning = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 

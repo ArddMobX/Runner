@@ -96,6 +96,15 @@ data class AppSettings(
      */
     val shellOutsideStorage: Boolean = false,
     /**
+     * Выполнять shell-команды без подтверждения.
+     *
+     * Отдельный тумблер, а не общий «не спрашивать»: пользователь может
+     * доверять shell, но оставить подтверждения для удаления и записи.
+     * Абсолютные запреты, root-гейт, режим «только чтение», сухой прогон и
+     * аргументы из недоверенного текста всё равно срабатывают.
+     */
+    val shellNoConfirm: Boolean = false,
+    /**
      * Разрешить shell-командам запуск от root (`su`).
      *
      * Отдельный тумблер: root обходит и песочницу путей, и права приложения,
@@ -363,8 +372,12 @@ data class AppSettings(
               pm clear и удаление в /data запрещены навсегда, обходить запрет нельзя.
               Если сомневаешься, что именно удаляет команда, — не выполняй её.
             - Не расширяй задачу: делай ровно то, о чём попросили, и не выполняй «заодно»
-              другие оптимизации. Если для задачи нужны права или доступ, которых нет,
-              остановись и скажи об этом пользователю, а не ищи обходной путь.
+              другие оптимизации. Но не сдавайся после первого отказа. Если инструмент
+              вернул «нет доступа» или «нельзя», сначала проверь доступные инструменты,
+              текущие настройки и попробуй другой законный способ. Только если альтернатив
+              действительно нет, объясни точную причину и назови конкретный тумблер или
+              разрешение, которое нужно включить. Не утверждай «не умею» и «нет доступа»,
+              пока не проверил список инструментов и хотя бы один другой путь.
             - Не задавай уточняющих вопросов по тривиальным деталям (имя файла, базовый текст,
               структура), если пользователь явно не просил об этом. Применяй стандартные
               общепринятые значения по умолчанию и сразу выполняй действие.
@@ -374,6 +387,11 @@ data class AppSettings(
               ищет рекурсивно, включая подпапки. Это разные числа, и выдавать их за одно
               нельзя: если они расходятся, укажи охват («12 в самой папке, 13 с учётом
               вложенных»). Никогда не называй число точным, если сам его не проверял.
+            - В системном сообщении есть блок «СОСТОЯНИЕ УСТРОЙСТВА». Опирайся на него,
+              а не на догадки. Если чего-то не хватает, назови конкретный пункт из этого
+              блока. Не пересказывай технический отказ дословно и не заканчивай ответ
+              общей фразой «нет доступа», если есть доступный инструмент, который может
+              решить задачу иначе.
             - Обращайся к пользователю вежливо на «вы», нейтральным стилем, без фамильярности.
             - Команды shell — только синтаксис Android Toybox, а не GNU: короткие флаги
               (du -d 1 /sdcard/Download, ls -la), длинных --флагов вроде --max-depth нет.
@@ -544,6 +562,7 @@ class SettingsStore(context: Context) {
                 ?.toSet()
                 .orEmpty(),
             shellOutsideStorage = prefs.getBoolean(KEY_SHELL_OUTSIDE_STORAGE, false),
+            shellNoConfirm = prefs.getBoolean(KEY_SHELL_NO_CONFIRM, false),
             allowRootShell = prefs.getBoolean(KEY_ALLOW_ROOT_SHELL, false),
             contextBudgetChars = prefs.getInt(KEY_CONTEXT_BUDGET, AppSettings.DEFAULT_CONTEXT_BUDGET),
             trashRetentionDays = prefs.getInt(
@@ -617,6 +636,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_PRUNE_TOOLS, settings.pruneTools)
             .putStringSet(KEY_APPROVED_SIGNATURES, settings.approvedOperationSignatures)
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
+            .putBoolean(KEY_SHELL_NO_CONFIRM, settings.shellNoConfirm)
             .putBoolean(KEY_ALLOW_ROOT_SHELL, settings.allowRootShell)
             .putInt(KEY_CONTEXT_BUDGET, settings.contextBudgetChars)
             .putInt(KEY_TRASH_RETENTION_DAYS, settings.trashRetentionDays)
@@ -699,6 +719,7 @@ class SettingsStore(context: Context) {
         const val KEY_PRUNE_TOOLS = "prune_tools"
         const val KEY_APPROVED_SIGNATURES = "approved_operation_signatures"
         const val KEY_SHELL_OUTSIDE_STORAGE = "shell_outside_storage"
+        const val KEY_SHELL_NO_CONFIRM = "shell_no_confirm"
         const val KEY_ALLOW_ROOT_SHELL = "allow_root_shell"
         const val KEY_CONTEXT_BUDGET = "context_budget_chars"
         const val KEY_TRASH_RETENTION_DAYS = "trash_retention_days"

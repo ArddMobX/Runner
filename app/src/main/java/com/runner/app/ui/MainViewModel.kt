@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runner.app.service.AgentExecutionService
+import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.util.CrashReportManager
 import com.runner.app.util.DocumentExtractor
 import com.runner.app.util.HapticManager
@@ -202,6 +203,46 @@ private const val MAX_PREFATORY_NUDGES = 2
 private const val PREFATORY_NUDGE_TEXT =
     "СЛУЖЕБНАЯ ПРОВЕРКА: продолжай выполнение задачи. Предыдущий ответ был только " +
             "обещанием действия. Вызови нужный инструмент или дай окончательный результат."
+
+/** Сколько раз просим модель не сдаваться после текстового отказа без инструментов. */
+private const val MAX_CAPABILITY_NUDGES = 1
+
+private const val CAPABILITY_NUDGE_TEXT =
+    "СЛУЖЕБНАЯ ПРОВЕРКА: ты ответил отказом, но не вызвал ни одного инструмента. " +
+            "Посмотри блок «СОСТОЯНИЕ УСТРОЙСТВА» и список доступных инструментов. " +
+            "Попробуй другой законный способ: другой инструмент, другой путь, shell, поиск " +
+            "или Live-режим. Если действительно нужен доступ, назови конкретный тумблер или " +
+            "разрешение. Не повторяй общий отказ."
+
+private val CAPABILITY_REFUSAL_MARKERS = listOf(
+    "нет доступа", "не имею доступа", "нет прав", "не могу", "не умею",
+    "не поддерживается", "невозможно", "не разрешено", "не удалось",
+    "access denied", "not supported", "cannot", "can't"
+)
+
+private val ACTIONABLE_PROMPT_HINTS = listOf(
+    "открой", "запусти", "включи", "выключи", "найди", "поищи", "проверь",
+    "посмотри", "сделай", "создай", "напиши", "удали", "перемести", "скопируй",
+    "установи", "скачай", "почини", "исправь", "собери", "настрой", "выполни",
+    "покажи", "позвони", "набери", "отправь", "скинь", "прочитай", "разбери",
+    "проанализируй", "сравни", "сгенерируй", "термукс", "termux", "shell", "команд",
+    "файл", "папк", "скрипт", "сценарий", "ролик", "видео"
+)
+
+/** Ответ похож на отказ, а не на содержательный финал. */
+internal fun looksLikeCapabilityRefusal(text: String): Boolean {
+    val clean = text.trim()
+    if (clean.isEmpty() || clean.length > 700) return false
+    val lower = clean.lowercase()
+    return CAPABILITY_REFUSAL_MARKERS.any { lower.contains(it) }
+}
+
+/** Запрос вообще требует действий, а не просто ответа на вопрос. */
+internal fun looksActionable(prompt: String): Boolean {
+    val lower = prompt.lowercase()
+    if (lower.isBlank()) return false
+    return ACTIONABLE_PROMPT_HINTS.any { lower.contains(it) }
+}
 
 /**
  * Пометка к операции, которую автономный режим выполнил без вопроса, хотя её
@@ -2375,7 +2416,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Состав инструментов известен только после утверждения плана.
                 updateToolScope()
 
-                runAgentLoop(sessionId, provider, model, forceThinking)
+                runAgentLoop(
+                    sessionId,
+                    provider,
+                    model,
+                    forceThinking,
+                    actionableTurn = looksActionable(effectiveText)
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2506,7 +2553,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                 }
-                runAgentLoop(sessionId, provider, model, forceThinking)
+                runAgentLoop(
+                    sessionId,
+                    provider,
+                    model,
+                    forceThinking,
+                    actionableTurn = looksActionable(target.content)
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2772,7 +2825,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sessionId: String,
         provider: Provider,
         model: String,
-        forceThinking: Boolean = false
+        forceThinking: Boolean = false,
+        actionableTurn: Boolean = false
     ) {
         val currentSettings = _settings.value
         val trackStats = currentSettings.showStats
@@ -2794,6 +2848,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var lastCallSignature: String? = null
         var repeatedCalls = 0
         var prefatoryNudges = 0
+        var capabilityNudges = 0
+        var toolsExecuted = 0
 
         // В Live один «шаг» модели обычно равен «посмотреть экран + одно действие»,
         // поэтому общий лимит быстро заканчивает задачу. Для Live используем
@@ -2980,6 +3036,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return
                     }
 
+                    // Текстовый отказ без единого вызова инструмента — не финал.
+                    // Подсовываем карту возможностей и просим попробовать ещё раз.
+                    if (actionableTurn &&
+                        toolsExecuted == 0 &&
+                        (stepLimit <= 0 || step < stepLimit) &&
+                        capabilityNudges < MAX_CAPABILITY_NUDGES &&
+                        looksLikeCapabilityRefusal(reply)
+                    ) {
+                        capabilityNudges++
+                        _streamingText.value = ""
+                        turnAssistantId = saveNarrationMessage(sessionId, reply) ?: turnAssistantId
+                        conversationJson.put(
+                            JSONObject().apply {
+                                put("role", "assistant")
+                                put("content", reply)
+                            }
+                        )
+                        conversationJson.put(
+                            JSONObject().apply {
+                                put("role", "user")
+                                put("content", CAPABILITY_NUDGE_TEXT)
+                            }
+                        )
+                        persistContext(sessionId)
+                        continue
+                    }
+
                     turnAssistantId = saveAssistantMessage(
                         sessionId = sessionId,
                         text = reply,
@@ -3043,6 +3126,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         executeToolCall(sessionId, call)
+                        toolsExecuted++
                         executed += index
                     }
 
@@ -3382,6 +3466,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // ниже: текст, прочитанный из файла или буфера, - единственная
             // защита, которую нельзя отключать режимами.
             fromUntrusted -> true
+            // Пользователь отдельно доверил shell: команды идут сразу.
+            // Абсолютные запреты, root-гейт, read-only и сухой прогон
+            // проверяются выше и всё равно срабатывают.
+            isShellCall && _settings.value.shellNoConfirm -> false
             // Галочка «Больше не спрашивать это действие» - осознанное решение
             // пользователя по конкретной операции: оно важнее общего режима
             // «спрашивать каждый шаг», иначе галочка выглядит сломанной.
@@ -3871,10 +3959,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeToolScope?.let { scope ->
             content = content + "\n\n" + ToolDispatcher.toolScopeNote(scope, _settings.value.liveModeEnabled)
         }
+        content = content.trimEnd() + "\n\n" + deviceCapabilitiesNote()
         return JSONObject().apply {
             put("role", "system")
             put("content", content)
         }
+    }
+
+    /**
+     * Короткая карта возможностей. Без неё модель гадает, что включено,
+     * и отвечает «нет доступа» там, где доступ есть.
+     */
+    private fun deviceCapabilitiesNote(): String {
+        val settings = _settings.value
+        val context = getApplication<Application>()
+        val hasTermux = isPackageInstalled(context, "com.termux")
+        val hasShizuku = isPackageInstalled(context, "moe.shizuku.privileged.api")
+        val hasAccessibility = RunnerAccessibilityService.instance != null
+        return buildString {
+            appendLine("СОСТОЯНИЕ УСТРОЙСТВА (обновляется автоматически):")
+            appendLine("- Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine(
+                "- Хранилище: " + if (_hasStoragePermission.value) {
+                    "доступ ко всем файлам есть"
+                } else {
+                    "доступа ко всем файлам нет"
+                }
+            )
+            appendLine("- Рабочая папка: ${settings.defaultWorkingDir.ifBlank { "не задана" }}")
+            appendLine("- Shell вне памяти: ${if (settings.shellOutsideStorage) "включён" else "выключен"}")
+            appendLine("- Root-команды: ${if (settings.allowRootShell) "разрешены" else "запрещены"}")
+            appendLine(
+                "- Termux: " + if (hasTermux) {
+                    "установлен, но прямого моста в этой версии нет"
+                } else {
+                    "не установлен"
+                }
+            )
+            appendLine(
+                "- Shizuku: " + if (hasShizuku) {
+                    "установлен, но моста в этой версии нет"
+                } else {
+                    "не установлен"
+                }
+            )
+            appendLine("- Спецвозможности: ${if (hasAccessibility) "включены" else "выключены"}")
+            appendLine("- Live-режим: ${if (settings.liveModeEnabled) "включён" else "выключен"}")
+            append("Если нужного доступа нет, назови конкретный тумблер или разрешение.")
+        }
+    }
+
+    private fun isPackageInstalled(context: Context, packageName: String): Boolean = try {
+        context.packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: Exception) {
+        false
     }
 
     /**
