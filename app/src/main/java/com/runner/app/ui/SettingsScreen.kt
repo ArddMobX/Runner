@@ -121,6 +121,7 @@ import com.runner.app.data.ConnectionTestResult
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
+import com.runner.app.tools.RootChecker
 import com.runner.app.tools.ShizukuBridge
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.TermuxBridge
@@ -2084,6 +2085,9 @@ private fun ProvidersList(
 private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
     val appSettings by viewModel.settings.collectAsState()
     var showShellNoConfirmWarning by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var rootStatus by remember { mutableStateOf(RootChecker.lastStatus) }
+    var rootChecking by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -2676,8 +2680,47 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "заблокированы навсегда и при этом тумблере. Выключайте, когда доступ не нужен.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.5.sp,
-                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp)
                 )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Статус root: $rootStatus",
+                        color = when {
+                            rootStatus.contains("uid=0") -> StatusSuccess
+                            rootStatus != "не проверялся" -> StatusWarning
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontSize = 11.5.sp
+                    )
+                    Text(
+                        text = "Проверка запускает su -c id. Root-менеджер может показать запрос.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.5.sp
+                    )
+                }
+                TextButton(
+                    enabled = !rootChecking,
+                    onClick = {
+                        rootChecking = true
+                        scope.launch {
+                            rootStatus = RootChecker.check()
+                            rootChecking = false
+                        }
+                    }
+                ) {
+                    Text(
+                        text = if (rootChecking) "Проверяю…" else "Проверить root",
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             SettingsDivider()

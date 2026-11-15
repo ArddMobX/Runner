@@ -148,7 +148,10 @@ fun MarkdownView(
     modifier: Modifier = Modifier,
     isStreaming: Boolean = false
 ) {
-    val elements = remember(text) { parseMarkdown(text) }
+    val streamingCache = remember { StreamingMarkdownCache() }
+    val elements = remember(text, isStreaming) {
+        if (isStreaming) streamingCache.parse(text) else parseMarkdown(text)
+    }
 
     var showCursor by remember { mutableStateOf(isStreaming) }
     val cursorExitAlpha = remember { Animatable(if (isStreaming) 1f else 0f) }
@@ -1573,6 +1576,81 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
     }
 
     return elements
+}
+
+/**
+ * Блочный кэш для стрима. Готовые блоки (до последней пустой строки вне
+ * code fence и LaTeX) разбираются один раз, на каждом обновлении заново
+ * парсится только хвост. Это убирает пересборку всей простыни на каждом токене.
+ */
+internal class StreamingMarkdownCache {
+
+    private var stablePrefix = ""
+    private var stableElements: List<MarkdownElement> = emptyList()
+
+    fun parse(rawText: String): List<MarkdownElement> {
+        val text = rawText.replace("\r\n", "\n").replace('\r', '\n')
+        if (!text.startsWith(stablePrefix)) {
+            stablePrefix = ""
+            stableElements = emptyList()
+        }
+
+        val boundary = findStableBoundary(text)
+        if (boundary > stablePrefix.length) {
+            val chunk = text.substring(stablePrefix.length, boundary)
+            if (chunk.isNotBlank()) {
+                stableElements = stableElements + parseMarkdown(chunk)
+            }
+            stablePrefix = text.substring(0, boundary)
+        }
+
+        val tail = text.substring(stablePrefix.length)
+        return if (tail.isBlank()) stableElements else stableElements + parseMarkdown(tail)
+    }
+
+    /**
+     * Индекс после последней пустой строки, которая находится вне code fence
+     * и вне блочной LaTeX-формулы. Всё до него уже не изменится.
+     */
+    private fun findStableBoundary(text: String): Int {
+        var inFence = false
+        var mathDelimiter: String? = null
+        var lastBoundary = 0
+        var lineStart = 0
+
+        while (lineStart <= text.length) {
+            val lineEnd = text.indexOf('\n', lineStart).let {
+                if (it < 0) text.length else it
+            }
+            val trimmed = text.substring(lineStart, lineEnd).trim()
+
+            when {
+                inFence -> if (trimmed.startsWith("```")) inFence = false
+
+                mathDelimiter != null -> {
+                    if (trimmed.contains(mathDelimiter!!)) mathDelimiter = null
+                }
+
+                trimmed.startsWith("```") -> inFence = true
+
+                trimmed.startsWith("$$") -> {
+                    if (!trimmed.removePrefix("$$").contains("$$")) mathDelimiter = "$$"
+                }
+
+                trimmed.startsWith("\\[") -> {
+                    if (!trimmed.contains("\\]")) mathDelimiter = "\\]"
+                }
+
+                trimmed.isEmpty() -> {
+                    lastBoundary = (lineEnd + 1).coerceAtMost(text.length)
+                }
+            }
+
+            if (lineEnd >= text.length) break
+            lineStart = lineEnd + 1
+        }
+        return lastBoundary
+    }
 }
 
 private val STANDALONE_MD_LINK = Regex("""^\[([^\]]+)]\((https?://[^)\s]+)\)$""")

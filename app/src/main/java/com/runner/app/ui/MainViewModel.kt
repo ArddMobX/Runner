@@ -47,6 +47,7 @@ import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.tools.FileChangeTracker
+import com.runner.app.tools.RootChecker
 import com.runner.app.tools.ShizukuBridge
 import com.runner.app.tools.ShellLog
 import com.runner.app.tools.ShellPathParser
@@ -4064,7 +4065,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             appendLine("- Рабочая папка: ${settings.defaultWorkingDir.ifBlank { "не задана" }}")
             appendLine("- Shell вне памяти: ${if (settings.shellOutsideStorage) "включён" else "выключен"}")
-            appendLine("- Root-команды: ${if (settings.allowRootShell) "разрешены" else "запрещены"}")
+            appendLine(
+                "- Root-команды: " + if (settings.allowRootShell) {
+                    "разрешены, ${RootChecker.lastStatus}"
+                } else {
+                    "запрещены"
+                }
+            )
             appendLine("- Termux: $termuxStatus")
             appendLine("- Shizuku: $shizukuStatus")
             appendLine("- Спецвозможности: ${if (hasAccessibility) "включены" else "выключены"}")
