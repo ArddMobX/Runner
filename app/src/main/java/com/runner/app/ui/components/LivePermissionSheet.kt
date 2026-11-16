@@ -1,4 +1,5 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
 
 import android.content.Intent
 import android.net.Uri
@@ -186,7 +187,7 @@ fun LivePermissionSheet(
                     onDismiss()
                 },
                 enabled = hasAccessibility && hasOverlay,
-                shape = RoundedCornerShape(12.dp),
+                shape = RunnerShapes.medium,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -216,7 +217,7 @@ private fun PermissionCard(
     onGrantClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(
             0.8.dp,
@@ -277,7 +278,7 @@ private fun PermissionCard(
                 Spacer(modifier = Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onGrantClick,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(

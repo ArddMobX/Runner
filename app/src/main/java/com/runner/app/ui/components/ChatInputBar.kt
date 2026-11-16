@@ -85,6 +85,9 @@ import com.runner.app.ui.commands.SlashCommand
 import com.runner.app.ui.commands.SlashCommandParser
 import com.runner.app.ui.commands.SlashCommands
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.Spacing
+import com.runner.app.ui.theme.TypeScale
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.DocumentExtractor
 import kotlinx.coroutines.Dispatchers
@@ -433,9 +436,12 @@ fun ChatInputBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(26.dp))
+                .clip(RunnerShapes.extraLarge)
                 .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(BorderStroke(if (isLiveMode) 1.2.dp else 1.dp, borderColor), RoundedCornerShape(26.dp))
+                .border(
+                    BorderStroke(if (isLiveMode) 1.dp else 0.8.dp, borderColor),
+                    RunnerShapes.extraLarge
+                )
                 .padding(horizontal = 6.dp, vertical = 5.dp)
         ) {
             InputModeChips(
@@ -477,15 +483,15 @@ fun ChatInputBar(
                 DropdownMenu(
                     expanded = showAttachMenu,
                     onDismissRequest = { showAttachMenu = false },
-                    modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                    modifier = Modifier.clip(RunnerShapes.large)
                 ) {
                     DropdownMenuItem(
                         text = {
                             Column {
-                                Text("Файл", fontSize = 14.sp)
+                                Text("Файл", fontSize = TypeScale.body)
                                 Text(
                                     text = "PDF, DOCX, XLSX, PPTX, текст и код",
-                                    fontSize = 11.sp,
+                                    fontSize = TypeScale.caption,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -505,7 +511,7 @@ fun ChatInputBar(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Камера", fontSize = 14.sp) },
+                        text = { Text("Камера", fontSize = TypeScale.body) },
                         leadingIcon = {
                             Icon(
                                 imageVector = RunnerIcons.CameraAlt,
@@ -521,7 +527,7 @@ fun ChatInputBar(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Галерея", fontSize = 14.sp) },
+                        text = { Text("Галерея", fontSize = TypeScale.body) },
                         leadingIcon = {
                             Icon(
                                 imageVector = RunnerIcons.Image,
@@ -559,7 +565,7 @@ fun ChatInputBar(
                     },
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 15.sp,
+                    fontSize = TypeScale.bodyLarge,
                     lineHeight = 22.sp
                 ),
                 maxLines = 5,
@@ -583,7 +589,7 @@ fun ChatInputBar(
                             Text(
                                 text = if (isListening) "Слушаю речь..." else (placeholder ?: "Задать задачу или сказать голосом..."),
                                 color = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                fontSize = 15.sp,
+                                fontSize = TypeScale.bodyLarge,
                                 lineHeight = 22.sp
                             )
                         }
@@ -656,7 +662,7 @@ private fun InputModeChip(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(13.dp)
+    val shape = RunnerShapes.medium
     val background by animateColorAsState(
         targetValue = when {
             !enabled -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f)
@@ -704,7 +710,7 @@ private fun InputModeChip(
         Text(
             text = label,
             color = contentColor,
-            fontSize = 11.5.sp,
+            fontSize = TypeScale.caption,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium
         )
     }
@@ -719,14 +725,14 @@ private fun SelectedFileChip(
     val extension = file.name.substringAfterLast('.', "").lowercase()
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .border(
                 BorderStroke(
                     0.6.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                 ),
-                RoundedCornerShape(14.dp)
+                RunnerShapes.medium
             )
             .padding(start = 7.dp, end = 3.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -737,7 +743,7 @@ private fun SelectedFileChip(
             Text(
                 text = file.name,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -747,7 +753,7 @@ private fun SelectedFileChip(
                 text = attachmentTypeName(extension) + " · " +
                         DocumentExtractor.formatSize(file.sizeBytes),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 maxLines = 1
             )
         }
@@ -803,7 +809,7 @@ private fun SelectedImageThumbnail(
     Box(
         modifier = Modifier
             .size(58.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         val bitmap = bitmapState.value

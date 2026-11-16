@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.runner.app.ui.theme.RobotoMono
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.components.RunnerIcons
 
@@ -220,19 +222,19 @@ private fun HeaderElement(
     val (style, topPadding) = when (element.level) {
         1 -> MaterialTheme.typography.titleLarge.copy(
             fontWeight = FontWeight.SemiBold,
-            fontSize = 17.sp,
+            fontSize = TypeScale.title,
             lineHeight = 23.sp
         ) to 8.dp
 
         2 -> MaterialTheme.typography.titleMedium.copy(
             fontWeight = FontWeight.SemiBold,
-            fontSize = 16.sp,
+            fontSize = TypeScale.title,
             lineHeight = 22.sp
         ) to 6.dp
 
         else -> MaterialTheme.typography.titleMedium.copy(
             fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp,
+            fontSize = TypeScale.bodyLarge,
             lineHeight = 21.sp
         ) to 5.dp
     }
@@ -375,7 +377,7 @@ private fun CodeBlockElement(
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-        shape = RoundedCornerShape(14.dp),
+        shape = RunnerShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -400,7 +402,7 @@ private fun CodeBlockElement(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = element.language.ifBlank { "код" }.lowercase(),
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = RobotoMono,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -409,7 +411,7 @@ private fun CodeBlockElement(
 
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RunnerShapes.small)
                         .background(
                             if (copied) StatusSuccess.copy(alpha = 0.15f)
                             else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)
@@ -433,7 +435,7 @@ private fun CodeBlockElement(
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = if (copied) "Скопировано" else "Копировать",
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         fontWeight = FontWeight.Medium,
                         color = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -481,7 +483,7 @@ private fun CodeBlockElement(
                     Text(
                         text = codeAnnotated,
                         fontFamily = RobotoMono,
-                        fontSize = 12.5.sp,
+                        fontSize = TypeScale.label,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         inlineContent = if (isStreaming) cursorInlineContent(primaryColor, cursorWidth = 5.5.dp, cursorHeight = 13.dp, exitAlpha = exitAlpha) else emptyMap()
@@ -501,7 +503,7 @@ private fun MathBlockElement(
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shape = RoundedCornerShape(10.dp),
+        shape = RunnerShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -517,7 +519,7 @@ private fun MathBlockElement(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "LaTeX Formula",
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -630,7 +632,7 @@ private fun BulletElement(
             text = "•",
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
+            fontSize = TypeScale.headline,
             lineHeight = 22.sp,
             modifier = Modifier.padding(end = 8.dp)
         )
@@ -660,7 +662,7 @@ private fun NumberedElement(
             text = "${element.number}.",
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
+            fontSize = TypeScale.body,
             lineHeight = 22.sp,
             modifier = Modifier
                 .width(22.dp)
@@ -696,10 +698,13 @@ private fun BlockquoteElement(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+            .background(
+                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f),
+                RunnerShapes.tiny
+            )
             .border(
-                BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                RoundedCornerShape(4.dp)
+                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                RunnerShapes.tiny
             )
             .padding(10.dp)
     ) {
@@ -814,7 +819,7 @@ private fun MarkdownText(
 /** Скруглённый чип для слова в бэктиках. */
 @Composable
 private fun InlineChip(text: String) {
-    val shape = RoundedCornerShape(7.dp)
+    val shape = RunnerShapes.tiny
     Box(
         modifier = Modifier
             .clip(shape)
@@ -831,7 +836,7 @@ private fun InlineChip(text: String) {
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.5.sp,
+            fontSize = TypeScale.label,
             fontFamily = RobotoMono,
             maxLines = 1
         )
@@ -871,7 +876,7 @@ private fun LinkCardElement(element: MarkdownElement.LinkCard) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             openLink(context, element.url)
         },
-        shape = RoundedCornerShape(16.dp),
+        shape = RunnerShapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(
             0.6.dp,
@@ -888,7 +893,7 @@ private fun LinkCardElement(element: MarkdownElement.LinkCard) {
             Box(
                 modifier = Modifier
                     .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RunnerShapes.medium)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -904,7 +909,7 @@ private fun LinkCardElement(element: MarkdownElement.LinkCard) {
                 Text(
                     text = title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.5.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -914,7 +919,7 @@ private fun LinkCardElement(element: MarkdownElement.LinkCard) {
                     Text(
                         text = detail,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
@@ -1016,7 +1021,7 @@ private fun TableElement(
     val secondaryColor = MaterialTheme.colorScheme.secondary
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
         modifier = Modifier
@@ -1045,13 +1050,13 @@ private fun TableElement(
                     )
                     Text(
                         text = "Таблица",
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "· ${element.rows.size} ${formatTableRowCount(element.rows.size)}",
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
@@ -1066,13 +1071,13 @@ private fun TableElement(
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 sortColumnIndex = null
                             },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RunnerShapes.small,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
                             border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                         ) {
                             Text(
                                 text = "Сброс",
-                                fontSize = 11.sp,
+                                fontSize = TypeScale.caption,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                             )
@@ -1087,7 +1092,7 @@ private fun TableElement(
                             manager.setPrimaryClip(ClipData.newPlainText("Таблица CSV", csv))
                             Toast.makeText(context, "Таблица скопирована как CSV", Toast.LENGTH_SHORT).show()
                         },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
                     ) {
@@ -1104,7 +1109,7 @@ private fun TableElement(
                             )
                             Text(
                                 text = "CSV",
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.SemiBold,
                                 color = primaryColor
                             )
@@ -1189,7 +1194,7 @@ private fun TableElement(
                                     ) {
                                         Text(
                                             text = header,
-                                            fontSize = 12.5.sp,
+                                            fontSize = TypeScale.label,
                                             fontWeight = FontWeight.SemiBold,
                                             color = if (isSorted) primaryColor else MaterialTheme.colorScheme.onSurface
                                         )
@@ -1261,7 +1266,7 @@ private fun TableElement(
                                     ) {
                                         Text(
                                             text = annotated,
-                                            fontSize = 12.5.sp,
+                                            fontSize = TypeScale.label,
                                             lineHeight = 17.sp,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             inlineContent = if (showStreamingCursor) {
@@ -1775,7 +1780,7 @@ fun renderInlineMarkdown(
                             fontFamily = RobotoMono,
                             background = primaryColor.copy(alpha = 0.13f),
                             color = primaryColor,
-                            fontSize = 13.sp
+                            fontSize = TypeScale.label
                         )
                     )
                     append(" ${token.substring(1, token.length - 1)} ")

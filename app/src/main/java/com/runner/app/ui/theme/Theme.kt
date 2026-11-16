@@ -5,9 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
@@ -90,8 +90,12 @@ fun RunnerTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
-        shapes = MaterialTheme.shapes.copy(
-            extraSmall = RoundedCornerShape(18.dp)
+        shapes = Shapes(
+            extraSmall = RunnerShapes.tiny,
+            small = RunnerShapes.small,
+            medium = RunnerShapes.medium,
+            large = RunnerShapes.large,
+            extraLarge = RunnerShapes.extraLarge
         ),
         content = content
     )

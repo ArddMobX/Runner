@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -80,7 +82,7 @@ fun WorkspaceFolderBar(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onOpenFolderSheet()
             },
-            shape = RoundedCornerShape(12.dp),
+            shape = RunnerShapes.medium,
             color = if (hasFolder) {
                 MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.75f)
             } else {
@@ -107,7 +109,7 @@ fun WorkspaceFolderBar(
                 Text(
                     text = folderName,
                     color = if (hasFolder) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = if (hasFolder) FontWeight.Medium else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -117,7 +119,7 @@ fun WorkspaceFolderBar(
                     Text(
                         text = "• Без подтверждений",
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -199,7 +201,7 @@ fun WorkspaceFolderSheet(
                 )
                 Text(
                     text = "Рабочая папка проекта",
-                    fontSize = 18.sp,
+                    fontSize = TypeScale.headline,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -208,7 +210,7 @@ fun WorkspaceFolderSheet(
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "Агент считает эту папку корневым репозиторием. Все относительные пути и файловые команды будут привязаны к ней.",
-                fontSize = 13.sp,
+                fontSize = TypeScale.label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
             )
@@ -218,7 +220,7 @@ fun WorkspaceFolderSheet(
             // Карточка текущей выбранной папки
             val hasFolder = workingDir.isNotBlank()
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RunnerShapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 border = BorderStroke(
                     1.dp,
@@ -237,7 +239,7 @@ fun WorkspaceFolderSheet(
                     Box(
                         modifier = Modifier
                             .size(42.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RunnerShapes.medium)
                             .background(
                                 if (hasFolder) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                 else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -255,7 +257,7 @@ fun WorkspaceFolderSheet(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = StoragePathUtils.getFolderDisplayName(workingDir),
-                            fontSize = 15.sp,
+                            fontSize = TypeScale.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -264,7 +266,7 @@ fun WorkspaceFolderSheet(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (hasFolder) workingDir else "Вся память (/storage/emulated/0)",
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             fontFamily = FontFamily.Monospace,
                             color = if (hasFolder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
@@ -304,7 +306,7 @@ fun WorkspaceFolderSheet(
                         folderPickerLauncher.launch(null)
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RunnerShapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                 ) {
                     Icon(
@@ -316,7 +318,7 @@ fun WorkspaceFolderSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Выбрать папку",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -327,7 +329,7 @@ fun WorkspaceFolderSheet(
                         showManualPathDialog = true
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RunnerShapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Icon(
@@ -339,7 +341,7 @@ fun WorkspaceFolderSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Ввести путь",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -349,7 +351,7 @@ fun WorkspaceFolderSheet(
 
             // Раздел параметров папки (Автономный режим)
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RunnerShapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -363,14 +365,14 @@ fun WorkspaceFolderSheet(
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
                             text = "Автономный режим в папке",
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             text = "Не спрашивать подтверждения на файловые операции внутри этой папки. Агент сможет сам создавать и менять проект. Shell-команды и пути за пределами папки всё равно требуют подтверждения.",
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
                         )
@@ -403,7 +405,7 @@ fun WorkspaceFolderSheet(
                 Column {
                     Text(
                         text = "Укажите абсолютный путь на устройстве, например:\n/storage/emulated/0/Download/MyProject",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(10.dp))
@@ -413,7 +415,7 @@ fun WorkspaceFolderSheet(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         placeholder = { Text("/storage/emulated/0/...") },
-                        textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                        textStyle = TextStyle(fontSize = TypeScale.label, fontFamily = FontFamily.Monospace)
                     )
                 }
             },

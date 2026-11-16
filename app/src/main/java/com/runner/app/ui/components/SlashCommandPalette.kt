@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -46,7 +48,7 @@ fun SlashCommandPalette(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RunnerShapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(
             0.7.dp,
@@ -65,7 +67,7 @@ fun SlashCommandPalette(
                 Text(
                     text = "КОМАНДЫ",
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 10.sp,
+                    fontSize = TypeScale.micro,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.9.sp,
                     modifier = Modifier.weight(1f)
@@ -74,7 +76,7 @@ fun SlashCommandPalette(
                     Text(
                         text = "сейчас только /stop и /help",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 10.sp
+                        fontSize = TypeScale.micro
                     )
                 }
             }
@@ -115,14 +117,14 @@ private fun CommandPaletteRow(
         Box(
             modifier = Modifier
                 .size(26.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RunnerShapes.small)
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.13f)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "/",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 13.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace
             )
@@ -139,7 +141,7 @@ private fun CommandPaletteRow(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace
                 )
@@ -147,7 +149,7 @@ private fun CommandPaletteRow(
                     Text(
                         text = " ${command.argsHint}",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = FontFamily.Monospace
                     )
                 }
@@ -155,7 +157,7 @@ private fun CommandPaletteRow(
             Text(
                 text = command.description,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

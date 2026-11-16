@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +52,7 @@ fun SlashCommandHelpSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -71,14 +73,14 @@ fun SlashCommandHelpSheet(
             Text(
                 text = "Команды",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 17.sp,
+                fontSize = TypeScale.title,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Начни сообщение со слэша. Во время задачи доступны только /stop и /help.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                fontSize = TypeScale.caption
             )
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -96,7 +98,7 @@ fun SlashCommandHelpSheet(
                             Text(
                                 text = group.label.uppercase(),
                                 color = MaterialTheme.colorScheme.outline,
-                                fontSize = 10.sp,
+                                fontSize = TypeScale.micro,
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 0.9.sp,
                                 modifier = Modifier.padding(top = 10.dp, bottom = 3.dp)
@@ -111,7 +113,7 @@ fun SlashCommandHelpSheet(
                     Text(
                         text = "Свои команды добавляются в Настройки, раздел «Свои команды».",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 15.sp,
                         modifier = Modifier.padding(top = 14.dp)
                     )
@@ -133,7 +135,7 @@ private fun CommandHelpRow(command: SlashCommand) {
                 Text(
                     text = command.invocation,
                     color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace
                 )
@@ -141,7 +143,7 @@ private fun CommandHelpRow(command: SlashCommand) {
                     Text(
                         text = " ${command.argsHint}",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = FontFamily.Monospace
                     )
                 }
@@ -149,7 +151,7 @@ private fun CommandHelpRow(command: SlashCommand) {
             Text(
                 text = command.description,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp
+                fontSize = TypeScale.caption
             )
         }
     }

@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -184,7 +186,7 @@ fun PreviewButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RunnerShapes.small
     Row(
         modifier = modifier
             .clip(shape)
@@ -207,7 +209,7 @@ fun PreviewButton(
         Text(
             text = label,
             color = MaterialTheme.colorScheme.primary,
-            fontSize = 13.sp,
+            fontSize = TypeScale.label,
             fontWeight = FontWeight.Medium
         )
     }
@@ -243,7 +245,7 @@ fun WebPreviewDialog(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow
             ),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-            shape = RoundedCornerShape(16.dp),
+            shape = RunnerShapes.large,
             modifier = Modifier
                 .fillMaxWidth(0.96f)
                 .fillMaxHeight(0.88f)
@@ -266,7 +268,7 @@ fun WebPreviewDialog(
                         Text(
                             text = source.title,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -274,7 +276,7 @@ fun WebPreviewDialog(
                         Text(
                             text = if (source.filePath != null) "файл на устройстве" else "из сообщения",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp
+                            fontSize = TypeScale.caption
                         )
                     }
                     IconButton(

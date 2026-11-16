@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import com.runner.app.data.db.SessionEntity
 import com.runner.app.ui.theme.RobotoMono
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 import com.runner.app.ui.theme.SecondaryMint
 import java.time.Instant
 import java.time.LocalDate
@@ -144,7 +146,7 @@ fun AppDrawerContent(
         Text(
             text = "Runner",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 17.sp,
+            fontSize = TypeScale.title,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 14.dp)
         )
@@ -169,7 +171,7 @@ fun AppDrawerContent(
                 Text(
                     text = if (query.isBlank()) "Чатов пока нет" else "Ничего не найдено",
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 13.sp
+                    fontSize = TypeScale.label
                 )
             }
         } else {
@@ -179,7 +181,7 @@ fun AppDrawerContent(
                         Text(
                             text = "Закреплённые",
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.sp,
+                            fontSize = TypeScale.caption,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp)
                         )
@@ -226,7 +228,7 @@ fun AppDrawerContent(
                         Text(
                             text = group.title.uppercase(),
                             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
-                            fontSize = 10.5.sp,
+                            fontSize = TypeScale.micro,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.8.sp,
                             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp)
@@ -264,7 +266,7 @@ fun AppDrawerContent(
         ) {
             Surface(
                 onClick = onOpenSupport,
-                shape = RoundedCornerShape(12.dp),
+                shape = RunnerShapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f),
                 border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
@@ -285,7 +287,7 @@ fun AppDrawerContent(
                     Text(
                         text = "Поддержать проект",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
@@ -294,7 +296,7 @@ fun AppDrawerContent(
 
             Surface(
                 onClick = onOpenSettings,
-                shape = RoundedCornerShape(12.dp),
+                shape = RunnerShapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f),
                 border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
@@ -315,7 +317,7 @@ fun AppDrawerContent(
                     Text(
                         text = "Настройки",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
@@ -333,7 +335,7 @@ fun AppDrawerContent(
                 append(cleanFooter)
             },
             color = MaterialTheme.colorScheme.outline,
-            fontSize = 11.sp,
+            fontSize = TypeScale.caption,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
@@ -357,12 +359,12 @@ fun AppDrawerContent(
         AlertDialog(
             onDismissRequest = { sessionToDelete = null },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            title = { Text("Удалить чат?", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp) },
+            title = { Text("Удалить чат?", color = MaterialTheme.colorScheme.onSurface, fontSize = TypeScale.title) },
             text = {
                 Text(
                     text = "«${session.title.ifBlank { "Без названия" }}» и вся его история будут удалены.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
+                    fontSize = TypeScale.label
                 )
             },
             confirmButton = {
@@ -370,12 +372,12 @@ fun AppDrawerContent(
                     onDeleteSession(session.id)
                     sessionToDelete = null
                 }) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                    Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.body)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { sessionToDelete = null }) {
-                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.body)
                 }
             }
         )
@@ -392,7 +394,7 @@ private fun NewChatButton(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.primaryContainer)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),
@@ -408,7 +410,7 @@ private fun NewChatButton(onClick: () -> Unit) {
         Text(
             text = "Новый чат",
             color = MaterialTheme.colorScheme.onPrimaryContainer,
-            fontSize = 14.sp,
+            fontSize = TypeScale.body,
             fontWeight = FontWeight.SemiBold
         )
     }
@@ -451,9 +453,9 @@ private fun SessionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RunnerShapes.medium)
                 .background(itemBg)
-                .border(itemBorder, RoundedCornerShape(12.dp))
+                .border(itemBorder, RunnerShapes.medium)
                 .combinedClickable(
                     onClick = onOpen,
                     onLongClick = { menuExpanded = true }
@@ -504,7 +506,7 @@ private fun SessionRow(
                     Text(
                         text = cleanTitle,
                         color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -513,12 +515,12 @@ private fun SessionRow(
                     if (isLiveSession) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RunnerShapes.tiny,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                         ) {
                             Text(
                                 text = "Live",
-                                fontSize = 9.sp,
+                                fontSize = TypeScale.micro,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -534,7 +536,7 @@ private fun SessionRow(
                     Text(
                         text = cleanModel,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.outline,
-                        fontSize = 10.5.sp,
+                        fontSize = TypeScale.micro,
                         fontFamily = RobotoMono,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -544,7 +546,7 @@ private fun SessionRow(
                     Text(
                         text = snippet,
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 10.5.sp,
+                        fontSize = TypeScale.micro,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -556,7 +558,7 @@ private fun SessionRow(
             Text(
                 text = timeLabel,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 fontFamily = RobotoMono,
                 maxLines = 1
             )
@@ -579,14 +581,14 @@ private fun SessionRow(
         DropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
-            modifier = Modifier.clip(RoundedCornerShape(18.dp))
+            modifier = Modifier.clip(RunnerShapes.large)
         ) {
             DropdownMenuItem(
                 text = {
                     Text(
                         text = if (session.isPinned) "Открепить" else "Закрепить",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                 },
                 leadingIcon = {
@@ -603,7 +605,7 @@ private fun SessionRow(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Переименовать", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp) },
+                text = { Text("Переименовать", color = MaterialTheme.colorScheme.onSurface, fontSize = TypeScale.body) },
                 leadingIcon = {
                     Icon(
                         imageVector = RunnerIcons.Edit,
@@ -618,7 +620,7 @@ private fun SessionRow(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp) },
+                text = { Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.body) },
                 leadingIcon = {
                     Icon(
                         imageVector = RunnerIcons.Delete,
@@ -647,14 +649,14 @@ private fun RenameSessionDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        title = { Text("Переименовать чат", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp) },
+        title = { Text("Переименовать чат", color = MaterialTheme.colorScheme.onSurface, fontSize = TypeScale.title) },
         text = {
             TextField(
                 value = title,
                 onValueChange = { title = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = RoundedCornerShape(10.dp),
+                shape = RunnerShapes.medium,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -668,12 +670,12 @@ private fun RenameSessionDialog(
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(title) }) {
-                Text("Сохранить", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                Text("Сохранить", color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.body)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.body)
             }
         }
     )
@@ -692,7 +694,7 @@ private fun SlimSearchBar(
         modifier = modifier
             .fillMaxWidth()
             .height(38.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
         border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
@@ -717,7 +719,7 @@ private fun SlimSearchBar(
                     Text(
                         text = "Поиск по чатам",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 13.sp
+                        fontSize = TypeScale.label
                     )
                 }
                 BasicTextField(
@@ -726,7 +728,7 @@ private fun SlimSearchBar(
                     singleLine = true,
                     textStyle = TextStyle(
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Normal
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),

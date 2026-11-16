@@ -1,4 +1,6 @@
 package com.runner.app.ui
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -78,13 +80,13 @@ fun CustomCommandsScreen(viewModel: MainViewModel) {
         Text(
             text = "Шаблоны промптов, которые запускаются через / в поле ввода.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.5.sp,
+            fontSize = TypeScale.label,
             lineHeight = 18.sp
         )
         Text(
             text = "В промпте можно использовать {{args}}: сюда подставится текст после имени команды.",
             color = MaterialTheme.colorScheme.outline,
-            fontSize = 11.5.sp,
+            fontSize = TypeScale.caption,
             lineHeight = 16.sp
         )
 
@@ -108,7 +110,7 @@ fun CustomCommandsScreen(viewModel: MainViewModel) {
 
         if (commands.isEmpty()) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RunnerShapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                 border = BorderStroke(
                     0.7.dp,
@@ -130,14 +132,14 @@ fun CustomCommandsScreen(viewModel: MainViewModel) {
                     Text(
                         text = "Пока нет своих команд",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = "Например, /review для проверки кода или /test для запуска тестов.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 16.sp
                     )
                 }
@@ -215,7 +217,7 @@ private fun CustomCommandCard(
     onDelete: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(
             0.7.dp,
@@ -232,7 +234,7 @@ private fun CustomCommandCard(
                     Text(
                         text = "/${command.name}",
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.Monospace
                     )
@@ -240,7 +242,7 @@ private fun CustomCommandCard(
                         Text(
                             text = " ${command.argsHint}",
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.sp,
+                            fontSize = TypeScale.caption,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -249,7 +251,7 @@ private fun CustomCommandCard(
                     Text(
                         text = command.description,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 16.sp
                     )
                 }
@@ -298,7 +300,7 @@ private fun CustomCommandEditorSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -322,14 +324,14 @@ private fun CustomCommandEditorSheet(
             Text(
                 text = if (command == null) "Новая команда" else "Команда /${command.name}",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 17.sp,
+                fontSize = TypeScale.title,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Имя без слэша. В промпте {{args}} заменится текстом после команды.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 16.sp
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -407,7 +409,7 @@ private fun CustomCommandEditorSheet(
                 Text(
                     text = message,
                     color = MaterialTheme.colorScheme.error,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp
                 )
             }

@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -80,7 +82,7 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
                     1.dp,
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 ),
-                shape = RoundedCornerShape(18.dp),
+                shape = RunnerShapes.large,
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
                     .padding(vertical = 24.dp)
@@ -105,7 +107,7 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
                         Text(
                             text = "Перед началом",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 18.sp,
+                            fontSize = TypeScale.headline,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -134,7 +136,7 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RunnerShapes.medium,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = BeigeButton,
                             contentColor = BeigeButtonText
@@ -142,7 +144,7 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
                     ) {
                         Text(
                             text = "Понятно",
-                            fontSize = 15.sp,
+                            fontSize = TypeScale.bodyLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -152,7 +154,7 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
                     Text(
                         text = "Нажимая кнопку, вы подтверждаете, что понимаете эти риски.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 16.sp,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -179,7 +181,7 @@ private fun DisclaimerPoint(text: String) {
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.5.sp,
+            fontSize = TypeScale.label,
             lineHeight = 19.sp
         )
     }

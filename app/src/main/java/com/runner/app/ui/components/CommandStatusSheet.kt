@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -46,7 +48,7 @@ fun CommandStatusSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -67,14 +69,14 @@ fun CommandStatusSheet(
             Text(
                 text = "Статус",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 17.sp,
+                fontSize = TypeScale.title,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Снимок текущего чата. В контекст модели не уходит.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                fontSize = TypeScale.caption
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -134,7 +136,7 @@ private fun StatusSection(title: String) {
     Text(
         text = title.uppercase(),
         color = MaterialTheme.colorScheme.outline,
-        fontSize = 10.sp,
+        fontSize = TypeScale.micro,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.9.sp,
         modifier = Modifier.padding(top = 12.dp, bottom = 3.dp)
@@ -156,14 +158,14 @@ private fun StatusRow(
         Text(
             text = label,
             color = MaterialTheme.colorScheme.outline,
-            fontSize = 11.5.sp,
+            fontSize = TypeScale.caption,
             modifier = Modifier.width(108.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = value,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.5.sp,
+            fontSize = TypeScale.label,
             lineHeight = 17.sp,
             fontFamily = if (mono) FontFamily.Monospace else null,
             modifier = Modifier.weight(1f)

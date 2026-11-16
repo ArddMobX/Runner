@@ -1,4 +1,6 @@
 package com.runner.app.ui
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.animation.ValueAnimator
 import android.content.Context
@@ -462,7 +464,7 @@ object LiveFloatingOverlay {
                 } else {
                     // Развернутая мини-карточка статуса
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RunnerShapes.large,
                         color = colors.surfaceContainerHigh,
                         shadowElevation = 8.dp,
                         border = BorderStroke(1.dp, visuals.color.copy(alpha = 0.45f)),
@@ -593,12 +595,12 @@ object LiveFloatingOverlay {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
+                                        .clip(RunnerShapes.medium)
                                         .background(colors.surfaceContainer)
                                         .border(
                                             1.dp,
                                             StatusWarning.copy(alpha = 0.45f),
-                                            RoundedCornerShape(12.dp)
+                                            RunnerShapes.medium
                                         )
                                         .padding(10.dp)
                                 ) {
@@ -614,7 +616,7 @@ object LiveFloatingOverlay {
                                     ) {
                                         OutlinedButton(
                                             onClick = onCancelAction,
-                                            shape = RoundedCornerShape(10.dp),
+                                            shape = RunnerShapes.small,
                                             modifier = Modifier.weight(1f).height(34.dp)
                                         ) {
                                             Text("Отмена", style = MaterialTheme.typography.labelMedium)
@@ -625,7 +627,7 @@ object LiveFloatingOverlay {
                                                 containerColor = colors.primary,
                                                 contentColor = colors.onPrimary
                                             ),
-                                            shape = RoundedCornerShape(10.dp),
+                                            shape = RunnerShapes.small,
                                             modifier = Modifier.weight(1f).height(34.dp)
                                         ) {
                                             Text(
@@ -651,7 +653,7 @@ object LiveFloatingOverlay {
                                         colors = ButtonDefaults.outlinedButtonColors(
                                             contentColor = colors.error
                                         ),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RunnerShapes.medium,
                                         border = BorderStroke(
                                             1.dp,
                                             colors.error.copy(alpha = 0.4f)
@@ -681,7 +683,7 @@ object LiveFloatingOverlay {
                                 ) {
                                     OutlinedButton(
                                         onClick = { LiveAgentManager.reset() },
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RunnerShapes.medium,
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(38.dp)
@@ -705,7 +707,7 @@ object LiveFloatingOverlay {
                                             containerColor = colors.primary,
                                             contentColor = colors.onPrimary
                                         ),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RunnerShapes.medium,
                                         modifier = Modifier
                                             .weight(1.3f)
                                             .height(38.dp)
@@ -724,7 +726,7 @@ object LiveFloatingOverlay {
                                     OutlinedButton(
                                         onClick = if (state.isPaused) onResume else onPause,
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RunnerShapes.medium,
                                         modifier = Modifier
                                             .weight(1.35f)
                                             .height(38.dp)
@@ -737,7 +739,7 @@ object LiveFloatingOverlay {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = if (state.isPaused) "Продолжить" else "Пауза",
-                                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                                            style = MaterialTheme.typography.labelLarge.copy(fontSize = TypeScale.label),
                                             maxLines = 1,
                                             softWrap = false
                                         )
@@ -749,7 +751,7 @@ object LiveFloatingOverlay {
                                             containerColor = colors.errorContainer,
                                             contentColor = colors.onErrorContainer
                                         ),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = RunnerShapes.medium,
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(38.dp)
@@ -762,7 +764,7 @@ object LiveFloatingOverlay {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "Стоп",
-                                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                                            style = MaterialTheme.typography.labelLarge.copy(fontSize = TypeScale.label),
                                             maxLines = 1,
                                             softWrap = false
                                         )

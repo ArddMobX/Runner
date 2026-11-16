@@ -1,4 +1,6 @@
 package com.runner.app.ui
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -132,7 +134,7 @@ fun ProviderEditScreen(
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(RunnerShapes.small)
                             .background(
                                 if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                                 else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -143,7 +145,7 @@ fun ProviderEditScreen(
                                     if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
                                     else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                 ),
-                                RoundedCornerShape(9.dp)
+                                RunnerShapes.small
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -161,28 +163,28 @@ fun ProviderEditScreen(
                         Text(
                             text = name.ifBlank { "Провайдер" },
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 15.sp,
+                            fontSize = TypeScale.bodyLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = if (isActive) "Активный провайдер" else "Настройка провайдера",
                             color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                            fontSize = 11.5.sp
+                            fontSize = TypeScale.caption
                         )
                     }
 
                     if (isActive) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RunnerShapes.tiny)
                                 .background(StatusSuccess.copy(alpha = 0.12f))
-                                .border(BorderStroke(1.dp, StatusSuccess.copy(alpha = 0.25f)), RoundedCornerShape(6.dp))
+                                .border(BorderStroke(1.dp, StatusSuccess.copy(alpha = 0.25f)), RunnerShapes.tiny)
                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "Активен",
                                 color = StatusSuccess,
-                                fontSize = 11.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -195,7 +197,7 @@ fun ProviderEditScreen(
                 Text(
                     text = "Готовые шаблоны",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(6.dp))
@@ -208,14 +210,14 @@ fun ProviderEditScreen(
                     ProviderStore.PRESETS.forEach { preset ->
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RunnerShapes.small)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                 .border(
                                     BorderStroke(
                                         1.dp,
                                         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                     ),
-                                    RoundedCornerShape(8.dp)
+                                    RunnerShapes.small
                                 )
                                 .clickable {
                                     name = preset.name
@@ -227,7 +229,7 @@ fun ProviderEditScreen(
                             Text(
                                 text = preset.name,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -242,7 +244,7 @@ fun ProviderEditScreen(
                     onValueChange = { name = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = providerFieldColors()
                 )
 
@@ -256,10 +258,10 @@ fun ProviderEditScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
-                        Text("https://api.groq.com/openai/v1", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                        Text("https://api.groq.com/openai/v1", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label)
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = providerFieldColors()
                 )
 
@@ -282,7 +284,7 @@ fun ProviderEditScreen(
                             provider.id.contains("openai", ignoreCase = true) -> "sk-..."
                             else -> "Введите API-ключ..."
                         }
-                        Text(keyPlaceholder, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                        Text(keyPlaceholder, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label)
                     },
                     singleLine = true,
                     visualTransformation = if (keyVisible) {
@@ -304,14 +306,14 @@ fun ProviderEditScreen(
                             )
                         }
                     },
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = providerFieldColors()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Ключ шифруется ключом Android Keystore и наружу не уходит.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 15.sp
                 )
 
@@ -341,7 +343,7 @@ fun ProviderEditScreen(
                             .defaultMinSize(minHeight = 44.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                         enabled = isDirty,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RunnerShapes.small,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -349,7 +351,7 @@ fun ProviderEditScreen(
                             disabledContentColor = MaterialTheme.colorScheme.outline
                         )
                     ) {
-                        Text("Сохранить", fontSize = 13.5.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                        Text("Сохранить", fontSize = TypeScale.label, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
                     }
 
                     if (!isActive) {
@@ -359,7 +361,7 @@ fun ProviderEditScreen(
                                 .weight(1f)
                                 .defaultMinSize(minHeight = 44.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RunnerShapes.small,
                             border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -368,7 +370,7 @@ fun ProviderEditScreen(
                         ) {
                             Text(
                                 text = "Сделать активным",
-                                fontSize = 12.5.sp,
+                                fontSize = TypeScale.label,
                                 lineHeight = 15.sp,
                                 maxLines = 2,
                                 softWrap = true,
@@ -380,7 +382,7 @@ fun ProviderEditScreen(
 
                 status.value?.let { message ->
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Text(text = message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.caption)
                 }
             }
         }
@@ -392,13 +394,13 @@ fun ProviderEditScreen(
                         Text(
                             text = "Модели",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "${PluralUtils.models(provider.models.size)} в списке",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp
+                            fontSize = TypeScale.caption
                         )
                     }
                     IconButton(
@@ -436,7 +438,7 @@ fun ProviderEditScreen(
                                     "либо нажми обновление."
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 17.sp
                     )
                 } else {
@@ -444,7 +446,7 @@ fun ProviderEditScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(240.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLowest, RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest, RunnerShapes.small)
                     ) {
                         LazyColumn {
                             items(provider.models, key = { it.id }) { model ->
@@ -463,7 +465,7 @@ fun ProviderEditScreen(
                                         Text(
                                             text = model.label,
                                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                            fontSize = 12.sp,
+                                            fontSize = TypeScale.caption,
                                             fontFamily = FontFamily.Monospace,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -473,7 +475,7 @@ fun ProviderEditScreen(
                                             Text(
                                                 text = model.id,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 10.5.sp,
+                                                fontSize = TypeScale.micro,
                                                 fontFamily = FontFamily.Monospace,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
@@ -484,14 +486,14 @@ fun ProviderEditScreen(
                                     model.contextBadge?.let { badge ->
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(5.dp))
+                                                .clip(RunnerShapes.tiny)
                                                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                                 .padding(horizontal = 5.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = badge,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 10.sp,
+                                                fontSize = TypeScale.micro,
                                                 fontFamily = FontFamily.Monospace
                                             )
                                         }
@@ -542,7 +544,7 @@ fun ProviderEditScreen(
                 onClick = { confirmDelete = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Удалить провайдера", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                Text("Удалить провайдера", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.label)
             }
         }
 
@@ -553,12 +555,12 @@ fun ProviderEditScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            title = { Text("Удалить провайдера?", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp) },
+            title = { Text("Удалить провайдера?", color = MaterialTheme.colorScheme.onSurface, fontSize = TypeScale.title) },
             text = {
                 Text(
                     text = "«${provider.name}» и его ключ будут удалены с устройства.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp
+                    fontSize = TypeScale.label
                 )
             },
             confirmButton = {
@@ -567,12 +569,12 @@ fun ProviderEditScreen(
                     viewModel.deleteProvider(provider.id)
                     onDeleted()
                 }) {
-                    Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                    Text("Удалить", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.body)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) {
-                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                    Text("Отмена", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.body)
                 }
             }
         )
@@ -584,7 +586,7 @@ private fun FieldLabel(text: String) {
     Text(
         text = text,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 12.sp,
+        fontSize = TypeScale.caption,
         fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(bottom = 6.dp)
     )
@@ -600,7 +602,7 @@ private fun SettingsCard(content: @Composable () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         modifier = Modifier.fillMaxWidth()
     ) {
         content()

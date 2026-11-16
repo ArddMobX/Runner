@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -70,7 +72,7 @@ fun SupportSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = Color.Black.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -97,9 +99,9 @@ fun SupportSheet(
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RunnerShapes.small)
                         .background(SecondaryMint.copy(alpha = 0.12f))
-                        .border(BorderStroke(1.dp, SecondaryMint.copy(alpha = 0.3f)), RoundedCornerShape(10.dp)),
+                        .border(BorderStroke(1.dp, SecondaryMint.copy(alpha = 0.3f)), RunnerShapes.small),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -114,13 +116,13 @@ fun SupportSheet(
                     Text(
                         text = "Поддержать Runner",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 17.sp,
+                        fontSize = TypeScale.title,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         text = "Развитие и поддержка проекта",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
+                        fontSize = TypeScale.caption
                     )
                 }
             }
@@ -130,7 +132,7 @@ fun SupportSheet(
             Text(
                 text = "Runner - полностью открытый и бесплатный локальный агент. Ваша поддержка помогает автору развивать приложение, внедрять новые возможности и улучшать архитектуру.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 lineHeight = 18.sp
             )
 
@@ -156,11 +158,11 @@ fun SupportSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RunnerShapes.medium)
                     .background(MaterialTheme.colorScheme.surfaceContainer)
                     .border(
                         BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        RoundedCornerShape(14.dp)
+                        RunnerShapes.medium
                     )
                     .padding(16.dp)
             ) {
@@ -168,9 +170,9 @@ fun SupportSheet(
                     Box(
                         modifier = Modifier
                             .size(34.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(RunnerShapes.small)
                             .background(Color(0xFF0098EA).copy(alpha = 0.15f))
-                            .border(BorderStroke(1.dp, Color(0xFF0098EA).copy(alpha = 0.3f)), RoundedCornerShape(9.dp)),
+                            .border(BorderStroke(1.dp, Color(0xFF0098EA).copy(alpha = 0.3f)), RunnerShapes.small),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -185,13 +187,13 @@ fun SupportSheet(
                         Text(
                             text = "TON (The Open Network)",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "Tonkeeper · Telegram Wallet · USDT (TON)",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp
+                            fontSize = TypeScale.caption
                         )
                     }
                 }
@@ -201,11 +203,11 @@ fun SupportSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(9.dp))
+                        .clip(RunnerShapes.small)
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .border(
                             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                            RoundedCornerShape(9.dp)
+                            RunnerShapes.small
                         )
                         .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -216,7 +218,7 @@ fun SupportSheet(
                     Text(
                         text = DONATE_TON_ADDRESS,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = RobotoMono,
                         lineHeight = 16.sp
                     )
@@ -232,7 +234,7 @@ fun SupportSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(38.dp),
-                    shape = RoundedCornerShape(9.dp),
+                    shape = RunnerShapes.small,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                         contentColor = MaterialTheme.colorScheme.primary
@@ -246,7 +248,7 @@ fun SupportSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Скопировать адрес TON",
-                        fontSize = 12.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -302,11 +304,11 @@ private fun SupportItemCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainer)
             .border(
                 BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                RoundedCornerShape(14.dp)
+                RunnerShapes.medium
             )
             .clickable { onClick() }
             .padding(16.dp)
@@ -315,9 +317,9 @@ private fun SupportItemCard(
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(9.dp))
+                    .clip(RunnerShapes.small)
                     .background(iconTint.copy(alpha = 0.12f))
-                    .border(BorderStroke(1.dp, iconTint.copy(alpha = 0.25f)), RoundedCornerShape(9.dp)),
+                    .border(BorderStroke(1.dp, iconTint.copy(alpha = 0.25f)), RunnerShapes.small),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -332,13 +334,13 @@ private fun SupportItemCard(
                 Text(
                     text = title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = subtitle,
                     color = MaterialTheme.colorScheme.primary,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
             Icon(
@@ -352,7 +354,7 @@ private fun SupportItemCard(
         Text(
             text = description,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
+            fontSize = TypeScale.caption,
             lineHeight = 17.sp
         )
     }

@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -48,7 +50,7 @@ fun CommandToolsSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -70,14 +72,14 @@ fun CommandToolsSheet(
                 Text(
                     text = "Инструменты",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
+                    fontSize = TypeScale.title,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = "${info.tools.size} из ${info.total}",
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     fontFamily = FontFamily.Monospace
                 )
             }
@@ -89,7 +91,7 @@ fun CommandToolsSheet(
                     "Активны сейчас. Это весь набор для текущего режима."
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                fontSize = TypeScale.caption
             )
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -107,7 +109,7 @@ fun CommandToolsSheet(
                         Text(
                             text = "Ещё ${info.hiddenCount} доступны агенту по запросу.",
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             modifier = Modifier.padding(top = 8.dp)
                         )
                     }
@@ -128,7 +130,7 @@ private fun ToolSummaryRow(tool: ToolSummary) {
             Text(
                 text = tool.name,
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace
             )
@@ -141,7 +143,7 @@ private fun ToolSummaryRow(tool: ToolSummary) {
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.6.sp,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(RunnerShapes.tiny)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                         .padding(horizontal = 5.dp, vertical = 2.dp)
                 )
@@ -150,7 +152,7 @@ private fun ToolSummaryRow(tool: ToolSummary) {
         Text(
             text = tool.description,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.5.sp,
+            fontSize = TypeScale.caption,
             lineHeight = 16.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis

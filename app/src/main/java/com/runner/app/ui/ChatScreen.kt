@@ -175,9 +175,12 @@ import com.runner.app.ui.components.WorkspaceFolderSheet
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.GoogleSansDisplay
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.SecondaryMint
+import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
+import com.runner.app.ui.theme.TypeScale
 import com.runner.app.util.DocumentExtractor
 import com.runner.app.util.PrefatoryText
 import com.runner.app.ui.theme.bounceClick
@@ -928,7 +931,7 @@ fun ChatScreen(
                     Surface(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                         border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RunnerShapes.medium,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -947,7 +950,7 @@ fun ChatScreen(
                             Text(
                                 text = "Live-режим: агент видит экран и выполняет жесты автономно",
                                 color = MaterialTheme.colorScheme.primary,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.weight(1f)
                             )
@@ -985,7 +988,7 @@ fun ChatScreen(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(Spacing.md)
                         ) {
                             items(
                                 chatItems,
@@ -1265,9 +1268,15 @@ private fun ModelChip(
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RunnerShapes.pill)
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)), RoundedCornerShape(20.dp))
+            .border(
+                BorderStroke(
+                    0.6.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                ),
+                RunnerShapes.pill
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1286,7 +1295,7 @@ private fun ModelChip(
         Text(
             text = cleanModel,
             color = if (hasKey) MaterialTheme.colorScheme.onSurface else StatusWarning,
-            fontSize = 13.5.sp,
+            fontSize = TypeScale.label,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1548,7 +1557,7 @@ private fun EmptyChatState(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                         border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                     ) {
@@ -1565,7 +1574,7 @@ private fun EmptyChatState(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "LIVE",
-                                fontSize = 11.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
                                 letterSpacing = 1.sp
@@ -1625,7 +1634,7 @@ private fun EmptyChatState(
                         "Спросите о файлах, памяти или выберите сценарий"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     lineHeight = 20.sp,
                     textAlign = TextAlign.Center
                 )
@@ -1684,7 +1693,7 @@ private fun EmptyStateChip(
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RunnerShapes.pill)
             .bounceClick(scaleDown = 0.96f, onClick = handleClick)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -1696,10 +1705,10 @@ private fun EmptyStateChip(
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .border(
                 BorderStroke(
-                    1.dp,
+                    0.6.dp,
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                 ),
-                RoundedCornerShape(20.dp)
+                RunnerShapes.pill
             )
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1714,7 +1723,7 @@ private fun EmptyStateChip(
         Text(
             text = suggestion.title,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
+            fontSize = TypeScale.label,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
@@ -1790,12 +1799,7 @@ private fun MessageItem(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.End
             ) {
-                val bubbleShape = RoundedCornerShape(
-                    topStart = 18.dp,
-                    topEnd = 18.dp,
-                    bottomStart = 18.dp,
-                    bottomEnd = 4.dp
-                )
+                val bubbleShape = RunnerShapes.userBubble
                 val maxBubbleWidth = (LocalConfiguration.current.screenWidthDp * 0.82f).dp
 
                 Box(
@@ -1850,7 +1854,7 @@ private fun MessageItem(
                     DropdownMenu(
                         expanded = showContextMenu,
                         onDismissRequest = { showContextMenu = false },
-                        modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                        modifier = Modifier.clip(RunnerShapes.large)
                     ) {
                         if (message.content.isNotBlank()) {
                             DropdownMenuItem(
@@ -1858,7 +1862,7 @@ private fun MessageItem(
                                     Text(
                                         text = "Копировать",
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 14.sp
+                                        fontSize = TypeScale.body
                                     )
                                 },
                                 leadingIcon = {
@@ -1881,7 +1885,7 @@ private fun MessageItem(
                                     Text(
                                         text = "Изменить",
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 14.sp
+                                        fontSize = TypeScale.body
                                     )
                                 },
                                 leadingIcon = {
@@ -1903,7 +1907,7 @@ private fun MessageItem(
                                 Text(
                                     text = "Заново",
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 14.sp
+                                    fontSize = TypeScale.body
                                 )
                             },
                             leadingIcon = {
@@ -2098,13 +2102,13 @@ private fun MessageImageItem(path: String) {
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(100.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RunnerShapes.small)
         )
     } else {
         Box(
             modifier = Modifier
                 .size(100.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RunnerShapes.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center
         ) {
@@ -2125,14 +2129,14 @@ private fun UserAttachmentCard(attachment: ChatAttachment) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f))
             .border(
                 BorderStroke(
                     0.5.dp,
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                 ),
-                RoundedCornerShape(12.dp)
+                RunnerShapes.medium
             )
             .clickable {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -2147,7 +2151,7 @@ private fun UserAttachmentCard(attachment: ChatAttachment) {
             Text(
                 text = attachment.name,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -2156,7 +2160,7 @@ private fun UserAttachmentCard(attachment: ChatAttachment) {
                 text = attachmentTypeName(extension) + " · " +
                         DocumentExtractor.formatSize(attachment.sizeBytes),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 maxLines = 1
             )
         }
@@ -2233,7 +2237,7 @@ private fun ResponseStats(
             Text(
                 text = part,
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 fontFamily = FontFamily.Monospace
             )
         }
@@ -2267,7 +2271,7 @@ private fun LiveTaskStrip(
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         border = BorderStroke(
             0.7.dp,
             MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
@@ -2285,20 +2289,20 @@ private fun LiveTaskStrip(
             Text(
                 text = "Live",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = " · действие ${state.stepIndex.coerceAtLeast(1)}",
                 color = MaterialTheme.colorScheme.outline,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 maxLines = 1
             )
             if (state.isPaused) {
                 Text(
                     text = " · пауза",
                     color = StatusWarning,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     maxLines = 1
                 )
             }
@@ -2306,18 +2310,18 @@ private fun LiveTaskStrip(
             Text(
                 text = formatTimelineElapsed(elapsedSeconds * 1000L),
                 color = MaterialTheme.colorScheme.outline,
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 fontFamily = FontFamily.Monospace
             )
             TextButton(
                 onClick = onOpenActivity,
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text("Лента", fontSize = 11.5.sp)
+                Text("Лента", fontSize = TypeScale.caption)
             }
             Button(
                 onClick = onStop,
-                shape = RoundedCornerShape(9.dp),
+                shape = RunnerShapes.small,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer
@@ -2327,7 +2331,7 @@ private fun LiveTaskStrip(
             ) {
                 Text(
                     text = "Стоп",
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -2347,7 +2351,7 @@ private fun LiveReasoningBlock(reasoning: String) {
     if (tail.isEmpty()) return
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(10.dp),
+        shape = RunnerShapes.medium,
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
@@ -2365,7 +2369,7 @@ private fun LiveReasoningBlock(reasoning: String) {
                 Text(
                     text = "Размышления",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -2373,7 +2377,7 @@ private fun LiveReasoningBlock(reasoning: String) {
             Text(
                 text = tail,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 16.sp,
                 maxLines = 6,
                 overflow = TextOverflow.Ellipsis
@@ -2398,9 +2402,9 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(10.dp))
+            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant), RunnerShapes.medium)
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable { expanded = !expanded }
             .padding(horizontal = 12.dp, vertical = 9.dp)
@@ -2420,7 +2424,7 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
                     "Размышления"
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = TypeScale.caption,
                 modifier = Modifier.weight(1f)
             )
             Icon(
@@ -2440,7 +2444,7 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
             Text(
                 text = reasoning,
                 color = MaterialTheme.colorScheme.outline,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 17.sp
             )
         }
@@ -2512,7 +2516,7 @@ private fun PlanCard(
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-        shape = RoundedCornerShape(10.dp),
+        shape = RunnerShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
@@ -2534,14 +2538,14 @@ private fun PlanCard(
                 Text(
                     text = "План действий",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = PluralUtils.steps(steps.size),
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     fontFamily = FontFamily.Monospace
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -2564,7 +2568,7 @@ private fun PlanCard(
                     Text(
                         text = message.content,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.5.sp,
+                        fontSize = TypeScale.label,
                         lineHeight = 18.sp
                     )
                 } else {
@@ -2594,7 +2598,7 @@ private fun PlanCard(
                                     else -> "${i + 1}."
                                 },
                                 color = numberColor,
-                                fontSize = 12.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.Monospace,
                                 modifier = Modifier.width(22.dp)
@@ -2602,7 +2606,7 @@ private fun PlanCard(
                             Text(
                                 text = step,
                                 color = textColor,
-                                fontSize = 12.5.sp,
+                                fontSize = TypeScale.label,
                                 lineHeight = 18.sp,
                                 modifier = Modifier.weight(1f)
                             )
@@ -2615,7 +2619,7 @@ private fun PlanCard(
                     Text(
                         text = "Критерий успеха: $successCriteria",
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 17.sp
                     )
                 }
@@ -2632,9 +2636,9 @@ private fun PlanCard(
                         modifier = Modifier
                             .weight(1f)
                             .height(42.dp),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RunnerShapes.medium
                     ) {
-                        Text("Утвердить", fontSize = 13.sp)
+                        Text("Утвердить", fontSize = TypeScale.label)
                     }
                     OutlinedButton(
                         onClick = {
@@ -2644,9 +2648,9 @@ private fun PlanCard(
                         modifier = Modifier
                             .weight(1f)
                             .height(42.dp),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RunnerShapes.medium
                     ) {
-                        Text("Без плана", fontSize = 13.sp)
+                        Text("Без плана", fontSize = TypeScale.label)
                     }
                 }
             }
@@ -2976,7 +2980,7 @@ private fun TaskActivityCard(
         }
     }
 
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RunnerShapes.medium
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f),
         shape = shape,
@@ -2987,7 +2991,7 @@ private fun TaskActivityCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RunnerShapes.small)
                     // Пока план ждёт решения, прятать его нельзя: кнопки
                     // утверждения находятся внутри.
                     .clickable(enabled = !planAwaiting) { expanded = !expanded }
@@ -3013,7 +3017,7 @@ private fun TaskActivityCard(
                     Text(
                         text = "Ход задачи",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                     if (planSteps.isNotEmpty()) {
@@ -3024,7 +3028,7 @@ private fun TaskActivityCard(
                                 "Шаг ${currentPlanStep + 1} из ${planSteps.size}"
                             },
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 10.sp
+                            fontSize = TypeScale.micro
                         )
                     }
                 }
@@ -3032,7 +3036,7 @@ private fun TaskActivityCard(
                 Text(
                     text = formatTimelineElapsed(elapsedMs),
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 10.5.sp,
+                    fontSize = TypeScale.micro,
                     fontFamily = FontFamily.Monospace
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -3091,7 +3095,7 @@ private fun TaskActivityCard(
                     Text(
                         text = "Ещё ${toolMessages.size - 3}",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 10.5.sp,
+                        fontSize = TypeScale.micro,
                         modifier = Modifier.padding(start = 15.dp, top = 1.dp, bottom = 2.dp)
                     )
                 }
@@ -3166,7 +3170,7 @@ private fun NarrationRow(text: String) {
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.5.sp,
+            fontSize = TypeScale.label,
             lineHeight = 17.sp,
             fontStyle = FontStyle.Italic,
             maxLines = 4,
@@ -3197,7 +3201,7 @@ private fun CompactActionLine(message: ChatMessage) {
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -3210,7 +3214,7 @@ private fun CompactActionLine(message: ChatMessage) {
                 Text(
                     text = summary,
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -3266,7 +3270,7 @@ private fun TimelineStepRow(
             output = message.toolOutput
         )
     }
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RunnerShapes.small
     val runningBackground = if (message.isRunning) {
         MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
     } else {
@@ -3300,7 +3304,7 @@ private fun TimelineStepRow(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -3320,7 +3324,7 @@ private fun TimelineStepRow(
                     Text(
                         text = detailLine,
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -3384,14 +3388,14 @@ private fun TimelineStepRow(
                 Text(
                     text = "Аргументы",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = message.toolArgs,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 15.sp,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -3405,7 +3409,7 @@ private fun TimelineStepRow(
                     Text(
                         text = "Результат",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
@@ -3460,7 +3464,7 @@ private fun ToolCard(
 
     // Лёгкая плашка-аккордеон: едва заметный фон, волосяная рамка,
     // свернутый текст 12.5sp. Раскрытие — по тапу на всю строку.
-    val compactShape = RoundedCornerShape(9.dp)
+    val compactShape = RunnerShapes.small
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -3484,7 +3488,7 @@ private fun ToolCard(
                 Text(
                     text = message.content,
                     color = if (message.isDeclined) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -3494,7 +3498,7 @@ private fun ToolCard(
                     Text(
                         text = "· ${message.toolSummary}",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         maxLines = 1,
                         modifier = Modifier.padding(start = 6.dp)
                     )
@@ -3505,7 +3509,7 @@ private fun ToolCard(
                     Text(
                         text = "· ${formatDuration(message.toolDurationMs)}",
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
-                        fontSize = 10.5.sp,
+                        fontSize = TypeScale.micro,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
                         modifier = Modifier.padding(start = 6.dp)
@@ -3560,14 +3564,14 @@ private fun ToolCard(
                     Text(
                         text = "Аргументы",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = message.toolArgs,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 15.sp,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -3582,7 +3586,7 @@ private fun ToolCard(
                         Text(
                             text = "Результат",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
+                            fontSize = TypeScale.caption,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
@@ -3638,7 +3642,7 @@ private fun ChangeLine(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RunnerShapes.tiny)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(onClick = onClick)
@@ -3659,7 +3663,7 @@ private fun ChangeLine(
         Text(
             text = changeLabel(change),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.5.sp,
+            fontSize = TypeScale.caption,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
@@ -3669,7 +3673,7 @@ private fun ChangeLine(
             Text(
                 text = "Дифф",
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -3720,7 +3724,7 @@ private fun TaskTotalsRow(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium
                 )
                 val meta = buildList {
@@ -3731,7 +3735,7 @@ private fun TaskTotalsRow(
                     Text(
                         text = " · ${meta.joinToString(" · ")}",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -3746,7 +3750,7 @@ private fun TaskTotalsRow(
                     Text(
                         text = "Дифф",
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
             }
@@ -3767,7 +3771,7 @@ private fun TaskTotalsRow(
                 Text(
                     text = fileTotalsText(totals),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 15.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -3789,7 +3793,7 @@ private fun TaskTotalsRow(
             Text(
                 text = "$label: $names$suffix",
                 color = StatusWarning,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 15.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -3992,7 +3996,7 @@ private fun FileChangesSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -4017,14 +4021,14 @@ private fun FileChangesSheet(
                 Text(
                     text = "Изменения",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
+                    fontSize = TypeScale.title,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = PluralUtils.files(totalFiles),
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     fontFamily = FontFamily.Monospace
                 )
             }
@@ -4032,7 +4036,7 @@ private fun FileChangesSheet(
             Text(
                 text = "Красным — удалённые строки, зелёным — добавленные.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                fontSize = TypeScale.caption
             )
             Spacer(modifier = Modifier.height(10.dp))
             LazyColumn(
@@ -4053,7 +4057,7 @@ private fun FileChangesSheet(
 @Composable
 private fun FileChangeCard(change: FileChange) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(
             0.7.dp,
@@ -4076,7 +4080,7 @@ private fun FileChangeCard(change: FileChange) {
                     Text(
                         text = changeLabel(change),
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -4086,7 +4090,7 @@ private fun FileChangeCard(change: FileChange) {
                         Text(
                             text = change.displayPath,
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.sp,
+                            fontSize = TypeScale.caption,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
@@ -4099,7 +4103,7 @@ private fun FileChangeCard(change: FileChange) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RunnerShapes.small,
                     border = BorderStroke(
                         0.5.dp,
                         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
@@ -4109,7 +4113,7 @@ private fun FileChangeCard(change: FileChange) {
                     Text(
                         text = diffAnnotated(diff),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 15.sp,
                         modifier = Modifier.padding(10.dp)
                     )
@@ -4119,7 +4123,7 @@ private fun FileChangeCard(change: FileChange) {
                 Text(
                     text = "Построчный diff недоступен: файл слишком большой или не читается.",
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 15.sp
                 )
             }
@@ -4159,7 +4163,7 @@ private fun WebSourcesRow(
     val domains = remember(sources) {
         sources.map { it.domain }.filter { it.isNotBlank() }.distinct().take(3)
     }
-    val shape = RoundedCornerShape(9.dp)
+    val shape = RunnerShapes.small
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -4183,14 +4187,14 @@ private fun WebSourcesRow(
         Text(
             text = PluralUtils.sources(sources.size),
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.5.sp,
+            fontSize = TypeScale.label,
             fontWeight = FontWeight.Medium
         )
         if (domains.isNotEmpty()) {
             Text(
                 text = " · ${domains.joinToString(" · ")}",
                 color = MaterialTheme.colorScheme.outline,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
@@ -4222,7 +4226,7 @@ private fun WebSourcesSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -4247,14 +4251,14 @@ private fun WebSourcesSheet(
                 Text(
                     text = "Источники",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
+                    fontSize = TypeScale.title,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = PluralUtils.sources(sources.size),
                     color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     fontFamily = FontFamily.Monospace
                 )
             }
@@ -4262,7 +4266,7 @@ private fun WebSourcesSheet(
             Text(
                 text = "Нажмите на карточку, чтобы открыть страницу в браузере.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                fontSize = TypeScale.caption
             )
             Spacer(modifier = Modifier.height(10.dp))
             LazyColumn(
@@ -4290,7 +4294,7 @@ private fun WebSourceCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(
             0.7.dp,
@@ -4312,7 +4316,7 @@ private fun WebSourceCard(
                 Text(
                     text = source.domain.take(1).uppercase(),
                     color = MaterialTheme.colorScheme.primary,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -4321,7 +4325,7 @@ private fun WebSourceCard(
                 Text(
                     text = source.title.ifBlank { source.domain },
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.5.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -4330,7 +4334,7 @@ private fun WebSourceCard(
                 Text(
                     text = source.domain,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     fontFamily = FontFamily.Monospace
                 )
                 if (source.snippet.isNotBlank()) {
@@ -4338,7 +4342,7 @@ private fun WebSourceCard(
                     Text(
                         text = source.snippet,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 16.sp,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
@@ -4367,7 +4371,7 @@ private fun WebSourceCard(
 private fun ReadOnlyBadge() {
     Surface(
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
-        shape = RoundedCornerShape(7.dp),
+        shape = RunnerShapes.tiny,
         modifier = Modifier.padding(end = 2.dp)
     ) {
         Row(
@@ -4384,7 +4388,7 @@ private fun ReadOnlyBadge() {
             Text(
                 text = "чтение",
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -4400,7 +4404,7 @@ private fun ReadOnlyBadge() {
 @Composable
 private fun UndoTrashButton(label: String, onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RunnerShapes.small
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -4429,7 +4433,7 @@ private fun UndoTrashButton(label: String, onClick: () -> Unit) {
             Text(
                 text = label,
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -4498,9 +4502,9 @@ private fun NoticeBanner(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, accent.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, accent.copy(alpha = 0.35f)), RunnerShapes.medium)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.Top) {
@@ -4517,7 +4521,7 @@ private fun NoticeBanner(
                 Text(
                     text = text,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 18.sp
                 )
                 if (hint != null) {
@@ -4525,7 +4529,7 @@ private fun NoticeBanner(
                     Text(
                         text = hint,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 16.sp
                     )
                 }
@@ -4546,7 +4550,7 @@ private fun NoticeBanner(
                         MessageAction.EXECUTE_DRY_RUN -> "Выполнить"
                     }
                     TextButton(onClick = { onAction(action) }) {
-                        Text(label, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                        Text(label, color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.label)
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                 }
@@ -4561,7 +4565,7 @@ private fun NoticeBanner(
                             tint = MaterialTheme.colorScheme.error
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Скопировать отчет", color = MaterialTheme.colorScheme.error, fontSize = 12.5.sp)
+                        Text("Скопировать отчет", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.label)
                     }
                 }
             }
@@ -4575,9 +4579,9 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)), RunnerShapes.medium)
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -4592,13 +4596,13 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
             Text(
                 text = "Предыдущий запуск завершился сбоем",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.5.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.Medium
             )
             Text(
                 text = "Скопируйте отчет для передачи разработчику",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
+                fontSize = TypeScale.caption
             )
         }
         TextButton(
@@ -4612,7 +4616,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Отчет", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+            Text("Отчет", fontSize = TypeScale.caption, color = MaterialTheme.colorScheme.primary)
         }
         IconButton(
             onClick = onDismiss,
@@ -4634,9 +4638,9 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, StatusWarning.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, StatusWarning.copy(alpha = 0.35f)), RunnerShapes.medium)
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -4650,11 +4654,11 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
         Text(
             text = "Нет доступа ко всем файлам",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.5.sp,
+            fontSize = TypeScale.label,
             modifier = Modifier.weight(1f)
         )
         TextButton(onClick = onOpenSettings) {
-            Text("Выдать", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+            Text("Выдать", color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.label)
         }
     }
 }
@@ -4679,7 +4683,7 @@ private fun StoragePromptSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -4703,11 +4707,11 @@ private fun StoragePromptSheet(
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RunnerShapes.medium)
                         .background(StatusWarning.copy(alpha = 0.12f))
                         .border(
                             BorderStroke(1.dp, StatusWarning.copy(alpha = 0.30f)),
-                            RoundedCornerShape(10.dp)
+                            RunnerShapes.medium
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -4723,13 +4727,13 @@ private fun StoragePromptSheet(
                     Text(
                         text = "Доступ ко всем файлам",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 16.sp,
+                        fontSize = TypeScale.title,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "Нужен, чтобы агент читал и раскладывал файлы",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 12.5.sp
+                        fontSize = TypeScale.label
                     )
                 }
             }
@@ -4737,7 +4741,7 @@ private fun StoragePromptSheet(
             Text(
                 text = "Без него файловые инструменты не сработают. Право выдаётся только на системном экране, кнопка ниже его откроет.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
+                fontSize = TypeScale.label,
                 lineHeight = 19.sp
             )
 
@@ -4746,16 +4750,16 @@ private fun StoragePromptSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(46.dp),
-                shape = RoundedCornerShape(11.dp)
+                shape = RunnerShapes.medium
             ) {
-                Text("Выдать доступ", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text("Выдать доступ", fontSize = TypeScale.body, fontWeight = FontWeight.Medium)
             }
 
             TextButton(
                 onClick = onLater,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Позже", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.5.sp)
+                Text("Позже", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label)
             }
         }
     }
@@ -4773,7 +4777,7 @@ private fun PendingConfirmationBar(
     onReject: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(0.6.dp, StatusWarning.copy(alpha = 0.55f)),
         modifier = Modifier
@@ -4796,13 +4800,13 @@ private fun PendingConfirmationBar(
                 Text(
                     text = "Ожидает подтверждения",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = request.title,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -4814,20 +4818,20 @@ private fun PendingConfirmationBar(
                 Text(
                     text = "Отклонить",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
+                    fontSize = TypeScale.caption
                 )
             }
             Button(
                 // Если внутри список файлов с галочками, из компактной
                 // плашки нельзя разрешать всё вслепую. Сначала раскрываем.
                 onClick = { if (request.items.isNotEmpty()) onExpand() else onConfirm() },
-                shape = RoundedCornerShape(10.dp),
+                shape = RunnerShapes.medium,
                 contentPadding = PaddingValues(horizontal = 12.dp),
                 modifier = Modifier.height(34.dp)
             ) {
                 Text(
                     text = if (request.items.isNotEmpty()) "Проверить" else "Разрешить",
-                    fontSize = 12.sp
+                    fontSize = TypeScale.caption
                 )
             }
         }
@@ -4874,7 +4878,7 @@ private fun ConfirmationBottomSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RunnerShapes.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -4899,13 +4903,13 @@ private fun ConfirmationBottomSheet(
                     Text(
                         text = request.title,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 17.sp,
+                        fontSize = TypeScale.title,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "Подтверждение операции",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 12.5.sp
+                        fontSize = TypeScale.label
                     )
                 }
                 IconButton(onClick = { collapse() }) {
@@ -4920,14 +4924,14 @@ private fun ConfirmationBottomSheet(
 
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                shape = RoundedCornerShape(10.dp),
+                shape = RunnerShapes.medium,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = request.details,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 17.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(12.dp)
@@ -4937,14 +4941,14 @@ private fun ConfirmationBottomSheet(
             if (request.preview.isNotBlank()) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = request.preview,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 17.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(12.dp)
@@ -4965,7 +4969,7 @@ private fun ConfirmationBottomSheet(
                 Text(
                     text = request.warning,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 18.sp
                 )
             }
@@ -4979,21 +4983,21 @@ private fun ConfirmationBottomSheet(
                     Text(
                         text = "Что удалить",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "${selectedIds.size} из ${request.items.size}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = FontFamily.Monospace
                     )
                 }
 
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -5036,7 +5040,7 @@ private fun ConfirmationBottomSheet(
                                     Text(
                                         text = item.label,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 13.sp,
+                                        fontSize = TypeScale.label,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -5044,7 +5048,7 @@ private fun ConfirmationBottomSheet(
                                         Text(
                                             text = item.detail,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 11.sp,
+                                            fontSize = TypeScale.caption,
                                             fontFamily = FontFamily.Monospace
                                         )
                                     }
@@ -5064,7 +5068,7 @@ private fun ConfirmationBottomSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RunnerShapes.medium)
                         .clickable { remember = !remember }
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -5082,13 +5086,13 @@ private fun ConfirmationBottomSheet(
                         Text(
                             text = "Больше не спрашивать это действие",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 13.sp
+                            fontSize = TypeScale.label
                         )
                         Text(
                             text = "Повтор этой же операции пойдёт без подтверждения. " +
                                     "Другие действия всё равно спросят.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             lineHeight = 15.sp
                         )
                     }
@@ -5106,9 +5110,9 @@ private fun ConfirmationBottomSheet(
                         contentColor = MaterialTheme.colorScheme.onSurface
                     ),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    shape = RoundedCornerShape(11.dp)
+                    shape = RunnerShapes.medium
                 ) {
-                    Text("Отклонить", fontSize = 14.sp)
+                    Text("Отклонить", fontSize = TypeScale.body)
                 }
 
                 Button(
@@ -5123,7 +5127,7 @@ private fun ConfirmationBottomSheet(
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         disabledContentColor = MaterialTheme.colorScheme.outline
                     ),
-                    shape = RoundedCornerShape(11.dp)
+                    shape = RunnerShapes.medium
                 ) {
                     Text(
                         text = when {
@@ -5131,7 +5135,7 @@ private fun ConfirmationBottomSheet(
                             allSelected -> "Удалить все"
                             else -> "Удалить ${PluralUtils.files(selectedIds.size)}"
                         },
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5233,13 +5237,13 @@ private fun SmartFollowUpRow(
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onSelect(suggestion)
                 },
-                shape = RoundedCornerShape(14.dp),
+                shape = RunnerShapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f),
                 border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
             ) {
                 Text(
                     text = suggestion,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)

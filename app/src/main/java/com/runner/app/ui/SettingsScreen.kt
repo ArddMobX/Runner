@@ -135,7 +135,10 @@ import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusWarning
+import com.runner.app.ui.theme.TypeScale
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
 import kotlinx.coroutines.launch
@@ -557,15 +560,15 @@ private fun SettingsRoot(
             onValueChange = { searchQuery = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RunnerShapes.medium)
                 .background(MaterialTheme.colorScheme.surfaceContainer)
                 .border(
                     BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    RoundedCornerShape(12.dp)
+                    RunnerShapes.medium
                 ),
             textStyle = TextStyle(
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.5.sp
+                fontSize = TypeScale.label
             ),
             singleLine = true,
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -586,7 +589,7 @@ private fun SettingsRoot(
                             Text(
                                 text = "Поиск по настройкам...",
                                 color = MaterialTheme.colorScheme.outline,
-                                fontSize = 13.5.sp
+                                fontSize = TypeScale.label
                             )
                         }
                         innerTextField()
@@ -628,7 +631,7 @@ private fun SettingsRoot(
                     Text(
                         text = "Ничего не найдено по запросу «$trimmedQuery»",
                         color = MaterialTheme.colorScheme.outline,
-                        fontSize = 13.5.sp
+                        fontSize = TypeScale.label
                     )
                 }
             } else {
@@ -729,12 +732,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Скрывать в недавних приложениях",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Блокирует скриншоты и скрывает экран в списке задач для защиты ключей и путей (FLAG_SECURE)",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -762,7 +765,7 @@ private fun SettingsRoot(
                 Text(
                     text = "Масштаб текста",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -785,12 +788,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Детали вызовов инструментов",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Показывать аргументы и вывод тулов",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -814,12 +817,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Время генерации и статистика",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Тайминги, токены и скорость ответа",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -843,12 +846,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Планирование шагов",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Модель сначала составляет план, исполнение - после подтверждения",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -872,12 +875,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Не гасить экран во время работы",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Экран остаётся включённым, пока агент выполняет шаги задачи",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -901,7 +904,7 @@ private fun SettingsRoot(
                     Text(
                         text = "Enter отправляет сообщение",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.sendOnEnter) {
@@ -910,7 +913,7 @@ private fun SettingsRoot(
                             "Enter переносит строку, отправка по кнопке со стрелкой"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -939,7 +942,7 @@ private fun SettingsRoot(
                     Text(
                         text = "Уведомления о завершении задач",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = when {
@@ -953,7 +956,7 @@ private fun SettingsRoot(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -991,12 +994,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Терминальный фон",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Символы кода и терминала мягко парят на фоне главного экрана",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -1020,12 +1023,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Подсказки сценариев",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Отображать быстрые сценарии над полем ввода",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -1049,12 +1052,12 @@ private fun SettingsRoot(
                     Text(
                         text = "Подсказки после ответа",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = "Контекстные чипы под последним ответом. По умолчанию выключены.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -1094,7 +1097,7 @@ private fun SettingsRoot(
                 Text(
                     text = "Reverse proxy",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1105,13 +1108,13 @@ private fun SettingsRoot(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RunnerShapes.small)
                         .background(MaterialTheme.colorScheme.surfaceContainer)
                         .border(
                             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RoundedCornerShape(10.dp)
+                            RunnerShapes.small
                         ),
-                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp),
+                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label),
                     singleLine = true,
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     decorationBox = { innerTextField ->
@@ -1124,7 +1127,7 @@ private fun SettingsRoot(
                                     Text(
                                         text = "https://my-proxy.workers.dev/v1",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 13.sp
+                                        fontSize = TypeScale.label
                                     )
                                 }
                                 innerTextField()
@@ -1172,7 +1175,7 @@ private fun SettingsRoot(
                         else -> "Нужен полный адрес вида https://host/path"
                     },
                     color = if (proxyUrl.isNotBlank() && !isValidProxy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
 
@@ -1184,13 +1187,13 @@ private fun SettingsRoot(
                 Text(
                     text = "Проверка связи",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 ConnectionStatusWidget(
@@ -1212,13 +1215,13 @@ private fun SettingsRoot(
                     Text(
                         text = "Таймаут подключения",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "${appSettings.connectTimeoutSeconds} с",
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -1226,7 +1229,7 @@ private fun SettingsRoot(
                 Text(
                     text = "Время на установку сетевого соединения с сервером",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 SegmentedChips(
@@ -1248,13 +1251,13 @@ private fun SettingsRoot(
                     Text(
                         text = "Таймаут ответа",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "${appSettings.responseTimeoutSeconds} с",
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -1262,7 +1265,7 @@ private fun SettingsRoot(
                 Text(
                     text = "Ожидание ответа и генерации токенов моделью",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 SegmentedChips(
@@ -1284,7 +1287,7 @@ private fun SettingsRoot(
                     Text(
                         text = "Бюджет контекста",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -1293,7 +1296,7 @@ private fun SettingsRoot(
                     text = "Сколько истории диалога уходит в запрос. Старые шаги отбрасываются, " +
                             "хвост и системный промпт сохраняются.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 SegmentedChips(
@@ -1324,13 +1327,13 @@ private fun SettingsRoot(
                         Text(
                             text = "Кастомные заголовки (Headers)",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "Cloudflare Access, X-Api-Key. Заголовок Authorization здесь заменяет ключ выбранного провайдера.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp
+                            fontSize = TypeScale.caption
                         )
                     }
 
@@ -1375,17 +1378,17 @@ private fun SettingsRoot(
                     visualTransformation = if (showSecrets) VisualTransformation.None else remember { SecretHeadersVisualTransformation() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RunnerShapes.small)
                         .background(MaterialTheme.colorScheme.surfaceContainer)
                         .border(
                             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RoundedCornerShape(10.dp)
+                            RunnerShapes.small
                         )
                         .padding(12.dp),
                     textStyle = TextStyle(
                         // Свой текст ярче подсказки: это содержимое, а не подпись
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = FontFamily.Monospace,
                         lineHeight = 16.sp
                     ),
@@ -1398,7 +1401,7 @@ private fun SettingsRoot(
                                 Text(
                                     text = "CF-Access-Client-Id: xxx\nCF-Access-Client-Secret: yyy\nX-Custom-Auth: zzz",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    fontSize = 12.sp,
+                                    fontSize = TypeScale.caption,
                                     fontFamily = FontFamily.Monospace,
                                     lineHeight = 16.sp
                                 )
@@ -1411,7 +1414,7 @@ private fun SettingsRoot(
                 Text(
                     text = "Формат: Header: Value (по одной строке) или JSON объект.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
         }
@@ -1452,7 +1455,7 @@ private fun SettingsRoot(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 380.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RunnerShapes.small)
                             .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
                             .padding(10.dp)
                             .verticalScroll(rememberScrollState())
@@ -1461,7 +1464,7 @@ private fun SettingsRoot(
                             Text(
                                 text = reportText,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 fontFamily = FontFamily.Monospace,
                                 lineHeight = 16.sp
                             )
@@ -1493,7 +1496,7 @@ private fun SettingsRoot(
                     }
                 },
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RoundedCornerShape(16.dp)
+                shape = RunnerShapes.large
             )
         }
 
@@ -1552,7 +1555,7 @@ private fun SettingsRoot(
                         Text(
                             text = "Все параметры приложения вернутся к исходным заводским значениям. API-ключи провайдеров и история чатов не будут удалены.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp
+                            fontSize = TypeScale.body
                         )
                     },
                     confirmButton = {
@@ -1578,7 +1581,7 @@ private fun SettingsRoot(
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RunnerShapes.large
                 )
             }
         }
@@ -1598,7 +1601,7 @@ private fun ApiQuickGuideCard() {
     val context = LocalContext.current
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
         modifier = Modifier.fillMaxWidth()
@@ -1614,7 +1617,7 @@ private fun ApiQuickGuideCard() {
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RunnerShapes.small)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1630,13 +1633,13 @@ private fun ApiQuickGuideCard() {
                     Text(
                         text = "Где взять API-ключ и как настроить?",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "Простая инструкция и ссылки",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Icon(
@@ -1678,14 +1681,14 @@ private fun ApiQuickGuideCard() {
                         Text(
                             text = "Что такое API-ключ?",
                             color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
                     Text(
                         text = "Это ваш персональный код доступа к нейросетям (Gemini, Claude, GPT, DeepSeek). С ним Runner отправляет запросы напрямую к выбранному сервису без очередей и посредников.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 17.sp
                     )
 
@@ -1704,14 +1707,14 @@ private fun ApiQuickGuideCard() {
                         Text(
                             text = "Где получить (бесплатно или недорого):",
                             color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
 
                     // 1. Google Gemini
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1724,14 +1727,14 @@ private fun ApiQuickGuideCard() {
                                 Text(
                                     text = "1. Google Gemini (Бесплатно)",
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.5.sp,
+                                    fontSize = TypeScale.label,
                                     fontWeight = FontWeight.Medium
                                 )
                                 TextButton(
                                     onClick = { openExternalUrl(context, "https://aistudio.google.com/app/apikey") },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
-                                    Text("Получить ключ", fontSize = 11.5.sp)
+                                    Text("Получить ключ", fontSize = TypeScale.caption)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
                                         imageVector = RunnerIcons.OpenInNew,
@@ -1743,7 +1746,7 @@ private fun ApiQuickGuideCard() {
                             Text(
                                 text = "Перейдите в Google AI Studio, войдите через Google и нажмите «Create API key». Бесплатных лимитов хватает с запасом для большинства задач.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 lineHeight = 16.sp
                             )
                         }
@@ -1751,7 +1754,7 @@ private fun ApiQuickGuideCard() {
 
                     // 2. Groq
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1764,14 +1767,14 @@ private fun ApiQuickGuideCard() {
                                 Text(
                                     text = "2. Groq (Ультрабыстро и бесплатно)",
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.5.sp,
+                                    fontSize = TypeScale.label,
                                     fontWeight = FontWeight.Medium
                                 )
                                 TextButton(
                                     onClick = { openExternalUrl(context, "https://console.groq.com/keys") },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
-                                    Text("Получить ключ", fontSize = 11.5.sp)
+                                    Text("Получить ключ", fontSize = TypeScale.caption)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
                                         imageVector = RunnerIcons.OpenInNew,
@@ -1783,7 +1786,7 @@ private fun ApiQuickGuideCard() {
                             Text(
                                 text = "Отличный вариант для быстрого старта: молниеносные открытые модели (Llama 3.3, Qwen) без оплаты.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 lineHeight = 16.sp
                             )
                         }
@@ -1791,7 +1794,7 @@ private fun ApiQuickGuideCard() {
 
                     // 3. OpenRouter
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1804,14 +1807,14 @@ private fun ApiQuickGuideCard() {
                                 Text(
                                     text = "3. OpenRouter (Сотни моделей)",
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.5.sp,
+                                    fontSize = TypeScale.label,
                                     fontWeight = FontWeight.Medium
                                 )
                                 TextButton(
                                     onClick = { openExternalUrl(context, "https://openrouter.ai/keys") },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
-                                    Text("Получить ключ", fontSize = 11.5.sp)
+                                    Text("Получить ключ", fontSize = TypeScale.caption)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
                                         imageVector = RunnerIcons.OpenInNew,
@@ -1823,7 +1826,7 @@ private fun ApiQuickGuideCard() {
                             Text(
                                 text = "Один ключ открывает доступ сразу ко всем моделям мира: Claude, GPT, DeepSeek, Llama. Есть бесплатные модели с суффиксом :free.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 lineHeight = 16.sp
                             )
                         }
@@ -1844,7 +1847,7 @@ private fun ApiQuickGuideCard() {
                         Text(
                             text = "Что делать дальше:",
                             color = MaterialTheme.colorScheme.primary,
-                            fontSize = 13.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -1854,7 +1857,7 @@ private fun ApiQuickGuideCard() {
                                "3. Вставьте ключ в поле «API-ключ» и нажмите «Сделать активным».\n" +
                                "4. Готово! Агент начнёт отвечать в чате через настроенную модель.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 18.sp
                     )
                 }
@@ -1876,7 +1879,7 @@ private fun ProvidersList(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
     ) {
         ApiQuickGuideCard()
 
@@ -1897,7 +1900,7 @@ private fun ProvidersList(
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RunnerShapes.small)
                             .background(
                                 if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                                 else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -1908,7 +1911,7 @@ private fun ProvidersList(
                                     if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
                                     else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                                 ),
-                                RoundedCornerShape(8.dp)
+                                RunnerShapes.small
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1926,14 +1929,14 @@ private fun ProvidersList(
                         Text(
                             text = provider.name,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = formatModelName(provider.activeModel),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1942,33 +1945,33 @@ private fun ProvidersList(
                     if (provider.id == activeProviderId) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RunnerShapes.tiny)
                                 .background(StatusSuccess.copy(alpha = 0.12f))
-                                .border(BorderStroke(1.dp, StatusSuccess.copy(alpha = 0.25f)), RoundedCornerShape(6.dp))
+                                .border(BorderStroke(1.dp, StatusSuccess.copy(alpha = 0.25f)), RunnerShapes.tiny)
                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "Активен",
                                 color = StatusSuccess,
-                                fontSize = 11.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.Medium
                             )
                         }
                     } else if (provider.apiKey.isBlank()) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RunnerShapes.tiny)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .border(
                                     BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                                    RoundedCornerShape(6.dp)
+                                    RunnerShapes.tiny
                                 )
                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "Не настроен",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp
+                                fontSize = TypeScale.caption
                             )
                         }
                     }
@@ -1989,14 +1992,14 @@ private fun ProvidersList(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RunnerShapes.medium)
                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .border(
                     BorderStroke(
                         1.dp,
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
                     ),
-                    RoundedCornerShape(12.dp)
+                    RunnerShapes.medium
                 )
                 .clickable {
                     val id = "custom_${System.currentTimeMillis()}"
@@ -2018,7 +2021,7 @@ private fun ProvidersList(
             Text(
                 text = "Добавить провайдера",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 14.sp,
+                fontSize = TypeScale.body,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -2027,7 +2030,7 @@ private fun ProvidersList(
         Text(
             text = "Готовые пресеты",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
+            fontSize = TypeScale.caption,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(start = 2.dp)
         )
@@ -2041,7 +2044,7 @@ private fun ProvidersList(
                 val alreadyAdded = providers.any { it.baseUrl == preset.baseUrl || it.id == preset.id }
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RunnerShapes.small)
                         .background(
                             if (alreadyAdded) MaterialTheme.colorScheme.surfaceContainer
                             else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -2052,7 +2055,7 @@ private fun ProvidersList(
                                 if (alreadyAdded) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
                                 else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
                             ),
-                            RoundedCornerShape(8.dp)
+                            RunnerShapes.small
                         )
                         .clickable {
                             // Пресет уже есть в списке - открываем его,
@@ -2072,7 +2075,7 @@ private fun ProvidersList(
                     Text(
                         text = preset.name,
                         color = if (alreadyAdded) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -2094,7 +2097,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
     ) {
         SettingsGroup {
             InstructionProfilesField(
@@ -2117,7 +2120,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Температура",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -2138,7 +2141,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Ниже - предсказуемее, выше - креативнее.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
 
@@ -2148,7 +2151,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Лимит шагов",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -2174,7 +2177,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Сколько раз модель может вызвать инструменты в одной задаче.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
 
@@ -2184,7 +2187,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Лимит токенов на ответ",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -2203,7 +2206,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         "Максимум ${appSettings.maxOutputTokens} токенов в одном ответе модели (max_tokens)."
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
 
@@ -2213,7 +2216,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Лимит токенов на задачу",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -2232,7 +2235,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         "Если шаги задачи суммарно превысят ${appSettings.maxTaskTokens} токенов, агент остановится для защиты баланса."
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
 
@@ -2251,7 +2254,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Спрашивать перед опасными действиями",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.confirmDangerous) {
@@ -2260,7 +2263,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Не спрашивает вообще: всё выполняется сразу"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2274,7 +2277,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
             if (!appSettings.confirmDangerous) {
                 Surface(
                     color = StatusWarning.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     border = BorderStroke(1.dp, StatusWarning.copy(alpha = 0.35f)),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2299,7 +2302,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                                     "перемещение уходят в журнал и их можно вернуть, а перезапись, " +
                                     "копирование и команды отменить нечем.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             lineHeight = 16.sp
                         )
                     }
@@ -2321,7 +2324,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Только чтение",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.readOnlyMode) {
@@ -2330,7 +2333,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Выключено: агент может менять файлы"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2347,7 +2350,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "приложений будут отклоняться без диалога. Чтение, поиск и " +
                             "аналитика работают как обычно.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
             }
@@ -2366,7 +2369,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Сначала сухой прогон",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.dryRunFirst) {
@@ -2375,7 +2378,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Выключено: агент выполняет задачу сразу"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2392,7 +2395,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "предложит выполнить задачу. Касается только задач, меняющих " +
                             "данные: прогон удваивает расход запросов к провайдеру.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
             }
@@ -2411,7 +2414,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Объявлять только нужные инструменты",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.pruneTools) {
@@ -2420,7 +2423,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Выключено: в каждом запросе уходят все схемы"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2439,7 +2442,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Без плана список не сужается - иначе инструмента может " +
                             "не оказаться в нужный момент.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
             }
@@ -2457,7 +2460,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Озвучивать ответы голосом (TTS)",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.autoSpeakResponses) {
@@ -2466,7 +2469,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Выключено: озвучка только по кнопке у сообщения"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2492,13 +2495,13 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         Text(
                             text = "Запомненные разрешения",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
+                            fontSize = TypeScale.body
                         )
                         Text(
                             text = PluralUtils.actions(appSettings.approvedOperationSignatures.size) +
                                     " выполняется без подтверждения",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp
+                            fontSize = TypeScale.caption
                         )
                     }
                     TextButton(
@@ -2508,7 +2511,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             )
                         }
                     ) {
-                        Text("Забыть все", fontSize = 13.sp)
+                        Text("Забыть все", fontSize = TypeScale.label)
                     }
                 }
             }
@@ -2525,7 +2528,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Спрашивать каждый шаг",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.confirmEveryStep) {
@@ -2534,7 +2537,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Только опасные действия"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2549,7 +2552,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Безопасные чтение и поиск тоже будут ждать подтверждения.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
             }
@@ -2566,13 +2569,13 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         Text(
                             text = "Запомненные разрешения",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
+                            fontSize = TypeScale.body
                         )
                         Text(
                             text = "Действий без повторного подтверждения: " +
                                     appSettings.approvedOperationSignatures.size,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.5.sp
+                            fontSize = TypeScale.caption
                         )
                     }
                     TextButton(
@@ -2585,7 +2588,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         Text(
                             text = "Забыть",
                             color = MaterialTheme.colorScheme.error,
-                            fontSize = 13.sp
+                            fontSize = TypeScale.label
                         )
                     }
                 }
@@ -2606,7 +2609,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Shell вне памяти",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.shellOutsideStorage) {
@@ -2615,7 +2618,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Только внутри /storage/emulated/0"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2631,7 +2634,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     text = "Команды shell смогут читать системные разделы и данные других приложений. " +
                             "Включайте только для конкретной задачи.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
             }
@@ -2653,7 +2656,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Root-команды (su)",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.allowRootShell) {
@@ -2662,7 +2665,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Команды с su отклоняются"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2679,7 +2682,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Катастрофические команды (pm clear, uninstall, wipe, mkfs, запись на диск) " +
                             "заблокированы навсегда и при этом тумблере. Выключайте, когда доступ не нужен.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp)
                 )
             }
@@ -2698,12 +2701,12 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             rootStatus != "не проверялся" -> StatusWarning
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                     Text(
                         text = "Проверка запускает su -c id. Root-менеджер может показать запрос.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 10.5.sp
+                        fontSize = TypeScale.micro
                     )
                 }
                 TextButton(
@@ -2718,7 +2721,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 ) {
                     Text(
                         text = if (rootChecking) "Проверяю…" else "Проверить root",
-                        fontSize = 12.sp
+                        fontSize = TypeScale.caption
                     )
                 }
             }
@@ -2737,7 +2740,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Shell без подтверждения",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = TypeScale.body
                     )
                     Text(
                         text = if (appSettings.shellNoConfirm) {
@@ -2746,7 +2749,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Каждая команда спрашивает разрешение"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2770,7 +2773,7 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "режим «только чтение» и сухой прогон остаются. Включайте только " +
                             "если понимаете риск.",
                     color = StatusWarning,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
@@ -2868,7 +2871,7 @@ private fun BridgeSettings(
                     Text(
                         text = "Termux-мост",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
@@ -2878,7 +2881,7 @@ private fun BridgeSettings(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -2904,7 +2907,7 @@ private fun BridgeSettings(
                         "с F-Droid или GitHub, allow-external-apps=true в termux.properties " +
                         "и разрешение Runner «Run commands in Termux environment».",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 16.sp
             )
             if (appSettings.termuxEnabled) {
@@ -2913,7 +2916,7 @@ private fun BridgeSettings(
                             "и общей памяти. Абсолютные запреты и защита данных приложений " +
                             "всё равно действуют.",
                     color = StatusWarning,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp,
                     modifier = Modifier.padding(top = 6.dp)
                 )
@@ -2944,12 +2947,12 @@ private fun BridgeSettings(
                 ) {
                     Text(
                         text = if (termuxTesting) "Проверяю…" else "Проверить",
-                        fontSize = 12.5.sp
+                        fontSize = TypeScale.label
                     )
                 }
                 if (termuxInstalled) {
                     TextButton(onClick = { launchPackage(TermuxBridge.TERMUX_PACKAGE) }) {
-                        Text("Открыть Termux", fontSize = 12.5.sp)
+                        Text("Открыть Termux", fontSize = TypeScale.label)
                     }
                 }
                 TextButton(
@@ -2970,7 +2973,7 @@ private fun BridgeSettings(
                         }
                     }
                 ) {
-                    Text("Разрешения Runner", fontSize = 12.5.sp)
+                    Text("Разрешения Runner", fontSize = TypeScale.label)
                 }
             }
         }
@@ -2983,7 +2986,7 @@ private fun BridgeSettings(
                     Text(
                         text = "Shizuku-мост",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
@@ -2993,7 +2996,7 @@ private fun BridgeSettings(
                             "Shizuku не установлен"
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp
+                        fontSize = TypeScale.caption
                     )
                 }
                 Switch(
@@ -3015,7 +3018,7 @@ private fun BridgeSettings(
                 text = "ADB-команды: pm, am, settings, cmd. Нужны Shizuku, Termux-мост " +
                         "и настроенный rish в домашней папке Termux.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 16.sp
             )
             if (appSettings.shizukuEnabled) {
@@ -3023,7 +3026,7 @@ private fun BridgeSettings(
                     text = "Команды выполняются с ADB-правами и могут менять системные " +
                             "настройки и приложения. Включайте только для конкретной задачи.",
                     color = StatusWarning,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp,
                     modifier = Modifier.padding(top = 6.dp)
                 )
@@ -3055,12 +3058,12 @@ private fun BridgeSettings(
                 ) {
                     Text(
                         text = if (shizukuTesting) "Проверяю…" else "Проверить",
-                        fontSize = 12.5.sp
+                        fontSize = TypeScale.label
                     )
                 }
                 if (shizukuInstalled) {
                     TextButton(onClick = { launchPackage(ShizukuBridge.SHIZUKU_PACKAGE) }) {
-                        Text("Открыть Shizuku", fontSize = 12.5.sp)
+                        Text("Открыть Shizuku", fontSize = TypeScale.label)
                     }
                 }
             }
@@ -3161,7 +3164,7 @@ private fun WebSearchSettings(
                 Text(
                     text = "Поиск в интернете",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -3171,7 +3174,7 @@ private fun WebSearchSettings(
                         "Без настройки используется DuckDuckGo. Ключ Tavily (1000 запросов " +
                         "в месяц бесплатно) делает выдачу стабильнее.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 lineHeight = 16.sp
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -3179,8 +3182,8 @@ private fun WebSearchSettings(
                 value = keyDraft,
                 onValueChange = { keyDraft = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Ключ Tavily (необязательно)", fontSize = 13.sp) },
-                placeholder = { Text("tvly-...", fontSize = 13.sp) },
+                label = { Text("Ключ Tavily (необязательно)", fontSize = TypeScale.label) },
+                placeholder = { Text("tvly-...", fontSize = TypeScale.label) },
                 singleLine = true,
                 visualTransformation = if (keyVisible) {
                     VisualTransformation.None
@@ -3201,7 +3204,7 @@ private fun WebSearchSettings(
                         )
                     }
                 },
-                shape = RoundedCornerShape(10.dp)
+                shape = RunnerShapes.small
             )
             Spacer(modifier = Modifier.height(6.dp))
             Row(
@@ -3211,7 +3214,7 @@ private fun WebSearchSettings(
                 Text(
                     text = "Ключ шифруется на устройстве и никуда не уходит.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
+                    fontSize = TypeScale.caption,
                     modifier = Modifier.weight(1f)
                 )
                 if (appSettings.webSearchApiKey.isNotBlank()) {
@@ -3226,7 +3229,7 @@ private fun WebSearchSettings(
                         Text(
                             text = "Убрать",
                             color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.5.sp
+                            fontSize = TypeScale.label
                         )
                     }
                 }
@@ -3238,7 +3241,7 @@ private fun WebSearchSettings(
                     },
                     enabled = hasChanges
                 ) {
-                    Text("Сохранить", fontSize = 12.5.sp)
+                    Text("Сохранить", fontSize = TypeScale.label)
                 }
             }
         }
@@ -3267,7 +3270,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Surface(
             color = StatusWarning.copy(alpha = 0.10f),
-            shape = RoundedCornerShape(10.dp),
+            shape = RunnerShapes.small,
             border = BorderStroke(1.dp, StatusWarning.copy(alpha = 0.30f)),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -3284,7 +3287,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "пока его не вернут или не очистят; перемещённое просто лежит " +
                             "на новом месте.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp
                 )
             }
@@ -3303,7 +3306,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     Text(
                         text = "Корзина",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -3327,7 +3330,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         }
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp
                 )
             }
@@ -3351,7 +3354,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Text(
                     text = "Хранить записи",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -3370,7 +3373,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                             "Для удалённого и перезаписанного это означает безвозвратное " +
                             "стирание, для перемещённого - только потерю возможности откатить.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
 
@@ -3393,7 +3396,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                         modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Вернуть всё", fontSize = 13.sp)
+                    Text("Вернуть всё", fontSize = TypeScale.label)
                 }
                 TextButton(
                     onClick = { confirmEmpty = true },
@@ -3402,7 +3405,7 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 ) {
                     Text(
                         text = "Очистить",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         color = if (trash.count > 0) {
                             MaterialTheme.colorScheme.error
                         } else {
@@ -3475,13 +3478,13 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             trash.loading -> Text(
                 text = "Читаю журнал…",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
+                fontSize = TypeScale.label
             )
 
             trash.count == 0 -> Text(
                 text = "Журнал пуст. Удалённое, перемещённое и перезаписанное будет появляться здесь.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
+                fontSize = TypeScale.label,
                 lineHeight = 18.sp
             )
 
@@ -3500,7 +3503,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
                         }
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
+                    fontSize = TypeScale.caption
                 )
 
                 SettingsGroup {
@@ -3518,7 +3521,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
                         onClick = { confirmRestoreAll = true },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Вернуть всё", fontSize = 13.sp)
+                        Text("Вернуть всё", fontSize = TypeScale.label)
                     }
                     TextButton(
                         onClick = { confirmEmpty = true },
@@ -3526,7 +3529,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
                     ) {
                         Text(
                             text = "Очистить",
-                            fontSize = 13.sp,
+                            fontSize = TypeScale.label,
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -3618,7 +3621,7 @@ private fun ShellLogScreen() {
             text = "Что агент пытался выполнить в shell и чем это закончилось. " +
                     "Хранятся последние 100 записей; файл не покидает устройство.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
+            fontSize = TypeScale.caption,
             lineHeight = 17.sp
         )
 
@@ -3626,7 +3629,7 @@ private fun ShellLogScreen() {
             Text(
                 text = "Журнал пуст.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
+                fontSize = TypeScale.label
             )
         } else {
             SettingsGroup {
@@ -3638,7 +3641,7 @@ private fun ShellLogScreen() {
                         } else {
                             MaterialTheme.colorScheme.onSurface
                         },
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         lineHeight = 16.sp,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier
@@ -3656,7 +3659,7 @@ private fun ShellLogScreen() {
                     onClick = { entries = ShellLog.read(context) },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Обновить", fontSize = 13.sp)
+                    Text("Обновить", fontSize = TypeScale.label)
                 }
                 TextButton(
                     onClick = { confirmClear = true },
@@ -3664,7 +3667,7 @@ private fun ShellLogScreen() {
                 ) {
                     Text(
                         text = "Очистить",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
@@ -3723,7 +3726,7 @@ private fun TrashEntryRow(entry: TrashStore.TrashEntry, onRestore: () -> Unit) {
                 } else {
                     MaterialTheme.colorScheme.error
                 },
-                fontSize = 10.5.sp,
+                fontSize = TypeScale.micro,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 0.4.sp
             )
@@ -3731,7 +3734,7 @@ private fun TrashEntryRow(entry: TrashStore.TrashEntry, onRestore: () -> Unit) {
             Text(
                 text = trashEntryTitle(entry),
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.5.sp,
+                fontSize = TypeScale.label,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -3739,13 +3742,13 @@ private fun TrashEntryRow(entry: TrashStore.TrashEntry, onRestore: () -> Unit) {
             Text(
                 text = trashEntrySubtitle(entry),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
+                fontSize = TypeScale.caption,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
         TextButton(onClick = onRestore) {
-            Text("Вернуть", fontSize = 13.sp)
+            Text("Вернуть", fontSize = TypeScale.label)
         }
     }
 }
@@ -3816,13 +3819,13 @@ private fun InstructionProfilesField(
                 Text(
                     text = "Профили инструкций",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     text = "Быстрое переключение поведения агента",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
             if (activeProfile.instructions.isNotBlank()) {
@@ -3833,7 +3836,7 @@ private fun InstructionProfilesField(
                     Text(
                         text = "Очистить",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.5.sp
+                        fontSize = TypeScale.label
                     )
                 }
             }
@@ -3868,7 +3871,7 @@ private fun InstructionProfilesField(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RunnerShapes.large,
                     color = bgColor,
                     border = border,
                     modifier = Modifier
@@ -3882,7 +3885,7 @@ private fun InstructionProfilesField(
                     ) {
                         Text(
                             text = profile.title,
-                            fontSize = 12.5.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             color = textColor
                         )
@@ -3902,7 +3905,7 @@ private fun InstructionProfilesField(
 
             // Кнопка "+ Новый"
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RunnerShapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                 modifier = Modifier
@@ -3922,7 +3925,7 @@ private fun InstructionProfilesField(
                     )
                     Text(
                         text = "Новый",
-                        fontSize = 12.5.sp,
+                        fontSize = TypeScale.label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -3935,11 +3938,11 @@ private fun InstructionProfilesField(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RunnerShapes.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                 .border(
                     BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    RoundedCornerShape(10.dp)
+                    RunnerShapes.small
                 )
         ) {
             BasicTextField(
@@ -3951,7 +3954,7 @@ private fun InstructionProfilesField(
                     .padding(12.dp),
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 19.sp
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -3966,7 +3969,7 @@ private fun InstructionProfilesField(
                                 else -> "Инструкции для профиля «${activeProfile.title}»..."
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                            fontSize = 13.sp,
+                            fontSize = TypeScale.label,
                             lineHeight = 19.sp
                         )
                     }
@@ -4052,7 +4055,7 @@ private fun TtsSettingsCard(
                 Text(
                     text = "Озвучивать ответы голосом (TTS)",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp
+                    fontSize = TypeScale.body
                 )
                 Text(
                     text = if (appSettings.autoSpeakResponses) {
@@ -4061,7 +4064,7 @@ private fun TtsSettingsCard(
                         "Озвучка только по кнопке у сообщений"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
             Switch(
@@ -4080,7 +4083,7 @@ private fun TtsSettingsCard(
             Text(
                 text = "Скорость речи",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                fontSize = TypeScale.body,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -4102,7 +4105,7 @@ private fun TtsSettingsCard(
             Text(
                 text = "Высота тона речи",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                fontSize = TypeScale.body,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -4126,7 +4129,7 @@ private fun TtsSettingsCard(
                 Text(
                     text = "Голос озвучки",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -4138,7 +4141,7 @@ private fun TtsSettingsCard(
                 ) {
                     val isDefSelected = appSettings.ttsVoiceName.isBlank()
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RunnerShapes.large,
                         color = if (isDefSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLowest,
                         border = if (isDefSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                         modifier = Modifier
@@ -4147,7 +4150,7 @@ private fun TtsSettingsCard(
                     ) {
                         Text(
                             text = "По умолчанию",
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             color = if (isDefSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
@@ -4156,7 +4159,7 @@ private fun TtsSettingsCard(
                     availableVoices.forEach { voice ->
                         val isSelected = appSettings.ttsVoiceName == voice.name
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RunnerShapes.large,
                             color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLowest,
                             border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                             modifier = Modifier
@@ -4165,7 +4168,7 @@ private fun TtsSettingsCard(
                         ) {
                             Text(
                                 text = voice.displayName,
-                                fontSize = 12.sp,
+                                fontSize = TypeScale.caption,
                                 color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
@@ -4188,7 +4191,7 @@ private fun TtsSettingsCard(
             Text(
                 text = "Проверить звучание",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.5.sp
+                fontSize = TypeScale.label
             )
             OutlinedButton(
                 onClick = { viewModel.previewTtsVoice() },
@@ -4201,7 +4204,7 @@ private fun TtsSettingsCard(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Слушать пример", fontSize = 12.5.sp)
+                Text("Слушать пример", fontSize = TypeScale.label)
             }
         }
     }
@@ -4224,12 +4227,12 @@ private fun VibrationSettingsCard(
                 Text(
                     text = "Тактильный отклик (вибрация)",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp
+                    fontSize = TypeScale.body
                 )
                 Text(
                     text = if (appSettings.hapticEnabled) "Вибрация включена для ключевых событий" else "Вибрация полностью отключена",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.5.sp
+                    fontSize = TypeScale.caption
                 )
             }
             Switch(
@@ -4247,7 +4250,7 @@ private fun VibrationSettingsCard(
             Text(
                 text = "Сила вибрации",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                fontSize = TypeScale.body,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -4295,7 +4298,7 @@ private fun VibrationSettingsCard(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
+                shape = RunnerShapes.small,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isHapticTestRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = if (isHapticTestRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary
@@ -4304,7 +4307,7 @@ private fun VibrationSettingsCard(
             ) {
                 Text(
                     text = if (isHapticTestRunning) "Остановить тест вибрации" else "Тест вибрации (3 сек)",
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -4316,7 +4319,7 @@ private fun VibrationSettingsCard(
             Text(
                 text = "События для вибрации",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = TypeScale.caption,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 14.dp, top = 8.dp, bottom = 4.dp)
             )
@@ -4330,7 +4333,7 @@ private fun VibrationSettingsCard(
                 Text(
                     text = "Отправка сообщения",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.5.sp,
+                    fontSize = TypeScale.label,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(
@@ -4352,7 +4355,7 @@ private fun VibrationSettingsCard(
                 Text(
                     text = "Завершение задачи",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.5.sp,
+                    fontSize = TypeScale.label,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(
@@ -4374,7 +4377,7 @@ private fun VibrationSettingsCard(
                 Text(
                     text = "Запрос подтверждения (план или операция)",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.5.sp,
+                    fontSize = TypeScale.label,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(
@@ -4396,7 +4399,7 @@ private fun VibrationSettingsCard(
                 Text(
                     text = "Ошибка при выполнении",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.5.sp,
+                    fontSize = TypeScale.label,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(
@@ -4445,14 +4448,14 @@ private fun WorkingDirField(
                 Text(
                     text = "Рабочая папка проекта",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = if (currentDir.isNotBlank()) currentDir else "Не выбрана (/storage/emulated/0)",
                     color = if (currentDir.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     fontFamily = if (currentDir.isNotBlank()) FontFamily.Monospace else FontFamily.Default,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -4483,7 +4486,7 @@ private fun WorkingDirField(
             OutlinedButton(
                 onClick = { folderPickerLauncher.launch(null) },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(10.dp),
+                shape = RunnerShapes.small,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
             ) {
                 Icon(
@@ -4495,7 +4498,7 @@ private fun WorkingDirField(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "Обзор...",
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
@@ -4503,7 +4506,7 @@ private fun WorkingDirField(
             OutlinedButton(
                 onClick = { showManualPathDialog = true },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(10.dp),
+                shape = RunnerShapes.small,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Icon(
@@ -4515,7 +4518,7 @@ private fun WorkingDirField(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "Ввести путь",
-                    fontSize = 13.sp,
+                    fontSize = TypeScale.label,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -4525,7 +4528,7 @@ private fun WorkingDirField(
         Text(
             text = "Агент считает эту папку корневой для проекта: относительные пути резолвятся от неё, а команды shell выполняются внутри неё.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.5.sp
+            fontSize = TypeScale.caption
         )
 
         if (currentDir.isNotBlank()) {
@@ -4533,7 +4536,7 @@ private fun WorkingDirField(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RunnerShapes.medium)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -4542,13 +4545,13 @@ private fun WorkingDirField(
                 Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                     Text(
                         text = "Автономный режим в папке",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Не запрашивать подтверждения на операции внутри этой папки",
-                        fontSize = 11.sp,
+                        fontSize = TypeScale.caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -4580,15 +4583,15 @@ private fun WorkingDirField(
                     Text(
                         text = "Укажи путь внутри /storage/emulated/0",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
+                        fontSize = TypeScale.label
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = manualPath,
                         onValueChange = { manualPath = it },
                         singleLine = true,
-                        placeholder = { Text("/storage/emulated/0/Projects/MyApp", fontSize = 12.sp) },
-                        textStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace),
+                        placeholder = { Text("/storage/emulated/0/Projects/MyApp", fontSize = TypeScale.caption) },
+                        textStyle = TextStyle(fontSize = TypeScale.label, fontFamily = FontFamily.Monospace),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -4609,7 +4612,7 @@ private fun WorkingDirField(
                 }
             },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(16.dp)
+            shape = RunnerShapes.large
         )
     }
 }
@@ -4633,7 +4636,7 @@ private fun <T> SegmentedChips(
         options.forEach { (value, label) ->
             val active = value == selected
             val enabled = isEnabled(value)
-            val shape = RoundedCornerShape(9.dp)
+            val shape = RunnerShapes.small
 
             // Перетекание цвета вместо рывка: переключатель читается как один
             // контрол, а не как набор независимых кнопок
@@ -4678,7 +4681,7 @@ private fun <T> SegmentedChips(
                 Text(
                     text = label,
                     color = labelColor,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     textAlign = TextAlign.Center,
@@ -4810,19 +4813,19 @@ private fun SettingSlider(
             Text(
                 text = formatEnd(valueRange.start),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
+                fontSize = TypeScale.caption,
                 fontFamily = FontFamily.Monospace
             )
             Text(
                 text = valueLabel(value),
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.sp,
+                fontSize = TypeScale.caption,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = formatEnd(valueRange.endInclusive),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
+                fontSize = TypeScale.caption,
                 fontFamily = FontFamily.Monospace
             )
         }
@@ -4974,7 +4977,7 @@ private fun AccessSettings(
                     Text(
                         text = if (hasStorage) "Доступ ко всем файлам выдан" else "Доступ к файлам не выдан",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -4983,7 +4986,7 @@ private fun AccessSettings(
                     text = "Нужен, чтобы агент читал, перемещал и анализировал файлы. " +
                             "Включите «Доступ ко всем файлам» на системном экране.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 18.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -4993,7 +4996,7 @@ private fun AccessSettings(
                         viewModel.checkAllPermissions()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -5001,7 +5004,7 @@ private fun AccessSettings(
                 ) {
                     Text(
                         text = "Настройки доступа к памяти",
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5031,7 +5034,7 @@ private fun AccessSettings(
                             else -> "Разрешения не выданы"
                         },
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5040,7 +5043,7 @@ private fun AccessSettings(
                     text = "Нужно, чтобы агент мгновенно совершал прямые телефонные звонки " +
                             "по вашим запросам («Позвони Маме») и искал контакты в телефонной книге.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 18.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -5050,7 +5053,7 @@ private fun AccessSettings(
                         viewModel.checkAllPermissions()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -5058,7 +5061,7 @@ private fun AccessSettings(
                 ) {
                     Text(
                         text = "Открыть разрешения приложения",
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5083,7 +5086,7 @@ private fun AccessSettings(
                     Text(
                         text = if (hasAudio) "Доступ к микрофону выдан" else "Доступ к микрофону не выдан",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5091,7 +5094,7 @@ private fun AccessSettings(
                 Text(
                     text = "Нужен для распознавания голосовых команд и диктовки сообщений через кнопку микрофона.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 18.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -5101,7 +5104,7 @@ private fun AccessSettings(
                         viewModel.checkAllPermissions()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
@@ -5109,7 +5112,7 @@ private fun AccessSettings(
                 ) {
                     Text(
                         text = "Открыть разрешения приложения",
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5219,7 +5222,7 @@ private fun AccessSettings(
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RunnerShapes.small,
                     color = MaterialTheme.colorScheme.tertiaryContainer,
                     border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)),
                     modifier = Modifier.fillMaxWidth()
@@ -5238,7 +5241,7 @@ private fun AccessSettings(
                         Text(
                             text = "Бета-версия: на некоторых прошивках (MIUI/HyperOS, ColorOS, OneUI) системный вызов ассистента жестом или скриншоты экрана могут работать нестабильно.",
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             lineHeight = 16.sp
                         )
                     }
@@ -5257,7 +5260,7 @@ private fun AccessSettings(
                     Text(
                         text = if (isAssistantActive) "Runner назначен цифровым помощником" else "Вызов ассистента жестом или кнопкой",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5269,14 +5272,14 @@ private fun AccessSettings(
                         "Позволяет вызывать Runner долгим удержанием кнопки питания, свайпом из нижнего угла экрана или кнопкой Домой поверх любого приложения."
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     lineHeight = 18.sp
                 )
 
                 if (!isAssistantActive) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                         modifier = Modifier.fillMaxWidth()
@@ -5285,14 +5288,14 @@ private fun AccessSettings(
                             Text(
                                 text = "Инструкция для назначения:",
                                 color = MaterialTheme.colorScheme.primary,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "1. Нажмите кнопку ниже\n2. Ознакомьтесь с предупреждением о бета-версии\n3. В системном списке выберите «Runner»",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.5.sp,
+                                fontSize = TypeScale.caption,
                                 lineHeight = 16.sp
                             )
                         }
@@ -5310,7 +5313,7 @@ private fun AccessSettings(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RunnerShapes.small,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isAssistantActive) {
                             MaterialTheme.colorScheme.surfaceContainerHigh
@@ -5326,7 +5329,7 @@ private fun AccessSettings(
                 ) {
                     Text(
                         text = if (isAssistantActive) "Настройки ассистента в системе" else "Назначить помощником по умолчанию",
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5340,7 +5343,7 @@ private fun AccessSettings(
                         Text(
                             text = "Открыть системный раздел «Помощник»",
                             color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.5.sp
+                            fontSize = TypeScale.label
                         )
                     }
                 }
@@ -5362,13 +5365,13 @@ private fun AccessSettings(
                     Text(
                         text = "Бета-версия ассистента",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
+                        fontSize = TypeScale.title
                     )
                 },
                 text = {
                     Text(
                         text = "Внимание: системный цифровой ассистент Runner находится на этапе бета-тестирования.\n\nНа некоторых устройствах и сторонних прошивках (MIUI/HyperOS, ColorOS, OneUI) вызов по жесту свайпа или захват экрана может работать нестабильно. Вы можете протестировать функцию сейчас или вернуться к штатному ассистенту в любой момент.",
-                        fontSize = 13.sp,
+                        fontSize = TypeScale.label,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -5417,7 +5420,7 @@ private fun AccessSettings(
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RunnerShapes.small,
                     color = MaterialTheme.colorScheme.primaryContainer,
                     border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                     modifier = Modifier.fillMaxWidth()
@@ -5436,7 +5439,7 @@ private fun AccessSettings(
                         Text(
                             text = "Бета-версия: Live-режим позволяет агенту самостоятельно взаимодействовать с приложениями на экране через службу спецвозможностей. Не передавайте управление на экранах ввода паролей и платежных сервисов.",
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             lineHeight = 16.sp
                         )
                     }
@@ -5457,7 +5460,7 @@ private fun AccessSettings(
                     Text(
                         text = if (hasAccessibility) "Служба спецвозможностей активна" else "Служба спецвозможностей отключена",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5465,7 +5468,7 @@ private fun AccessSettings(
                 Text(
                     text = "Позволяет агенту анализировать экран и совершать физические нажатия и жесты.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp
                 )
 
@@ -5483,7 +5486,7 @@ private fun AccessSettings(
                     Text(
                         text = if (hasOverlay) "Наложение поверх окон разрешено" else "Отображение поверх окон запрещено",
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
+                        fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -5491,7 +5494,7 @@ private fun AccessSettings(
                 Text(
                     text = "Нужно для плавающего кружка управления и визуализации тачей.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp
                 )
 
@@ -5510,11 +5513,11 @@ private fun AccessSettings(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RunnerShapes.small
                     ) {
                         Text(
                             text = if (!hasAccessibility) "Включить спецвозможности" else "Разрешить наложение поверх окон",
-                            fontSize = 13.5.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -5527,7 +5530,7 @@ private fun AccessSettings(
                 Text(
                     text = "Лимит шагов в Live",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(2.dp))
@@ -5536,7 +5539,7 @@ private fun AccessSettings(
                             "«∞» значит без ограничения: задачу остановит только кнопка «Стоп», " +
                             "завершение или срабатывание защиты от зацикливания.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     lineHeight = 16.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -5565,14 +5568,14 @@ private fun AccessSettings(
                         Text(
                             text = "Подтверждать каждый шаг",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "Спрашивать перед каждым тапом, вводом и прокруткой. Несовместимо с полным доступом.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             lineHeight = 16.sp
                         )
                     }
@@ -5603,14 +5606,14 @@ private fun AccessSettings(
                         Text(
                             text = "Полный доступ (без подтверждений)",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
+                            fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "Выполнять рискованные действия без запроса подтверждения на плавающей карточке.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             lineHeight = 16.sp
                         )
                     }
@@ -5645,13 +5648,13 @@ private fun AccessSettings(
                     Text(
                         text = "Включить полный доступ?",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
+                        fontSize = TypeScale.title
                     )
                 },
                 text = {
                     Text(
                         text = "В режиме полного доступа агент сможет подтверждать диалоговые окна и совершать действия без ручного одобрения на экране. Используйте с осторожностью.",
-                        fontSize = 13.5.sp,
+                        fontSize = TypeScale.label,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -5696,7 +5699,7 @@ private fun SettingsGroup(
         if (title != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                modifier = Modifier.padding(start = Spacing.xs, bottom = Spacing.sm)
             ) {
                 if (titleIcon != null) {
                     Icon(
@@ -5705,28 +5708,31 @@ private fun SettingsGroup(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(Spacing.xs))
                 }
                 Text(
                     text = title,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
+                    fontSize = TypeScale.caption,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 0.2.sp
                 )
                 if (badgeText != null) {
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(Spacing.sm))
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RunnerShapes.tiny,
                         color = badgeContainerColor,
                         border = BorderStroke(0.5.dp, badgeColor.copy(alpha = 0.45f))
                     ) {
                         Text(
                             text = badgeText,
                             color = badgeColor,
-                            fontSize = 10.sp,
+                            fontSize = TypeScale.micro,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(
+                                horizontal = Spacing.xs + 2.dp,
+                                vertical = 2.dp
+                            )
                         )
                     }
                 }
@@ -5734,8 +5740,11 @@ private fun SettingsGroup(
         }
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(
+                0.6.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            ),
+            shape = RunnerShapes.medium,
             modifier = Modifier.fillMaxWidth()
         ) {
             content()
@@ -5757,18 +5766,21 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+            .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .clip(RunnerShapes.small)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
                     .border(
-                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
-                        RoundedCornerShape(10.dp)
+                        BorderStroke(
+                            0.6.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        ),
+                        RunnerShapes.small
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -5779,15 +5791,19 @@ private fun SettingsRow(
                     modifier = Modifier.size(18.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(Spacing.md))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = TypeScale.body
+            )
+            Spacer(modifier = Modifier.height(Spacing.xxs))
             Text(
                 text = value,
                 color = resolvedValueColor,
-                fontSize = 11.5.sp,
+                fontSize = TypeScale.caption,
                 fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -5840,7 +5856,7 @@ private fun ConnectionStatusWidget(
         result.isReachable -> StatusWarning
         else -> errorColor
     }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RunnerShapes.small
 
     Box(
         modifier = Modifier
@@ -5886,7 +5902,7 @@ private fun ConnectionStatusWidget(
                         else -> result.message
                     },
                     color = if (result == null && !isTesting) MaterialTheme.colorScheme.onSurface else accent,
-                    fontSize = 12.5.sp,
+                    fontSize = TypeScale.label,
                     fontWeight = FontWeight.Medium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
@@ -5895,7 +5911,7 @@ private fun ConnectionStatusWidget(
                     Text(
                         text = "Нажмите, чтобы запустить тест пинга",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp
+                        fontSize = TypeScale.caption
                     )
                 }
             }
@@ -5953,7 +5969,7 @@ private fun ThemeSettingsContent(
         Text(
             text = "Режим",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp,
+            fontSize = TypeScale.body,
             fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -5973,7 +5989,7 @@ private fun ThemeSettingsContent(
         Text(
             text = "Источник цвета",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp,
+            fontSize = TypeScale.body,
             fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -5993,7 +6009,7 @@ private fun ThemeSettingsContent(
             Text(
                 text = "«Обои» недоступны: требуется Android 12+",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp
+                fontSize = TypeScale.caption
             )
         }
 
@@ -6003,7 +6019,7 @@ private fun ThemeSettingsContent(
             Text(
                 text = "Палитра акцента",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.sp,
+                fontSize = TypeScale.label,
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -6081,12 +6097,12 @@ private fun ThemeSettingsContent(
             Text(
                 text = "AMOLED чёрный",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp
+                fontSize = TypeScale.body
             )
             Text(
                 text = "В тёмной теме чистый чёрный фон (#000000)",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.5.sp
+                fontSize = TypeScale.caption
             )
         }
         Switch(
@@ -6201,11 +6217,11 @@ private fun ColorSpectrumBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(16.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RunnerShapes.small)
                 .background(hueGradient)
                 .border(
                     BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                    RoundedCornerShape(8.dp)
+                    RunnerShapes.small
                 )
         )
 
@@ -6275,11 +6291,11 @@ private fun ColorSaturationBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(16.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RunnerShapes.small)
                 .background(satGradient)
                 .border(
                     BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                    RoundedCornerShape(8.dp)
+                    RunnerShapes.small
                 )
         )
 
@@ -6331,7 +6347,7 @@ private fun CustomColorPickerDialog(
             Text(
                 text = "Свой цвет темы",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp,
+                fontSize = TypeScale.headline,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -6339,7 +6355,7 @@ private fun CustomColorPickerDialog(
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 // Живое превью акцента
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RunnerShapes.medium,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
                     modifier = Modifier.fillMaxWidth()
@@ -6362,14 +6378,14 @@ private fun CustomColorPickerDialog(
                             Text(
                                 text = "Акцент Runner",
                                 color = currentColor,
-                                fontSize = 15.sp,
+                                fontSize = TypeScale.bodyLarge,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = hexCode,
                                 color = MaterialTheme.colorScheme.outline,
-                                fontSize = 12.sp,
+                                fontSize = TypeScale.caption,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
@@ -6386,13 +6402,13 @@ private fun CustomColorPickerDialog(
                         Text(
                             text = "Оттенок (гамма)",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 12.5.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "${hue.toInt()}°",
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -6413,13 +6429,13 @@ private fun CustomColorPickerDialog(
                         Text(
                             text = "Насыщенность",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 12.5.sp,
+                            fontSize = TypeScale.label,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = "${(saturation * 100).toInt()}%",
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 11.5.sp,
+                            fontSize = TypeScale.caption,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -6481,7 +6497,7 @@ private fun CustomColorPickerDialog(
             }
         },
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(18.dp)
+        shape = RunnerShapes.large
     )
 }
 
@@ -6504,7 +6520,7 @@ private fun CustomSuggestionsManager(
         Text(
             text = "Пользовательские сценарии",
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
+            fontSize = TypeScale.label,
             fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(6.dp))
@@ -6516,7 +6532,7 @@ private fun CustomSuggestionsManager(
             ) {
                 customSuggestions.forEachIndexed { idx, item ->
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RunnerShapes.small,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
                         border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                         modifier = Modifier.fillMaxWidth()
@@ -6537,7 +6553,7 @@ private fun CustomSuggestionsManager(
                             Text(
                                 text = item,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
+                                fontSize = TypeScale.label,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -6572,16 +6588,16 @@ private fun CustomSuggestionsManager(
                 singleLine = true,
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp
+                    fontSize = TypeScale.label
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RunnerShapes.small)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f))
                     .border(
                         BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        RoundedCornerShape(10.dp)
+                        RunnerShapes.small
                     )
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 decorationBox = { innerTextField ->
@@ -6589,7 +6605,7 @@ private fun CustomSuggestionsManager(
                         Text(
                             text = "Например: Проверить заряд батареи",
                             color = MaterialTheme.colorScheme.outline,
-                            fontSize = 12.5.sp
+                            fontSize = TypeScale.label
                         )
                     }
                     innerTextField()
@@ -6607,7 +6623,7 @@ private fun CustomSuggestionsManager(
                 enabled = newPromptText.isNotBlank(),
                 modifier = Modifier
                     .size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RunnerShapes.small)
                     .background(
                         if (newPromptText.isNotBlank()) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surfaceContainerHigh

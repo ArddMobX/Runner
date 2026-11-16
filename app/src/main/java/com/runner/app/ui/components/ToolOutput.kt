@@ -1,4 +1,5 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -246,7 +247,7 @@ fun ToolOutputView(
                 is OutputLine.FolderCaption -> Text(
                     text = line.folder,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.5.sp,
+                    fontSize = TypeScale.micro,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -302,7 +303,7 @@ private fun FileRow(entry: FileEntry, showFolder: Boolean) {
                 Text(
                     text = entry.name,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium,
                     lineHeight = 19.sp,
                     maxLines = 2,
@@ -313,7 +314,7 @@ private fun FileRow(entry: FileEntry, showFolder: Boolean) {
                     Text(
                         text = "  $size",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.5.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1
                     )
@@ -325,7 +326,7 @@ private fun FileRow(entry: FileEntry, showFolder: Boolean) {
                     Text(
                         text = folder,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                        fontSize = 10.5.sp,
+                        fontSize = TypeScale.micro,
                         lineHeight = 14.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis

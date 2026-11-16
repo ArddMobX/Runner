@@ -1,4 +1,5 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.CubicBezierEasing
@@ -129,7 +130,7 @@ fun AgentStatusIndicator(
             Text(
                 text = text,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = TypeScale.caption,
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -139,7 +140,7 @@ fun AgentStatusIndicator(
             Text(
                 text = formatElapsed(elapsedSeconds),
                 color = MaterialTheme.colorScheme.outline,
-                fontSize = 11.sp,
+                fontSize = TypeScale.caption,
                 fontFamily = RobotoMono,
                 maxLines = 1
             )

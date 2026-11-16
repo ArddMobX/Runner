@@ -1,4 +1,6 @@
 package com.runner.app.ui
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.Manifest
 import android.app.Activity
@@ -371,7 +373,7 @@ private fun OverlayScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = RunnerShapes.tiny,
                         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f))
                     ) {
@@ -432,7 +434,7 @@ private fun OverlayScreen(
                 ) {
                     // Кнопка быстрого снимка экрана
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RunnerShapes.large,
                         color = if (capturedScreenshotUri != null) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
@@ -499,7 +501,7 @@ private fun OverlayScreen(
 
                 if (hasResponseContent) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RunnerShapes.large,
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier
@@ -621,21 +623,21 @@ private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
                 ) {
                     Text(
                         text = request.details,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         fontFamily = FontFamily.Monospace
                     )
                     if (request.preview.isNotBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = request.preview,
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = request.warning,
-                        fontSize = 12.sp,
+                        fontSize = TypeScale.caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -674,14 +676,14 @@ private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
                     plan.steps.forEachIndexed { index, step ->
                         Text(
                             text = "${index + 1}. $step",
-                            fontSize = 12.5.sp,
+                            fontSize = TypeScale.label,
                             lineHeight = 18.sp
                         )
                     }
                     if (plan.steps.isEmpty()) {
                         Text(
                             text = plan.rawText,
-                            fontSize = 12.5.sp,
+                            fontSize = TypeScale.label,
                             lineHeight = 18.sp
                         )
                     }
@@ -689,7 +691,7 @@ private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Критерий успеха: $criteria",
-                            fontSize = 12.sp,
+                            fontSize = TypeScale.caption,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -715,7 +717,7 @@ private fun QuickPromptChip(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.bounceClick { onClick() }
     ) {

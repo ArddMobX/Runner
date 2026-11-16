@@ -1,4 +1,6 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.TypeScale
 
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
@@ -290,7 +292,7 @@ fun ImageThumbnail(path: String?) {
     Box(
         modifier = Modifier
             .size(44.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RunnerShapes.small)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable(enabled = bitmap != null) { showFull = true },
         contentAlignment = Alignment.Center
@@ -358,13 +360,13 @@ fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RunnerShapes.medium)
                 )
             } else {
                 Text(
                     text = "Не удалось открыть изображение",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp,
+                    fontSize = TypeScale.body,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -374,7 +376,7 @@ fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
             Text(
                 text = path.substringAfterLast('/'),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                fontSize = TypeScale.caption,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
