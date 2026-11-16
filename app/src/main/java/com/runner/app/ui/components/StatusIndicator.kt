@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.runner.app.ui.theme.MotionSettings
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RobotoMono
 import com.runner.app.ui.theme.SecondaryMint
@@ -51,24 +52,40 @@ fun StatusPulsingDot(
     dotSize: Dp = 6.dp
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "status_dot_pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 2.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulse_scale"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulse_alpha"
-    )
+    val pulseScale = if (MotionSettings.enabled) {
+        val value by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 2.2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 1200,
+                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                ),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "pulse_scale"
+        )
+        value
+    } else {
+        1f
+    }
+    val pulseAlpha = if (MotionSettings.enabled) {
+        val value by infiniteTransition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 1200,
+                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                ),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "pulse_alpha"
+        )
+        value
+    } else {
+        0f
+    }
 
     Box(
         modifier = modifier.size(16.dp),
@@ -120,10 +137,7 @@ fun AgentStatusIndicator(
         Spacer(modifier = Modifier.width(8.dp))
         Crossfade(
             targetState = if (status.isNullOrBlank()) "Работаю" else status,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationFast,
-                easing = MotionTokens.FluidCurve
-            ),
+            animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
             label = "status_text_crossfade",
             modifier = Modifier.weight(1f)
         ) { text ->

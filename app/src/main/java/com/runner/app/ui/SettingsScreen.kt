@@ -449,6 +449,13 @@ private fun SettingsRoot(
             route = SettingsRoute.Appearance
         ),
         SearchableSetting(
+            title = "Плавные анимации",
+            section = "Внешний вид",
+            description = if (appSettings.motionEnabled) "Включены" else "Выключены",
+            icon = RunnerIcons.AutoAwesome,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
             title = "Классический вид чата",
             section = "Внешний вид",
             description = if (appSettings.chatClassicLook) "Включён" else "Новый спокойный вид",
@@ -1444,6 +1451,35 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
+                        text = "Плавные анимации",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body
+                    )
+                    Text(
+                        text = "Переходы экранов, нажатия и раскрытие карточек",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.caption
+                    )
+                }
+                Switch(
+                    checked = appSettings.motionEnabled,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(motionEnabled = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
                         text = "Классический вид чата",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = TypeScale.body
@@ -1756,8 +1792,16 @@ private fun ApiQuickGuideCard() {
 
             AnimatedVisibility(
                 visible = isExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                enter = expandVertically(
+                    animationSpec = MotionTokens.fluidSpring()
+                ) + fadeIn(
+                    animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
+                ),
+                exit = shrinkVertically(
+                    animationSpec = MotionTokens.fluidSpring()
+                ) + fadeOut(
+                    animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -4809,7 +4853,7 @@ private fun <T> SegmentedChips(
                     active -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
                 },
-                animationSpec = MotionTokens.fluidTween(200),
+                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
                 label = "segment_background"
             )
             val labelColor by animateColorAsState(
@@ -4818,7 +4862,7 @@ private fun <T> SegmentedChips(
                     active -> MaterialTheme.colorScheme.onPrimary
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                animationSpec = MotionTokens.fluidTween(200),
+                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
                 label = "segment_label"
             )
             val borderColor by animateColorAsState(
@@ -4827,7 +4871,7 @@ private fun <T> SegmentedChips(
                     active -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                 },
-                animationSpec = MotionTokens.fluidTween(200),
+                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
                 label = "segment_border"
             )
 

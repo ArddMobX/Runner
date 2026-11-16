@@ -8,42 +8,71 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 
+/**
+ * Глобальный выключатель движения. Значение приходит из настроек и
+ * применяется ко всем экранам, включая оверлеи.
+ */
+object MotionSettings {
+    var enabled by mutableStateOf(true)
+}
+
+/** Синхронизирует глобальный выключатель с настройкой приложения. */
+@Composable
+fun ApplyMotionSetting(enabled: Boolean) {
+    SideEffect { MotionSettings.enabled = enabled }
+}
+
 object MotionTokens {
-    // Apple-inspired fluid easing curve
-    val FluidCurve = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+    /** Материальный emphasized-decelerate: быстрый старт и мягкий хвост. */
+    val FluidCurve = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-    // Spring physics: moderate stiffness (~220) and high damping (~28 / 0.85 ratio)
-    const val SpringStiffness = 220f
-    const val SpringDampingRatio = 0.86f
+    // Пружина без заметного перелёта. Карточки и шторки не «пружинят».
+    const val SpringStiffness = 300f
+    const val SpringDampingRatio = 0.9f
 
-    const val DurationNormal = 400
-    const val DurationFast = 250
+    const val DurationMicro = 120
+    const val DurationFast = 180
+    const val DurationNormal = 280
+    const val DurationSlow = 360
 
-    fun <T> fluidSpring(): SpringSpec<T> = spring(
-        dampingRatio = SpringDampingRatio,
-        stiffness = SpringStiffness
-    )
+    fun <T> fluidSpring(): FiniteAnimationSpec<T> = if (MotionSettings.enabled) {
+        spring(
+            dampingRatio = SpringDampingRatio,
+            stiffness = SpringStiffness
+        )
+    } else {
+        snap()
+    }
 
-    fun <T> fluidTween(durationMillis: Int = DurationNormal): TweenSpec<T> = tween(
-        durationMillis = durationMillis,
-        easing = FluidCurve
-    )
+    fun <T> fluidTween(durationMillis: Int = DurationNormal): FiniteAnimationSpec<T> =
+        if (MotionSettings.enabled) {
+            tween(
+                durationMillis = durationMillis,
+                easing = FluidCurve
+            )
+        } else {
+            snap()
+        }
 }
 
 /**
- * Adds an iOS-style physical press bounce effect (scales down to 0.965 on press, spring returns on release).
- * Uses rememberUpdatedState to ensure the latest onClick and enabled values are always invoked.
+ * Мягкое нажатие: лёгкое уменьшение и возврат пружиной.
+ * При выключенных анимациях масштаб не меняется вообще.
  */
 fun Modifier.bounceClick(
     enabled: Boolean = true,
-    scaleDown: Float = 0.965f,
+    scaleDown: Float = 0.975f,
     onClick: () -> Unit
 ): Modifier = composed {
     val currentOnClick by rememberUpdatedState(onClick)
     val currentEnabled by rememberUpdatedState(enabled)
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isPressed && currentEnabled) scaleDown else 1f,
+        targetValue = if (isPressed && currentEnabled && MotionSettings.enabled) {
+            scaleDown
+        } else {
+            1f
+        },
         animationSpec = MotionTokens.fluidSpring(),
         label = "bounce_scale"
     )
@@ -69,4 +98,3 @@ fun Modifier.bounceClick(
             )
         }
 }
-

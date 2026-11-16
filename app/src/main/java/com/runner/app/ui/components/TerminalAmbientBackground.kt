@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import com.runner.app.ui.theme.MotionSettings
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -62,9 +63,16 @@ fun TerminalAmbientBackground(
         list
     }
 
-    var animTick by remember { mutableLongStateOf(0L) }
+    var animTick by remember {
+        mutableLongStateOf(if (MotionSettings.enabled) 0L else 1L)
+    }
 
-    LaunchedEffect(enabled) {
+    LaunchedEffect(enabled, MotionSettings.enabled) {
+        if (!MotionSettings.enabled) {
+            // Без анимаций фон остаётся статичным, но не исчезает.
+            animTick = 1L
+            return@LaunchedEffect
+        }
         var prevTime = 0L
         while (true) {
             withFrameNanos { frameTime ->

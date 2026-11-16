@@ -1,4 +1,5 @@
 package com.runner.app.ui
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
 
@@ -16,7 +17,6 @@ import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -441,7 +441,7 @@ object LiveFloatingOverlay {
         ) {
             Crossfade(
                 targetState = isExpanded,
-                animationSpec = tween(150),
+                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro),
                 label = "overlay_expand_fade"
             ) { expanded ->
                 if (!expanded) {

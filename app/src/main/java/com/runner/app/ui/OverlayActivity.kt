@@ -84,6 +84,7 @@ import kotlin.math.roundToInt
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.rememberChatInputState
+import com.runner.app.ui.theme.ApplyMotionSetting
 import com.runner.app.ui.theme.RunnerTheme
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.bounceClick
@@ -115,8 +116,10 @@ class OverlayActivity : ComponentActivity() {
 
         setContent {
             val themeConfig by viewModel.themeConfig.collectAsState()
+            val appSettings by viewModel.settings.collectAsState()
             val screenshotUri by pendingScreenshotUri
 
+            ApplyMotionSetting(appSettings.motionEnabled)
             RunnerTheme(themeConfig = themeConfig) {
                 OverlayScreen(
                     viewModel = viewModel,

@@ -290,7 +290,7 @@ fun ChatInputBar(
             isLiveMode -> MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
             else -> MaterialTheme.colorScheme.outlineVariant
         },
-        animationSpec = MotionTokens.fluidTween(200),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "input_border"
     )
 
@@ -669,7 +669,7 @@ private fun InputModeChip(
             active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
             else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
         },
-        animationSpec = MotionTokens.fluidTween(180),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "mode_chip_background"
     )
     val contentColor by animateColorAsState(
@@ -678,7 +678,7 @@ private fun InputModeChip(
             active -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = MotionTokens.fluidTween(180),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "mode_chip_content"
     )
     Row(
@@ -900,7 +900,7 @@ private fun SendMicStopButton(
             ActionButtonMode.SEND -> MaterialTheme.colorScheme.primary
             ActionButtonMode.MIC -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
         },
-        animationSpec = MotionTokens.fluidTween(220),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "send_background"
     )
 
@@ -910,7 +910,7 @@ private fun SendMicStopButton(
             ActionButtonMode.SEND -> MaterialTheme.colorScheme.onPrimary
             ActionButtonMode.MIC -> MaterialTheme.colorScheme.primary
         },
-        animationSpec = MotionTokens.fluidTween(220),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "send_tint"
     )
 

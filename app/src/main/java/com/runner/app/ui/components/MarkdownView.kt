@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.runner.app.ui.theme.RobotoMono
+import com.runner.app.ui.theme.MotionSettings
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
@@ -98,18 +99,23 @@ fun StreamingCursor(
     exitAlpha: () -> Float = { 1f }
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "streaming_cursor")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = 550,
-                easing = MotionTokens.FluidCurve
+    val alpha = if (MotionSettings.enabled) {
+        val value by infiniteTransition.animateFloat(
+            initialValue = 0.2f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 550,
+                    easing = MotionTokens.FluidCurve
+                ),
+                repeatMode = RepeatMode.Reverse
             ),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "cursor_alpha"
-    )
+            label = "cursor_alpha"
+        )
+        value
+    } else {
+        1f
+    }
 
     Box(
         modifier = modifier
@@ -165,10 +171,7 @@ fun MarkdownView(
         } else if (showCursor) {
             cursorExitAlpha.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = MotionTokens.DurationFast,
-                    easing = MotionTokens.FluidCurve
-                )
+                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
             )
             showCursor = false
         }

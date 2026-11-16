@@ -176,7 +176,7 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        animationSpec = MotionTokens.fluidTween(180),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "play_background"
     )
     val iconTint by animateColorAsState(
@@ -185,7 +185,7 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
             isActive -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = MotionTokens.fluidTween(180),
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "play_tint"
     )
 
@@ -211,9 +211,12 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
             targetState = isPlaying,
             transitionSpec = {
                 (scaleIn(initialScale = 0.7f, animationSpec = MotionTokens.fluidSpring()) +
-                        fadeIn(animationSpec = tween(140))) togetherWith
-                        (scaleOut(targetScale = 0.7f, animationSpec = tween(110)) +
-                                fadeOut(animationSpec = tween(110)))
+                        fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro))) togetherWith
+                        (scaleOut(
+                            targetScale = 0.7f,
+                            animationSpec = MotionTokens.fluidSpring()
+                        ) +
+                                fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro)))
             },
             label = "play_pause_icon"
         ) { playing ->

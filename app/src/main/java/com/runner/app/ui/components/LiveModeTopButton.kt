@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.runner.app.ui.theme.MotionTokens
 
 /**
  * Кнопка переключения Live-режима (автопилот по экрану) в верхнем правом углу.
@@ -33,6 +34,7 @@ fun LiveModeTopButton(
         } else {
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
         },
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "live_border"
     )
 
@@ -42,6 +44,7 @@ fun LiveModeTopButton(
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f)
         },
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "live_bg"
     )
 
@@ -51,6 +54,7 @@ fun LiveModeTopButton(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         },
+        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
         label = "live_icon"
     )
 

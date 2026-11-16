@@ -1,10 +1,9 @@
 package com.runner.app.ui.components
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
@@ -68,11 +67,12 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
     ) {
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                    scaleIn(
-                        initialScale = 0.92f,
-                        animationSpec = tween(260, easing = FastOutSlowInEasing)
-                    )
+            enter = fadeIn(
+                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
+            ) + scaleIn(
+                initialScale = 0.92f,
+                animationSpec = MotionTokens.fluidSpring()
+            )
         ) {
             Card(
                 colors = CardDefaults.cardColors(

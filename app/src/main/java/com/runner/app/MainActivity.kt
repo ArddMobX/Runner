@@ -60,6 +60,8 @@ import com.runner.app.ui.components.AppDrawerContent
 import com.runner.app.ui.components.DisclaimerDialog
 import com.runner.app.ui.components.SupportSheet
 import com.runner.app.ui.formatModelName
+import com.runner.app.ui.theme.ApplyMotionSetting
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerTheme
 import kotlinx.coroutines.launch
 
@@ -255,6 +257,7 @@ fun AppNavigation(viewModel: MainViewModel) {
 
     // Предупреждение о рисках показываем один раз, до всего остального
     val appSettings by viewModel.settings.collectAsState()
+    ApplyMotionSetting(appSettings.motionEnabled)
     if (!appSettings.disclaimerAccepted) {
         DisclaimerDialog(
             onAccept = {
@@ -297,7 +300,8 @@ fun AppNavigation(viewModel: MainViewModel) {
     AnimatedContent(
         targetState = currentScreen,
         transitionSpec = {
-            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(150))
+            fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)) togetherWith
+                    fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro))
         },
         label = "screen_fade"
     ) { screen ->

@@ -175,6 +175,7 @@ import com.runner.app.ui.components.WorkspaceFolderSheet
 import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.GoogleSansDisplay
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.MotionSettings
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.Spacing
@@ -926,8 +927,16 @@ fun ChatScreen(
             ) {
                 AnimatedVisibility(
                     visible = appSettings.liveModeEnabled,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
+                    enter = expandVertically(
+                        animationSpec = MotionTokens.fluidSpring()
+                    ) + fadeIn(
+                        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
+                    ),
+                    exit = shrinkVertically(
+                        animationSpec = MotionTokens.fluidSpring()
+                    ) + fadeOut(
+                        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
+                    )
                 ) {
                     Surface(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
@@ -1571,7 +1580,15 @@ private fun ClassicEmptyChatState(
     val greetingAlpha = remember { Animatable(0f) }
     val greetingOffsetY = remember { Animatable(10f) }
 
-    LaunchedEffect(sessionId, resumeTrigger) {
+    LaunchedEffect(sessionId, resumeTrigger, MotionSettings.enabled) {
+        if (!MotionSettings.enabled) {
+            titleAlpha.snapTo(1f)
+            titleOffsetY.snapTo(0f)
+            titleScale.snapTo(1f)
+            greetingAlpha.snapTo(1f)
+            greetingOffsetY.snapTo(0f)
+            return@LaunchedEffect
+        }
         titleAlpha.snapTo(0f)
         titleOffsetY.snapTo(14f)
         titleScale.snapTo(0.96f)
