@@ -449,6 +449,13 @@ private fun SettingsRoot(
             route = SettingsRoute.Appearance
         ),
         SearchableSetting(
+            title = "Классический вид чата",
+            section = "Внешний вид",
+            description = if (appSettings.chatClassicLook) "Включён" else "Новый спокойный вид",
+            icon = RunnerIcons.ChatBubble,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
             title = "Не гасить экран во время работы",
             section = "Внешний вид",
             description = if (appSettings.keepScreenOnWhileRunning) "Включено" else "Стандартный таймаут",
@@ -1422,6 +1429,35 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
                     checked = appSettings.showStats,
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(showStats = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Классический вид чата",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body
+                    )
+                    Text(
+                        text = "Прежний пустой экран, лента 96% и карточки с рамками",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.caption
+                    )
+                }
+                Switch(
+                    checked = appSettings.chatClassicLook,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(chatClassicLook = it))
                     },
                     colors = runnerSwitchColors()
                 )

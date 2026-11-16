@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import kotlinx.coroutines.launch
@@ -166,6 +168,7 @@ import com.runner.app.ui.components.attachmentTypeName
 import com.runner.app.ui.components.findWebPreviewInMarkdown
 import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
+import androidx.compose.ui.graphics.Brush
 import com.runner.app.ui.components.TerminalAmbientBackground
 import com.runner.app.ui.components.WorkspaceFolderBar
 import com.runner.app.ui.components.WorkspaceFolderSheet
@@ -173,6 +176,7 @@ import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.GoogleSansDisplay
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
@@ -696,6 +700,7 @@ fun ChatScreen(
         if (!confirmationCollapsed) {
             ConfirmationBottomSheet(
                 request = request,
+                classicLook = appSettings.chatClassicLook,
                 onCollapse = { confirmationCollapsed = true },
                 onConfirm = { selected, remember ->
                     viewModel.resolveConfirmation(true, selected, remember)
@@ -954,11 +959,20 @@ fun ChatScreen(
                     }
                 }
                 if (isEmptyChat) {
-                    EmptyChatState(
-                        settings = appSettings,
-                        onSuggestion = { inputState.setText(it) },
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (appSettings.chatClassicLook) {
+                        ClassicEmptyChatState(
+                            settings = appSettings,
+                            sessionId = currentSessionId,
+                            onSuggestion = { inputState.setText(it) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        EmptyChatState(
+                            settings = appSettings,
+                            onSuggestion = { inputState.setText(it) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 } else {
                 Column(modifier = Modifier.weight(1f)) {
                     CompositionLocalProvider(
@@ -1016,6 +1030,7 @@ fun ChatScreen(
                                             onFollowUpClick = { prompt -> viewModel.sendMessage(prompt) },
                                             showToolDetails = appSettings.showToolDetails,
                                             showStats = appSettings.showStats,
+                                            classicLook = appSettings.chatClassicLook,
                                             planAwaitingId = pendingPlan?.id,
                                             isSpeaking = isSpeaking,
                                             activeUtteranceId = activeUtteranceId,
@@ -1047,6 +1062,7 @@ fun ChatScreen(
                                             messages = item.messages,
                                             showDetails = appSettings.showToolDetails,
                                             showStats = appSettings.showStats,
+                                            classicLook = appSettings.chatClassicLook,
                                             planAwaitingId = pendingPlan?.id,
                                             isRunning = isRunning,
                                             isActiveTurn = isRunning && (
@@ -1066,11 +1082,14 @@ fun ChatScreen(
 
                             if (streamingText.isNotBlank()) {
                                 item(key = "streaming") {
-                                    StreamingBubble(text = streamingText)
+                                    StreamingBubble(
+                                        text = streamingText,
+                                        classicLook = appSettings.chatClassicLook
+                                    )
                                 }
                             }
                         }
-                        if (!stickToBottom && chatItems.isNotEmpty()) {
+                        if (!stickToBottom && chatItems.isNotEmpty() && !appSettings.chatClassicLook) {
                             ScrollToBottomButton(
                                 onClick = {
                                     stickToBottom = true
@@ -1124,7 +1143,10 @@ fun ChatScreen(
                         startedAt = if (liveState.isExecuting) null else streamStartedAt
                     )
                     if (streamingText.isBlank() && streamingReasoning.isNotBlank()) {
-                        LiveReasoningBlock(reasoning = streamingReasoning)
+                        LiveReasoningBlock(
+                            reasoning = streamingReasoning,
+                            classicLook = appSettings.chatClassicLook
+                        )
                     }
                 }
             }
@@ -1480,10 +1502,356 @@ private fun EmptyChatState(
     }
 }
 
+/**
+ * Прежний пустой экран. Включается тумблером «Классический вид чата»:
+ * случайное приветствие, крупный знак и мягкое появление.
+ */
+private val CLASSIC_GREETING_TEMPLATES = listOf(
+    "Чем заняться?",
+    "Готов к работе",
+    "Что делаем сегодня?",
+    "Жду задачу",
+    "Готов выполнять",
+    "Какой план?",
+    "В вашем распоряжении",
+    "Система в строю",
+    "На связи",
+    "Слушаю вас",
+    "Что оптимизируем?",
+    "Разберёмся с файлами?",
+    "Готов к запуску",
+    "Терминал наготове",
+    "Что запустим?"
+)
+
+private val CLASSIC_LIVE_GREETING_TEMPLATES = listOf(
+    "Что сделать на экране?",
+    "Автопилот наготове",
+    "Какое приложение открыть?",
+    "Что найти или нажать?",
+    "Жду задачу по экрану",
+    "Готов к действиям в системе"
+)
+
+@Composable
+private fun ClassicEmptyChatState(
+    settings: AppSettings,
+    sessionId: String?,
+    onSuggestion: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isLive = settings.liveModeEnabled
+    val greeting = remember(sessionId, isLive) {
+        if (isLive) {
+            CLASSIC_LIVE_GREETING_TEMPLATES.random()
+        } else {
+            CLASSIC_GREETING_TEMPLATES.random()
+        }
+    }
+
+    val context = LocalContext.current
+    var resumeTrigger by remember { mutableStateOf(0) }
+    val activity = context as? androidx.activity.ComponentActivity
+    DisposableEffect(activity) {
+        if (activity == null) return@DisposableEffect onDispose {}
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                resumeTrigger++
+            }
+        }
+        activity.lifecycle.addObserver(observer)
+        onDispose {
+            activity.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val titleAlpha = remember { Animatable(0f) }
+    val titleOffsetY = remember { Animatable(14f) }
+    val titleScale = remember { Animatable(0.96f) }
+    val greetingAlpha = remember { Animatable(0f) }
+    val greetingOffsetY = remember { Animatable(10f) }
+
+    LaunchedEffect(sessionId, resumeTrigger) {
+        titleAlpha.snapTo(0f)
+        titleOffsetY.snapTo(14f)
+        titleScale.snapTo(0.96f)
+        greetingAlpha.snapTo(0f)
+        greetingOffsetY.snapTo(10f)
+        launch {
+            titleAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 550,
+                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                )
+            )
+        }
+        launch {
+            titleOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 650,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                )
+            )
+        }
+        launch {
+            titleScale.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 650,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                )
+            )
+        }
+        launch {
+            kotlinx.coroutines.delay(80L)
+            greetingAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 500,
+                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                )
+            )
+        }
+        launch {
+            kotlinx.coroutines.delay(80L)
+            greetingOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 600,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                )
+            )
+        }
+    }
+
+    val defaultSuggestions = listOf(
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Delete,
+            title = "Очистить кэш",
+            prompt = "Найди мусор: кэш, пустые папки и временные файлы",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.VideoLibrary,
+            title = "Тяжёлые файлы",
+            prompt = "Найди файлы тяжелее 50 МБ: видео, архивы и загрузки"
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.FolderOpen,
+            title = "Разобрать Download",
+            prompt = "Разбери папку Download: архивы и свежие файлы",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.ContentPaste,
+            title = "Буфер обмена",
+            prompt = "Прочитай буфер обмена"
+        )
+    )
+
+    val liveSuggestions = listOf(
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Visibility,
+            title = "Что на экране?",
+            prompt = "Посмотри на экран и подробно опиши, что сейчас открыто",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.AutoAwesome,
+            title = "Настройки системы",
+            prompt = "Открой настройки телефона и проверь статус сети"
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Psychology,
+            title = "Поиск в Telegram",
+            prompt = "Открой Telegram и найди последний чат",
+            isMint = true
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.Info,
+            title = "Проверить заряд и сеть",
+            prompt = "Проверь уровень заряда батареи и статус Wi-Fi"
+        ),
+        EmptyStateSuggestion(
+            icon = RunnerIcons.AutoAwesome,
+            title = "Погода в браузере",
+            prompt = "Открой браузер и найди прогноз погоды на сегодня",
+            isMint = true
+        )
+    )
+
+    val allSuggestions: List<EmptyStateSuggestion> = if (isLive) {
+        liveSuggestions
+    } else {
+        val custom = settings.customPromptSuggestions.mapIndexed { index, promptText ->
+            EmptyStateSuggestion(
+                icon = RunnerIcons.AutoAwesome,
+                title = promptText.take(24),
+                prompt = promptText,
+                isMint = index % 2 == 1
+            )
+        }
+        defaultSuggestions + custom
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.weight(1f))
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (isLive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = titleAlpha.value
+                        translationY = titleOffsetY.value * density
+                        scaleX = titleScale.value
+                        scaleY = titleScale.value
+                    }
+                ) {
+                    Text(
+                        text = "RUNNER",
+                        fontFamily = GoogleSans,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 6.sp,
+                        style = TextStyle(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            ),
+                            textAlign = TextAlign.Center
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Surface(
+                        shape = RunnerShapes.small,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                        border = BorderStroke(
+                            0.8.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "LIVE",
+                                fontSize = TypeScale.caption,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = "RUNNER",
+                    fontFamily = GoogleSansDisplay,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 6.sp,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = titleAlpha.value
+                        translationY = titleOffsetY.value * density
+                        scaleX = titleScale.value
+                        scaleY = titleScale.value
+                    },
+                    style = TextStyle(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                            )
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = greetingAlpha.value
+                        translationY = greetingOffsetY.value * density
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = greeting,
+                    fontFamily = GoogleSansDisplay,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.4).sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (isLive) {
+                        "Агент видит экран и автономно выполняет действия перед вашими глазами"
+                    } else {
+                        "Спросите о файлах, памяти или выберите сценарий"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = TypeScale.body,
+                    lineHeight = 20.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        if (settings.showPromptSuggestions && allSuggestions.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(allSuggestions, key = { it.title + "_" + it.prompt }) { suggestion ->
+                    EmptyStateChip(
+                        suggestion = suggestion,
+                        onClick = { onSuggestion(suggestion.prompt) },
+                        useMint = true
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+    }
+}
+
 private data class EmptyStateSuggestion(
     val icon: ImageVector,
     val title: String,
-    val prompt: String
+    val prompt: String,
+    val isMint: Boolean = false
 )
 
 /**
@@ -1494,9 +1862,15 @@ private data class EmptyStateSuggestion(
 private fun EmptyStateChip(
     suggestion: EmptyStateSuggestion,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    useMint: Boolean = false
 ) {
     val haptic = LocalHapticFeedback.current
+    val accent = if (useMint && suggestion.isMint) {
+        SecondaryMint
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
 
     val handleClick = {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1528,7 +1902,7 @@ private fun EmptyStateChip(
         Icon(
             imageVector = suggestion.icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = accent,
             modifier = Modifier.size(15.dp)
         )
         Spacer(modifier = Modifier.width(7.dp))
@@ -1615,6 +1989,7 @@ private fun MessageItem(
     onFollowUpClick: (String) -> Unit = {},
     showToolDetails: Boolean,
     showStats: Boolean,
+    classicLook: Boolean = false,
     planAwaitingId: String?,
     isSpeaking: Boolean = false,
     activeUtteranceId: String? = null,
@@ -1771,7 +2146,10 @@ private fun MessageItem(
             val context = LocalContext.current
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .then(
+                        if (classicLook) Modifier.fillMaxWidth(0.96f)
+                        else Modifier.fillMaxWidth()
+                    )
                     .padding(vertical = 2.dp)
             ) {
                 // Если модель вернула размышления, показываем их даже без
@@ -1786,7 +2164,8 @@ private fun MessageItem(
                 if (showReasoning) {
                     ReasoningBlock(
                         reasoning = reasoning,
-                        reasoningMs = message.reasoningMs
+                        reasoningMs = message.reasoningMs,
+                        classicLook = classicLook
                     )
                 }
 
@@ -1876,6 +2255,7 @@ private fun MessageItem(
             message = message,
             showDetails = showToolDetails,
             showStats = showStats,
+            classicLook = classicLook,
             onUndoTrash = onUndoTrash,
             onOpenPreview = onOpenPreview,
             onOpenSources = onOpenSources
@@ -2185,12 +2565,17 @@ private fun LiveTaskStrip(
  * Показываем последние строки, чтобы было видно, что работа идёт.
  */
 @Composable
-private fun LiveReasoningBlock(reasoning: String) {
+private fun LiveReasoningBlock(reasoning: String, classicLook: Boolean = false) {
     val tail = remember(reasoning) { reasoning.takeLast(700).trim() }
     if (tail.isEmpty()) return
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RunnerShapes.medium,
+        border = if (classicLook) {
+            BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+        } else {
+            null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 2.dp)
@@ -2226,7 +2611,11 @@ private fun LiveReasoningBlock(reasoning: String) {
 
 /** Размышления thinking-модели: счётчик на виду, процесс — под катом. */
 @Composable
-private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
+private fun ReasoningBlock(
+    reasoning: String?,
+    reasoningMs: Long?,
+    classicLook: Boolean = false
+) {
     if (reasoning.isNullOrBlank()) return
 
     var expanded by remember { mutableStateOf(false) }
@@ -2242,6 +2631,16 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
             .padding(bottom = 6.dp)
             .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .then(
+                if (classicLook) {
+                    Modifier.border(
+                        BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                        RunnerShapes.medium
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable { expanded = !expanded }
             .padding(horizontal = 12.dp, vertical = 9.dp)
@@ -2299,14 +2698,17 @@ private fun formatDuration(millis: Long): String = when {
 }
 
 @Composable
-private fun StreamingBubble(text: String) {
+private fun StreamingBubble(text: String, classicLook: Boolean = false) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .then(
+                    if (classicLook) Modifier.fillMaxWidth(0.96f)
+                    else Modifier.fillMaxWidth()
+                )
                 .padding(vertical = 2.dp)
         ) {
             MarkdownView(text = text, isStreaming = true)
@@ -2736,6 +3138,7 @@ private fun TaskActivityCard(
     messages: List<ChatMessage>,
     showDetails: Boolean,
     showStats: Boolean,
+    classicLook: Boolean = false,
     planAwaitingId: String?,
     isRunning: Boolean,
     isActiveTurn: Boolean,
@@ -2821,6 +3224,14 @@ private fun TaskActivityCard(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f),
         shape = shape,
+        border = if (classicLook) {
+            BorderStroke(
+                0.6.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            )
+        } else {
+            null
+        },
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
@@ -2869,7 +3280,7 @@ private fun TaskActivityCard(
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                if (elapsedMs >= 1_000L) {
+                if (classicLook || elapsedMs >= 1_000L) {
                     Text(
                         text = formatTimelineElapsed(elapsedMs),
                         color = MaterialTheme.colorScheme.outline,
@@ -2893,7 +3304,8 @@ private fun TaskActivityCard(
                 if (showReasoning) {
                     ReasoningBlock(
                         reasoning = reasoningText,
-                        reasoningMs = reasoningMs.takeIf { it > 0 }
+                        reasoningMs = reasoningMs.takeIf { it > 0 },
+                        classicLook = classicLook
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
@@ -3285,6 +3697,7 @@ private fun ToolCard(
     message: ChatMessage,
     showDetails: Boolean,
     showStats: Boolean,
+    classicLook: Boolean = false,
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onOpenSources: (List<WebSource>) -> Unit
@@ -3308,6 +3721,19 @@ private fun ToolCard(
             .fillMaxWidth()
             .clip(compactShape)
             .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f))
+            .then(
+                if (classicLook) {
+                    Modifier.border(
+                        BorderStroke(
+                            0.5.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        ),
+                        compactShape
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable(enabled = hasDetails && !message.isRunning) { expanded = !expanded }
     ) {
@@ -4676,6 +5102,7 @@ private fun PendingConfirmationBar(
 @Composable
 private fun ConfirmationBottomSheet(
     request: ConfirmationRequest,
+    classicLook: Boolean = false,
     onCollapse: () -> Unit,
     onConfirm: (Set<String>?, Boolean) -> Unit,
     onReject: () -> Unit
@@ -4740,6 +5167,13 @@ private fun ConfirmationBottomSheet(
                         fontSize = TypeScale.title,
                         fontWeight = FontWeight.Medium
                     )
+                    if (classicLook) {
+                        Text(
+                            text = "Подтверждение операции",
+                            color = MaterialTheme.colorScheme.outline,
+                            fontSize = TypeScale.label
+                        )
+                    }
                 }
                 IconButton(onClick = { collapse() }) {
                     Icon(
@@ -4751,34 +5185,70 @@ private fun ConfirmationBottomSheet(
                 }
             }
 
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                shape = RunnerShapes.medium,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+            if (classicLook) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    shape = RunnerShapes.medium,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
                         text = request.details,
                         fontFamily = FontFamily.Monospace,
                         fontSize = TypeScale.caption,
                         lineHeight = 17.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(12.dp)
                     )
-                    if (request.preview.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            thickness = 0.5.dp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                if (request.preview.isNotBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                        shape = RunnerShapes.medium,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
                             text = request.preview,
                             fontFamily = FontFamily.Monospace,
                             fontSize = TypeScale.caption,
                             lineHeight = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(12.dp)
                         )
+                    }
+                }
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    shape = RunnerShapes.medium,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = request.details,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = TypeScale.caption,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (request.preview.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = request.preview,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = TypeScale.caption,
+                                lineHeight = 17.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

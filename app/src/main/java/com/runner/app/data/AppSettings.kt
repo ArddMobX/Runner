@@ -35,6 +35,11 @@ data class AppSettings(
     val showToolDetails: Boolean = true,
     /** Показывать тайминги, токены и скорость генерации. */
     val showStats: Boolean = false,
+    /**
+     * Классический вид чата: прежний пустой экран, лента 96% и карточки
+     * с рамками. Выключено по умолчанию — новый вид спокойнее.
+     */
+    val chatClassicLook: Boolean = false,
     /** Планирование: модель сначала составляет план шагов, исполнение — после подтверждения. */
     val planningEnabled: Boolean = true,
     /**
@@ -567,6 +572,7 @@ class SettingsStore(context: Context) {
             textScale = prefs.getFloat(KEY_TEXT_SCALE, 1f),
             showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
             showStats = prefs.getBoolean(KEY_SHOW_STATS, false),
+            chatClassicLook = prefs.getBoolean(KEY_CHAT_CLASSIC_LOOK, false),
             disclaimerAccepted = prefs.getBoolean(KEY_DISCLAIMER_ACCEPTED, false),
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false),
@@ -646,6 +652,7 @@ class SettingsStore(context: Context) {
             .putFloat(KEY_TEXT_SCALE, settings.textScale)
             .putBoolean(KEY_SHOW_TOOL_DETAILS, settings.showToolDetails)
             .putBoolean(KEY_SHOW_STATS, settings.showStats)
+            .putBoolean(KEY_CHAT_CLASSIC_LOOK, settings.chatClassicLook)
             .putBoolean(KEY_DISCLAIMER_ACCEPTED, settings.disclaimerAccepted)
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
             .putBoolean(KEY_CONFIRM_EVERY_STEP, settings.confirmEveryStep)
@@ -731,6 +738,7 @@ class SettingsStore(context: Context) {
         const val KEY_TEXT_SCALE = "text_scale"
         const val KEY_SHOW_TOOL_DETAILS = "show_tool_details"
         const val KEY_SHOW_STATS = "show_stats"
+        const val KEY_CHAT_CLASSIC_LOOK = "chat_classic_look"
         const val KEY_DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         const val KEY_PLANNING_ENABLED = "planning_enabled"
         const val KEY_CONFIRM_EVERY_STEP = "confirm_every_step"
