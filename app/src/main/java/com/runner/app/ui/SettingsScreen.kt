@@ -151,8 +151,16 @@ private sealed interface SettingsRoute {
     data object Providers : SettingsRoute
     data class ProviderEdit(val providerId: String) : SettingsRoute
     data object Agent : SettingsRoute
+    data object AgentBehavior : SettingsRoute
+    data object AgentTools : SettingsRoute
+    data object AgentWorkspace : SettingsRoute
     data object Commands : SettingsRoute
     data object Access : SettingsRoute
+    data object Appearance : SettingsRoute
+    data object Network : SettingsRoute
+    data object Diagnostics : SettingsRoute
+    data object Data : SettingsRoute
+    data object About : SettingsRoute
 
     /** Журнал обратимых операций: удаления и перемещения. */
     data object Trash : SettingsRoute
@@ -178,8 +186,16 @@ fun SettingsScreen(
         SettingsRoute.Providers -> "Провайдеры"
         is SettingsRoute.ProviderEdit -> "Провайдер"
         SettingsRoute.Agent -> "Агент"
+        SettingsRoute.AgentBehavior -> "Поведение"
+        SettingsRoute.AgentTools -> "Инструменты и доступ"
+        SettingsRoute.AgentWorkspace -> "Рабочая папка"
         SettingsRoute.Commands -> "Свои команды"
         SettingsRoute.Access -> "Доступы"
+        SettingsRoute.Appearance -> "Внешний вид"
+        SettingsRoute.Network -> "Сеть и прокси"
+        SettingsRoute.Diagnostics -> "Диагностика"
+        SettingsRoute.Data -> "Данные"
+        SettingsRoute.About -> "О приложении"
         SettingsRoute.Trash -> "Корзина"
         SettingsRoute.ShellLog -> "Журнал команд"
     }
@@ -232,7 +248,7 @@ fun SettingsScreen(
                 .imePadding()
         ) {
             when (val current = route) {
-                SettingsRoute.Root -> SettingsRoot(viewModel, onOpenSupport) { route = it }
+                SettingsRoute.Root -> SettingsRoot(viewModel) { route = it }
 
                 SettingsRoute.Providers -> ProvidersList(viewModel) { route = SettingsRoute.ProviderEdit(it) }
 
@@ -243,10 +259,19 @@ fun SettingsScreen(
                 )
 
                 SettingsRoute.Agent -> AgentSettings(viewModel) { route = it }
+                SettingsRoute.AgentBehavior -> AgentBehaviorSettings(viewModel)
+                SettingsRoute.AgentTools -> AgentToolsSettings(viewModel) { route = it }
+                SettingsRoute.AgentWorkspace -> AgentWorkspaceSettings(viewModel)
 
                 SettingsRoute.Commands -> CustomCommandsScreen(viewModel)
 
                 SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
+
+                SettingsRoute.Appearance -> AppearanceSettings(viewModel)
+                SettingsRoute.Network -> NetworkSettings(viewModel)
+                SettingsRoute.Diagnostics -> DiagnosticsSettings { route = it }
+                SettingsRoute.Data -> DataSettings(viewModel) { route = it }
+                SettingsRoute.About -> AboutSettings(viewModel, onOpenSupport)
 
                 SettingsRoute.Trash -> TrashListScreen(viewModel)
 
@@ -269,7 +294,6 @@ private data class SearchableSetting(
 @Composable
 private fun SettingsRoot(
     viewModel: MainViewModel,
-    onOpenSupport: () -> Unit,
     onNavigate: (SettingsRoute) -> Unit
 ) {
     val providers by viewModel.providers.collectAsState()
@@ -280,279 +304,256 @@ private fun SettingsRoot(
     val hasCall by viewModel.hasCallPermission.collectAsState()
     val hasAudio by viewModel.hasAudioPermission.collectAsState()
     val allPermissionsGranted = hasStorage && hasContacts && hasCall && hasAudio
-    val connectionState by viewModel.connectionTestState.collectAsState()
-    val themeConfig by viewModel.themeConfig.collectAsState()
     val customCommands by viewModel.customCommands.collectAsState()
     val context = LocalContext.current
-    var showReportPreviewDialog by remember { mutableStateOf(false) }
 
     var searchQuery by remember { mutableStateOf("") }
 
-    val proxyUrl = appSettings.reverseProxyUrl
-    val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            viewModel.updateSettings(appSettings.copy(notifyOnCompletion = true))
-        } else {
-            Toast.makeText(context, "Требуется разрешение на отправку уведомлений", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     val searchableItems = listOf(
-            SearchableSetting(
-                title = "Провайдеры и ключи",
-                section = "Провайдеры",
-                description = "Ключей: ${providers.count { it.apiKey.isNotBlank() }} · Активен: ${activeProvider?.name ?: "не выбран"}",
-                icon = RunnerIcons.VpnKey,
-                route = SettingsRoute.Providers
-            ),
-            SearchableSetting(
-                title = "Модель",
-                section = "Провайдеры",
-                description = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
-                icon = RunnerIcons.SmartToy,
-                route = SettingsRoute.Providers
-            ),
-            SearchableSetting(
-                title = "Профили инструкций",
-                section = "Агент",
-                description = "Пресеты системного промпта («Стандартный», «Краткий», «Подробный», «Осторожный»)",
-                icon = RunnerIcons.Terminal,
-                route = SettingsRoute.Agent
-            ),
-            SearchableSetting(
-                title = "Температура и шаги",
-                section = "Агент",
-                description = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
-                icon = RunnerIcons.Tune,
-                route = SettingsRoute.Agent
-            ),
-            SearchableSetting(
-                title = "Рабочая папка проекта",
-                section = "Агент",
-                description = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() } ?: "Вся память",
-                icon = RunnerIcons.FolderSpecial,
-                route = SettingsRoute.Agent
-            ),
-            SearchableSetting(
-                title = "Свои команды",
-                section = "Агент",
-                description = if (customCommands.isEmpty()) "Нет команд" else "Сохранено: ${customCommands.size}",
-                icon = RunnerIcons.Terminal,
-                route = SettingsRoute.Commands
-            ),
-            SearchableSetting(
-                title = "Разрешения и доступы",
-                section = "Доступы",
-                description = if (allPermissionsGranted) "Все разрешения выданы" else "Требуется настройка",
-                icon = RunnerIcons.FolderOpen,
-                route = SettingsRoute.Access
-            ),
-            SearchableSetting(
-                title = "Скрывать в недавних (FLAG_SECURE)",
-                section = "Безопасность",
-                description = if (appSettings.secureScreenMode) "Включено (скриншоты заблокированы)" else "Выключено",
-                icon = RunnerIcons.VisibilityOff,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(secureScreenMode = !appSettings.secureScreenMode))
-                }
-            ),
-            SearchableSetting(
-                title = "Тема оформления и AMOLED",
-                section = "Тема",
-                description = "Тёмная/светлая тема, динамический цвет, чистый чёрный AMOLED",
-                icon = RunnerIcons.AutoAwesome
-            ),
-            SearchableSetting(
-                title = "Масштаб текста",
-                section = "Интерфейс",
-                description = "${(appSettings.textScale * 100).roundToInt()}%",
-                icon = RunnerIcons.Tune
-            ),
-            SearchableSetting(
-                title = "Детали вызовов инструментов",
-                section = "Интерфейс",
-                description = if (appSettings.showToolDetails) "Показываются аргументы и вывод" else "Скрыты",
-                icon = RunnerIcons.Terminal,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(showToolDetails = !appSettings.showToolDetails))
-                }
-            ),
-            SearchableSetting(
-                title = "Время генерации и статистика",
-                section = "Интерфейс",
-                description = if (appSettings.showStats) "Показывается под сообщениями" else "Скрыта",
-                icon = RunnerIcons.Tune,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(showStats = !appSettings.showStats))
-                }
-            ),
-            SearchableSetting(
-                title = "Планирование шагов",
-                section = "Интерфейс",
-                description = if (appSettings.planningEnabled) "Включено: составление плана перед выполнением" else "Выключено",
-                icon = RunnerIcons.CheckCircle,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(planningEnabled = !appSettings.planningEnabled))
-                }
-            ),
-            SearchableSetting(
-                title = "Не гасить экран во время работы",
-                section = "Интерфейс",
-                description = if (appSettings.keepScreenOnWhileRunning) "Экран всегда включён во время задачи" else "Стандартный таймаут экрана",
-                icon = RunnerIcons.Visibility,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(keepScreenOnWhileRunning = !appSettings.keepScreenOnWhileRunning))
-                }
-            ),
-            SearchableSetting(
-                title = "Enter отправляет сообщение",
-                section = "Интерфейс",
-                description = if (appSettings.sendOnEnter) "Enter отправляет, Shift+Enter переносит" else "Enter переносит строку",
-                icon = RunnerIcons.Edit,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(sendOnEnter = !appSettings.sendOnEnter))
-                }
-            ),
-            SearchableSetting(
-                title = "Уведомления о завершении задач",
-                section = "Интерфейс",
-                description = if (appSettings.notifyOnCompletion) "Уведомления включены" else "Выключены",
-                icon = RunnerIcons.SmartToy,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(notifyOnCompletion = !appSettings.notifyOnCompletion))
-                }
-            ),
-            SearchableSetting(
-                title = "Озвучка ответов голосом (TTS)",
-                section = "Озвучка и речь",
-                description = if (appSettings.autoSpeakResponses) "Автоозвучка включена (${appSettings.ttsSpeed}x)" else "Автоозвучка отключена",
-                icon = RunnerIcons.VolumeUp,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(autoSpeakResponses = !appSettings.autoSpeakResponses))
-                }
-            ),
-            SearchableSetting(
-                title = "Тактильный отклик (вибрация)",
-                section = "Вибрация",
-                description = if (appSettings.hapticEnabled) "Вибрация включена (${appSettings.hapticIntensity})" else "Вибрация отключена",
-                icon = RunnerIcons.Tune,
-                onClick = {
-                    viewModel.updateSettings(appSettings.copy(hapticEnabled = !appSettings.hapticEnabled))
-                }
-            ),
-            SearchableSetting(
-                title = "Тест вибрации (3 сек)",
-                section = "Вибрация",
-                description = "Проверка тактильного отклика и силы импульса",
-                icon = RunnerIcons.Tune,
-                onClick = {
-                    val hasVib = viewModel.hapticManager.hasVibrator()
-                    if (hasVib) {
-                        Toast.makeText(context, "Тест вибрации запущен (3 сек)...", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Внимание: вибромотор не обнаружен устройством", Toast.LENGTH_LONG).show()
-                    }
-                    viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
-                }
-            ),
-            SearchableSetting(
-                title = "Отчет о сбое и неполадках",
-                section = "Диагностика",
-                description = "Скопировать технический отчет о системе и ошибках в буфер",
-                icon = RunnerIcons.BugReport,
-                onClick = {
-                    CrashReportManager.copyReport(context, "Отчет вызван пользователем через поиск настроек")
-                }
-            ),
-            SearchableSetting(
-                title = "Просмотр отчета диагностики",
-                section = "Диагностика",
-                description = "Посмотреть лог диагностики, статус разрешений и памяти",
-                icon = RunnerIcons.Article,
-                onClick = {
-                    showReportPreviewDialog = true
-                }
-            ),
-            SearchableSetting(
-                title = "Reverse proxy",
-                section = "Сеть и прокси",
-                description = proxyUrl.ifBlank { "Прямое подключение к Base URL" },
-                icon = RunnerIcons.Refresh
-            ),
-            SearchableSetting(
-                title = "Проверка связи",
-                section = "Сеть и прокси",
-                description = "Тестирование пинга до API",
-                icon = RunnerIcons.CheckCircle,
-                onClick = { viewModel.testConnection() }
-            ),
-            SearchableSetting(
-                title = "Таймауты сети",
-                section = "Сеть и прокси",
-                description = "Подключение ${appSettings.connectTimeoutSeconds}с · Ответ ${appSettings.responseTimeoutSeconds}с",
-                icon = RunnerIcons.Tune
-            ),
-            SearchableSetting(
-                title = "Бюджет контекста",
-                section = "Сеть и прокси",
-                description = when {
-                    appSettings.contextBudgetChars >= 1_000_000 -> "${appSettings.contextBudgetChars / 1_000_000}M символов"
-                    else -> "${appSettings.contextBudgetChars / 1000}K символов"
-                },
-                icon = RunnerIcons.Tune
-            ),
-            SearchableSetting(
-                title = "Кастомные заголовки (Headers)",
-                section = "Сеть и прокси",
-                description = if (appSettings.customHeaders.isNotBlank()) "Заданы (${appSettings.customHeaders.lines().size} строк)" else "Не заданы",
-                icon = RunnerIcons.Terminal
-            ),
-            SearchableSetting(
-                title = "Корзина удалённых файлов",
-                section = "Опасные действия",
-                description = "Восстановление файлов, удалённых агентом",
-                icon = RunnerIcons.Undo,
-                route = SettingsRoute.Trash
-            ),
-            SearchableSetting(
-                title = "Поддержать проект",
-                section = "О проекте",
-                description = "TON и Telegram Stars",
-                icon = RunnerIcons.Favorite,
-                onClick = onOpenSupport
-            ),
-            SearchableSetting(
-                title = "Telegram-канал",
-                section = "О проекте",
-                description = "@runner_agent - новости разработки",
-                icon = RunnerIcons.Telegram,
-                onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
-            ),
-            SearchableSetting(
-                title = "TikTok",
-                section = "О проекте",
-                description = "@runner_agent",
-                icon = RunnerIcons.MusicNote,
-                onClick = { openExternalUrl(context, DONATE_TIKTOK) }
-            ),
-            SearchableSetting(
-                title = "Сбросить все настройки",
-                section = "Сброс",
-                description = "К заводским значениям",
-                icon = RunnerIcons.RestartAlt
-            )
+        SearchableSetting(
+            title = "Провайдеры и ключи",
+            section = "Провайдеры",
+            description = "Ключей: ${providers.count { it.apiKey.isNotBlank() }} · Активен: ${activeProvider?.name ?: "не выбран"}",
+            icon = RunnerIcons.VpnKey,
+            route = SettingsRoute.Providers
+        ),
+        SearchableSetting(
+            title = "Модель",
+            section = "Провайдеры",
+            description = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
+            icon = RunnerIcons.SmartToy,
+            route = SettingsRoute.Providers
+        ),
+        SearchableSetting(
+            title = "Профили инструкций",
+            section = "Агент · Поведение",
+            description = "Пресеты системного промпта и свои инструкции",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.AgentBehavior
+        ),
+        SearchableSetting(
+            title = "Температура и лимиты",
+            section = "Агент · Поведение",
+            description = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
+            icon = RunnerIcons.Tune,
+            route = SettingsRoute.AgentBehavior
+        ),
+        SearchableSetting(
+            title = "Планирование шагов",
+            section = "Агент · Поведение",
+            description = if (appSettings.planningEnabled) "Включено" else "Выключено",
+            icon = RunnerIcons.CheckCircle,
+            route = SettingsRoute.AgentBehavior
+        ),
+        SearchableSetting(
+            title = "Бюджет контекста",
+            section = "Агент · Поведение",
+            description = when {
+                appSettings.contextBudgetChars >= 1_000_000 -> "${appSettings.contextBudgetChars / 1_000_000}M символов"
+                else -> "${appSettings.contextBudgetChars / 1000}K символов"
+            },
+            icon = RunnerIcons.Tune,
+            route = SettingsRoute.AgentBehavior
+        ),
+        SearchableSetting(
+            title = "Рабочая папка проекта",
+            section = "Агент · Рабочая папка",
+            description = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() } ?: "Вся память",
+            icon = RunnerIcons.FolderSpecial,
+            route = SettingsRoute.AgentWorkspace
+        ),
+        SearchableSetting(
+            title = "Подтверждения и сухой прогон",
+            section = "Агент · Инструменты",
+            description = if (appSettings.confirmDangerous) "Опасные действия спрашивают" else "Без подтверждений",
+            icon = RunnerIcons.Warning,
+            route = SettingsRoute.AgentTools
+        ),
+        SearchableSetting(
+            title = "Shell, root и мосты",
+            section = "Агент · Инструменты",
+            description = "Shell, root, Termux и Shizuku",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.AgentTools
+        ),
+        SearchableSetting(
+            title = "Termux-мост",
+            section = "Агент · Инструменты",
+            description = TermuxBridge.status(context),
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.AgentTools
+        ),
+        SearchableSetting(
+            title = "Shizuku-мост",
+            section = "Агент · Инструменты",
+            description = if (ShizukuBridge.isInstalled(context)) "Установлен, работает через rish" else "Не установлен",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.AgentTools
+        ),
+        SearchableSetting(
+            title = "Журнал shell-команд",
+            section = "Агент · Инструменты",
+            description = "Выполненные и отклонённые команды",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.ShellLog
+        ),
+        SearchableSetting(
+            title = "Свои команды",
+            section = "Агент",
+            description = if (customCommands.isEmpty()) "Нет команд" else "Сохранено: ${customCommands.size}",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.Commands
+        ),
+        SearchableSetting(
+            title = "Разрешения и доступы",
+            section = "Доступы",
+            description = if (allPermissionsGranted) "Все разрешения выданы" else "Требуется настройка",
+            icon = RunnerIcons.FolderOpen,
+            route = SettingsRoute.Access
+        ),
+        SearchableSetting(
+            title = "Скрывать в недавних (FLAG_SECURE)",
+            section = "Безопасность",
+            description = if (appSettings.secureScreenMode) "Включено" else "Выключено",
+            icon = RunnerIcons.VisibilityOff,
+            onClick = {
+                viewModel.updateSettings(appSettings.copy(secureScreenMode = !appSettings.secureScreenMode))
+            }
+        ),
+        SearchableSetting(
+            title = "Тема и AMOLED",
+            section = "Внешний вид",
+            description = "Тёмная/светлая тема, динамический цвет, чистый чёрный",
+            icon = RunnerIcons.AutoAwesome,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Масштаб текста",
+            section = "Внешний вид",
+            description = "${(appSettings.textScale * 100).roundToInt()}%",
+            icon = RunnerIcons.Tune,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Детали вызовов инструментов",
+            section = "Внешний вид",
+            description = if (appSettings.showToolDetails) "Показываются" else "Скрыты",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Статистика ответов",
+            section = "Внешний вид",
+            description = if (appSettings.showStats) "Показывается" else "Скрыта",
+            icon = RunnerIcons.Tune,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Не гасить экран во время работы",
+            section = "Внешний вид",
+            description = if (appSettings.keepScreenOnWhileRunning) "Включено" else "Стандартный таймаут",
+            icon = RunnerIcons.Visibility,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Enter отправляет сообщение",
+            section = "Внешний вид",
+            description = if (appSettings.sendOnEnter) "Enter отправляет" else "Enter переносит строку",
+            icon = RunnerIcons.Edit,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Уведомления о завершении задач",
+            section = "Внешний вид",
+            description = if (appSettings.notifyOnCompletion) "Включены" else "Выключены",
+            icon = RunnerIcons.SmartToy,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Озвучка ответов (TTS)",
+            section = "Внешний вид",
+            description = if (appSettings.autoSpeakResponses) "Автоозвучка включена" else "Только по кнопке",
+            icon = RunnerIcons.VolumeUp,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Вибрация и тактильный отклик",
+            section = "Внешний вид",
+            description = if (appSettings.hapticEnabled) "Включена" else "Выключена",
+            icon = RunnerIcons.Tune,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Сеть и прокси",
+            section = "Сеть",
+            description = if (appSettings.reverseProxyUrl.isBlank()) "Прямое подключение" else appSettings.reverseProxyUrl,
+            icon = RunnerIcons.Refresh,
+            route = SettingsRoute.Network
+        ),
+        SearchableSetting(
+            title = "Таймауты сети",
+            section = "Сеть",
+            description = "Подключение ${appSettings.connectTimeoutSeconds}с · Ответ ${appSettings.responseTimeoutSeconds}с",
+            icon = RunnerIcons.Tune,
+            route = SettingsRoute.Network
+        ),
+        SearchableSetting(
+            title = "Кастомные заголовки",
+            section = "Сеть",
+            description = if (appSettings.customHeaders.isNotBlank()) "Заданы" else "Не заданы",
+            icon = RunnerIcons.Terminal,
+            route = SettingsRoute.Network
+        ),
+        SearchableSetting(
+            title = "Диагностика и отчёт",
+            section = "Диагностика",
+            description = "Отчёт о сбое, логи и память",
+            icon = RunnerIcons.BugReport,
+            route = SettingsRoute.Diagnostics
+        ),
+        SearchableSetting(
+            title = "Корзина удалённых файлов",
+            section = "Данные",
+            description = "Восстановление файлов и очистка",
+            icon = RunnerIcons.Undo,
+            route = SettingsRoute.Data
+        ),
+        SearchableSetting(
+            title = "Поддержать проект",
+            section = "О приложении",
+            description = "TON и Telegram Stars",
+            icon = RunnerIcons.Favorite,
+            route = SettingsRoute.About
+        ),
+        SearchableSetting(
+            title = "Telegram-канал",
+            section = "О приложении",
+            description = "@runner_agent - новости разработки",
+            icon = RunnerIcons.Telegram,
+            onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
+        ),
+        SearchableSetting(
+            title = "TikTok",
+            section = "О приложении",
+            description = "@runner_agent",
+            icon = RunnerIcons.MusicNote,
+            onClick = { openExternalUrl(context, DONATE_TIKTOK) }
+        ),
+        SearchableSetting(
+            title = "Сбросить все настройки",
+            section = "О приложении",
+            description = "К заводским значениям",
+            icon = RunnerIcons.RestartAlt,
+            route = SettingsRoute.About
         )
+    )
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
     ) {
         // Поле поиска настроек
         BasicTextField(
@@ -655,61 +656,65 @@ private fun SettingsRoot(
                 }
             }
         } else {
+            // Обзор: только статусы и короткие переходы, без простыни тумблеров.
             SettingsGroup("Провайдеры") {
-                val keysCount = providers.count { it.apiKey.isNotBlank() }
-                SettingsRow(
-                    label = "Провайдеры и ключи",
-                    value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "не выбран"}",
-                    onClick = { onNavigate(SettingsRoute.Providers) },
-                    icon = RunnerIcons.VpnKey
-                )
-                SettingsDivider()
-                SettingsRow(
-                    label = "Модель",
-                    // Показываем человеческое имя, технический ID живёт в списке выбора
-                    value = formatModelName(activeProvider?.activeModel.orEmpty()),
-                    onClick = { onNavigate(SettingsRoute.Providers) },
-                    icon = RunnerIcons.SmartToy
-                )
-            }
+            val keysCount = providers.count { it.apiKey.isNotBlank() }
+            SettingsRow(
+                label = "Провайдеры и ключи",
+                value = "Ключей: $keysCount · Активен: ${activeProvider?.name ?: "не выбран"}",
+                onClick = { onNavigate(SettingsRoute.Providers) },
+                icon = RunnerIcons.VpnKey
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Модель",
+                value = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
+                onClick = { onNavigate(SettingsRoute.Providers) },
+                icon = RunnerIcons.SmartToy
+            )
+        }
 
-            SettingsGroup("Агент") {
-                val activeProfile = appSettings.instructionProfiles.firstOrNull { it.id == appSettings.activeInstructionProfileId }
-                SettingsRow(
-                    label = "Профиль инструкций",
-                    value = "${activeProfile?.title ?: "Стандартный"} · ${appSettings.effectiveInstructions.trim().takeIf { it.isNotEmpty() }?.let { "${it.length} симв." } ?: "Без промпта"}",
-                    onClick = { onNavigate(SettingsRoute.Agent) },
-                    icon = RunnerIcons.Terminal
-                )
-                SettingsDivider()
-                SettingsRow(
-                    label = "Температура и шаги",
-                    value = "${appSettings.temperature} · ${if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps)}",
-                    onClick = { onNavigate(SettingsRoute.Agent) },
-                    icon = RunnerIcons.Tune
-                )
-                SettingsDivider()
-                SettingsRow(
-                    label = "Рабочая папка проекта",
-                    value = appSettings.defaultWorkingDir.takeIf { it.isNotBlank() }?.let {
-                        val name = it.trimEnd('/').substringAfterLast('/')
-                        if (name.isNotEmpty()) name else it
-                    } ?: "Вся память",
-                    onClick = { onNavigate(SettingsRoute.Agent) },
-                    icon = RunnerIcons.FolderSpecial
-                )
-                SettingsDivider()
-                SettingsRow(
-                    label = "Свои команды",
-                    value = if (customCommands.isEmpty()) {
-                        "Нет команд"
-                    } else {
-                        "${customCommands.size} шт."
-                    },
-                    onClick = { onNavigate(SettingsRoute.Commands) },
-                    icon = RunnerIcons.Terminal
-                )
-            }
+        SettingsGroup("Агент") {
+            SettingsRow(
+                label = "Поведение",
+                value = "${appSettings.temperature} · " +
+                        if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps),
+                onClick = { onNavigate(SettingsRoute.AgentBehavior) },
+                icon = RunnerIcons.Tune
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Инструменты и доступ",
+                value = if (appSettings.readOnlyMode) {
+                    "Только чтение"
+                } else if (appSettings.confirmDangerous) {
+                    "Подтверждения включены"
+                } else {
+                    "Без подтверждений"
+                },
+                onClick = { onNavigate(SettingsRoute.AgentTools) },
+                icon = RunnerIcons.Terminal
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Рабочая папка",
+                value = appSettings.defaultWorkingDir
+                    .takeIf { it.isNotBlank() }
+                    ?.trimEnd('/')
+                    ?.substringAfterLast('/')
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: "Вся память",
+                onClick = { onNavigate(SettingsRoute.AgentWorkspace) },
+                icon = RunnerIcons.FolderSpecial
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Свои команды",
+                value = if (customCommands.isEmpty()) "Нет команд" else "${customCommands.size} шт.",
+                onClick = { onNavigate(SettingsRoute.Commands) },
+                icon = RunnerIcons.Terminal
+            )
+        }
 
         SettingsGroup("Доступы") {
             SettingsRow(
@@ -735,7 +740,7 @@ private fun SettingsRoot(
                         fontSize = TypeScale.body
                     )
                     Text(
-                        text = "Блокирует скриншоты и скрывает экран в списке задач для защиты ключей и путей (FLAG_SECURE)",
+                        text = "Блокирует скриншоты и скрывает экран в списке задач",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption
                     )
@@ -750,6 +755,594 @@ private fun SettingsRoot(
             }
         }
 
+        SettingsGroup("Внешний вид") {
+            SettingsRow(
+                label = "Тема, голос и интерфейс",
+                value = "Тема, TTS, вибрация, подсказки",
+                onClick = { onNavigate(SettingsRoute.Appearance) },
+                icon = RunnerIcons.AutoAwesome
+            )
+        }
+
+        SettingsGroup("Данные") {
+            SettingsRow(
+                label = "Корзина и история",
+                value = "Восстановление, очистка, экспорт",
+                onClick = { onNavigate(SettingsRoute.Data) },
+                icon = RunnerIcons.Undo
+            )
+        }
+
+        SettingsGroup("Диагностика") {
+            SettingsRow(
+                label = "Отчёты, логи и проверки",
+                value = "Сбой, shell, мосты и root",
+                onClick = { onNavigate(SettingsRoute.Diagnostics) },
+                icon = RunnerIcons.BugReport
+            )
+        }
+
+        SettingsGroup("О приложении") {
+            SettingsRow(
+                label = "Поддержка, каналы и сброс",
+                value = "Runner",
+                onClick = { onNavigate(SettingsRoute.About) },
+                icon = RunnerIcons.Info
+            )
+        }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+@Composable
+private fun AboutSettings(viewModel: MainViewModel, onOpenSupport: () -> Unit) {
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup("О проекте") {
+            SettingsRow(
+                label = "Поддержать проект",
+                value = "TON · Telegram",
+                onClick = onOpenSupport,
+                icon = RunnerIcons.Favorite
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Telegram-канал",
+                value = "@runner_agent",
+                onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) },
+                icon = RunnerIcons.Telegram
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "TikTok",
+                value = "@runner_agent",
+                onClick = { openExternalUrl(context, DONATE_TIKTOK) },
+                icon = RunnerIcons.MusicNote
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Исходный код на GitHub",
+                value = "ArddMobX/Runner",
+                onClick = { openExternalUrl(context, DONATE_GITHUB_REPO) },
+                icon = RunnerIcons.Code
+            )
+        }
+
+        SettingsGroup("Сброс") {
+            var showResetDialog by remember { mutableStateOf(false) }
+
+            SettingsRow(
+                label = "Сбросить все настройки",
+                value = "К заводским значениям",
+                valueColor = MaterialTheme.colorScheme.error,
+                onClick = { showResetDialog = true },
+                icon = RunnerIcons.RestartAlt
+            )
+
+            if (showResetDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetDialog = false },
+                    title = {
+                        Text(
+                            text = "Сбросить настройки?",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "Все параметры приложения вернутся к исходным заводским значениям. API-ключи провайдеров и история чатов не будут удалены.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = TypeScale.body
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                viewModel.resetSettingsToDefault()
+                                showResetDialog = false
+                            }
+                        ) {
+                            Text(
+                                text = "Сбросить",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showResetDialog = false }) {
+                            Text(
+                                text = "Отмена",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RunnerShapes.large
+                )
+            }
+        }
+    }
+}
+@Composable
+private fun DataSettings(
+    viewModel: MainViewModel,
+    onNavigate: (SettingsRoute) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        TrashSettings(viewModel, onNavigate)
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
+    val context = LocalContext.current
+    var showReportPreviewDialog by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup("Диагностика и отчет о сбоях") {
+            SettingsRow(
+                label = "Отчет о сбое и неполадках",
+                value = "Скопировать в буфер",
+                onClick = {
+                    CrashReportManager.copyReport(context, "Отчет вызван пользователем из настроек")
+                },
+                icon = RunnerIcons.BugReport
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Просмотр отчета",
+                value = "Открыть текст",
+                onClick = {
+                    showReportPreviewDialog = true
+                },
+                icon = RunnerIcons.Article
+            )
+        }
+
+        if (showReportPreviewDialog) {
+            val reportText = remember { CrashReportManager.buildReport(context, "Диагностический отчет") }
+            AlertDialog(
+                onDismissRequest = { showReportPreviewDialog = false },
+                title = {
+                    Text(
+                        text = "Диагностический отчет",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .clip(RunnerShapes.small)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                            .padding(10.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                text = reportText,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = TypeScale.caption,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчет о сбое Runner", reportText))
+                            Toast.makeText(context, "Отчет скопирован в буфер", Toast.LENGTH_SHORT).show()
+                            showReportPreviewDialog = false
+                        }
+                    ) {
+                        Text(
+                            text = "Скопировать",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showReportPreviewDialog = false }) {
+                        Text(
+                            text = "Закрыть",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RunnerShapes.large
+            )
+        }
+
+        SettingsGroup("Журналы") {
+            SettingsRow(
+                label = "Журнал shell-команд",
+                value = "выполненные и отклонённые",
+                onClick = { onNavigate(SettingsRoute.ShellLog) },
+                icon = RunnerIcons.Terminal
+            )
+        }
+    }
+}
+@Composable
+private fun NetworkSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+    val activeProvider by viewModel.activeProvider.collectAsState()
+    val connectionState by viewModel.connectionTestState.collectAsState()
+    val context = LocalContext.current
+    val proxyUrl = appSettings.reverseProxyUrl
+    val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup("Сеть и прокси") {
+            // 1. Поле Reverse Proxy
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Reverse proxy",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = TypeScale.body,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                BasicTextField(
+                    value = proxyUrl,
+                    onValueChange = {
+                        viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RunnerShapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RunnerShapes.small
+                        ),
+                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label),
+                    singleLine = true,
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Row(
+                            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (proxyUrl.isEmpty()) {
+                                    Text(
+                                        text = "https://my-proxy.workers.dev/v1",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = TypeScale.label
+                                    )
+                                }
+                                innerTextField()
+                            }
+
+                            // Точка статуса валидности адреса
+                            if (proxyUrl.isNotBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isValidProxy) StatusSuccess else MaterialTheme.colorScheme.error
+                                        )
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val text = readClipboard(context)
+                                    if (text.isNotBlank()) {
+                                        viewModel.updateSettings(
+                                            appSettings.copy(reverseProxyUrl = text.trim())
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    imageVector = RunnerIcons.ContentPaste,
+                                    contentDescription = "Вставить из буфера",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = when {
+                        proxyUrl.isBlank() -> "Если задан, запросы идут через него вместо прямого Base URL."
+                        isValidProxy -> "Адрес корректен."
+                        else -> "Нужен полный адрес вида https://host/path"
+                    },
+                    color = if (proxyUrl.isNotBlank() && !isValidProxy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+                    fontSize = TypeScale.caption
+                )
+            }
+
+            SettingsDivider()
+
+            // 2. Проверка соединения: статус и триггер - единый виджет.
+            // Тап по плашке запускает проверку заново, отдельная кнопка не нужна.
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Проверка связи",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = TypeScale.body,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = TypeScale.caption
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                ConnectionStatusWidget(
+                    isTesting = connectionState.isTesting,
+                    result = connectionState.result,
+                    onCheck = { viewModel.testConnection() }
+                )
+            }
+
+            SettingsDivider()
+
+            // 3a. Таймаут подключения
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Таймаут подключения",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${appSettings.connectTimeoutSeconds} с",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = TypeScale.label,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Время на установку сетевого соединения с сервером",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = TypeScale.caption
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.CONNECT_TIMEOUT_PRESETS.map { sec -> sec to "${sec}с" },
+                    selected = appSettings.connectTimeoutSeconds,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(connectTimeoutSeconds = it)) }
+                )
+            }
+
+            SettingsDivider()
+
+            // 3b. Таймаут ответа
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Таймаут ответа",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${appSettings.responseTimeoutSeconds} с",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = TypeScale.label,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Ожидание ответа и генерации токенов моделью",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = TypeScale.caption
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.RESPONSE_TIMEOUT_PRESETS.map { sec -> sec to "${sec}с" },
+                    selected = appSettings.responseTimeoutSeconds,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(responseTimeoutSeconds = it)) }
+                )
+            }
+
+            // 4. Кастомные заголовки (Custom Headers)
+            val customHeaders = appSettings.customHeaders
+            var showSecrets by remember { mutableStateOf(false) }
+
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Кастомные заголовки (Headers)",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = TypeScale.body,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Cloudflare Access, X-Api-Key. Заголовок Authorization здесь заменяет ключ выбранного провайдера.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = TypeScale.caption
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { showSecrets = !showSecrets },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (showSecrets) RunnerIcons.VisibilityOff else RunnerIcons.Visibility,
+                                contentDescription = if (showSecrets) "Скрыть секреты" else "Показать секреты",
+                                tint = if (showSecrets) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = {
+                                val text = readClipboard(context)
+                                if (text.isNotBlank()) {
+                                    val current = if (customHeaders.isBlank()) text.trim() else "${customHeaders.trim()}\n${text.trim()}"
+                                    viewModel.updateSettings(appSettings.copy(customHeaders = current))
+                                }
+                            },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = RunnerIcons.ContentPaste,
+                                contentDescription = "Вставить заголовки из буфера",
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                BasicTextField(
+                    value = customHeaders,
+                    onValueChange = {
+                        viewModel.updateSettings(appSettings.copy(customHeaders = it))
+                    },
+                    visualTransformation = if (showSecrets) VisualTransformation.None else remember { SecretHeadersVisualTransformation() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RunnerShapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            RunnerShapes.small
+                        )
+                        .padding(12.dp),
+                    textStyle = TextStyle(
+                        // Свой текст ярче подсказки: это содержимое, а не подпись
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.caption,
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 16.sp
+                    ),
+                    minLines = 3,
+                    maxLines = 6,
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (customHeaders.isEmpty()) {
+                                Text(
+                                    text = "CF-Access-Client-Id: xxx\nCF-Access-Client-Secret: yyy\nX-Custom-Auth: zzz",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    fontSize = TypeScale.caption,
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Формат: Header: Value (по одной строке) или JSON объект.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = TypeScale.caption
+                )
+            }
+        }
+
+    }
+}
+@Composable
+private fun AppearanceSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+    val themeConfig by viewModel.themeConfig.collectAsState()
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.updateSettings(appSettings.copy(notifyOnCompletion = true))
+        } else {
+            Toast.makeText(context, "Требуется разрешение на отправку уведомлений", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
         SettingsGroup("Тема") {
             ThemeSettingsContent(
                 themeConfig = themeConfig,
@@ -829,35 +1422,6 @@ private fun SettingsRoot(
                     checked = appSettings.showStats,
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(showStats = it))
-                    },
-                    colors = runnerSwitchColors()
-                )
-            }
-
-            SettingsDivider()
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Планирование шагов",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body
-                    )
-                    Text(
-                        text = "Модель сначала составляет план, исполнение - после подтверждения",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = TypeScale.caption
-                    )
-                }
-                Switch(
-                    checked = appSettings.planningEnabled,
-                    onCheckedChange = {
-                        viewModel.updateSettings(appSettings.copy(planningEnabled = it))
                     },
                     colors = runnerSwitchColors()
                 )
@@ -1091,506 +1655,8 @@ private fun SettingsRoot(
 
         VibrationSettingsCard(viewModel = viewModel, appSettings = appSettings)
 
-        SettingsGroup("Сеть и прокси") {
-            // 1. Поле Reverse Proxy
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "Reverse proxy",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = TypeScale.body,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                BasicTextField(
-                    value = proxyUrl,
-                    onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RunnerShapes.small)
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RunnerShapes.small
-                        ),
-                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label),
-                    singleLine = true,
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    decorationBox = { innerTextField ->
-                        Row(
-                            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                if (proxyUrl.isEmpty()) {
-                                    Text(
-                                        text = "https://my-proxy.workers.dev/v1",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = TypeScale.label
-                                    )
-                                }
-                                innerTextField()
-                            }
-
-                            // Точка статуса валидности адреса
-                            if (proxyUrl.isNotBlank()) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(end = 8.dp)
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isValidProxy) StatusSuccess else MaterialTheme.colorScheme.error
-                                        )
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    val text = readClipboard(context)
-                                    if (text.isNotBlank()) {
-                                        viewModel.updateSettings(
-                                            appSettings.copy(reverseProxyUrl = text.trim())
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.size(30.dp)
-                            ) {
-                                Icon(
-                                    imageVector = RunnerIcons.ContentPaste,
-                                    contentDescription = "Вставить из буфера",
-                                    tint = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                        }
-                    }
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = when {
-                        proxyUrl.isBlank() -> "Если задан, запросы идут через него вместо прямого Base URL."
-                        isValidProxy -> "Адрес корректен."
-                        else -> "Нужен полный адрес вида https://host/path"
-                    },
-                    color = if (proxyUrl.isNotBlank() && !isValidProxy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
-                    fontSize = TypeScale.caption
-                )
-            }
-
-            SettingsDivider()
-
-            // 2. Проверка соединения: статус и триггер - единый виджет.
-            // Тап по плашке запускает проверку заново, отдельная кнопка не нужна.
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "Проверка связи",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = TypeScale.body,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.caption
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                ConnectionStatusWidget(
-                    isTesting = connectionState.isTesting,
-                    result = connectionState.result,
-                    onCheck = { viewModel.testConnection() }
-                )
-            }
-
-            SettingsDivider()
-
-            // 3a. Таймаут подключения
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Таймаут подключения",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "${appSettings.connectTimeoutSeconds} с",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = TypeScale.label,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Время на установку сетевого соединения с сервером",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.caption
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                SegmentedChips(
-                    options = AppSettings.CONNECT_TIMEOUT_PRESETS.map { sec -> sec to "${sec}с" },
-                    selected = appSettings.connectTimeoutSeconds,
-                    onSelect = { viewModel.updateSettings(appSettings.copy(connectTimeoutSeconds = it)) }
-                )
-            }
-
-            SettingsDivider()
-
-            // 3b. Таймаут ответа
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Таймаут ответа",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "${appSettings.responseTimeoutSeconds} с",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = TypeScale.label,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Ожидание ответа и генерации токенов моделью",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.caption
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                SegmentedChips(
-                    options = AppSettings.RESPONSE_TIMEOUT_PRESETS.map { sec -> sec to "${sec}с" },
-                    selected = appSettings.responseTimeoutSeconds,
-                    onSelect = { viewModel.updateSettings(appSettings.copy(responseTimeoutSeconds = it)) }
-                )
-            }
-
-            SettingsDivider()
-
-            // Бюджет контекста: сколько истории реально уходит в запрос.
-            // Старые реплики отбрасываются целиком, вместе с ответами инструментов.
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Бюджет контекста",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Сколько истории диалога уходит в запрос. Старые шаги отбрасываются, " +
-                            "хвост и системный промпт сохраняются.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.caption
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                SegmentedChips(
-                    options = AppSettings.CONTEXT_BUDGET_PRESETS.map { budget ->
-                        budget to when {
-                            budget >= 1_000_000 -> "${budget / 1_000_000}M"
-                            else -> "${budget / 1000}K"
-                        }
-                    },
-                    selected = appSettings.contextBudgetChars,
-                    onSelect = { viewModel.updateSettings(appSettings.copy(contextBudgetChars = it)) }
-                )
-            }
-
-            SettingsDivider()
-
-            // 4. Кастомные заголовки (Custom Headers)
-            val customHeaders = appSettings.customHeaders
-            var showSecrets by remember { mutableStateOf(false) }
-
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Кастомные заголовки (Headers)",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = TypeScale.body,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Cloudflare Access, X-Api-Key. Заголовок Authorization здесь заменяет ключ выбранного провайдера.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = TypeScale.caption
-                        )
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = { showSecrets = !showSecrets },
-                            modifier = Modifier.size(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (showSecrets) RunnerIcons.VisibilityOff else RunnerIcons.Visibility,
-                                contentDescription = if (showSecrets) "Скрыть секреты" else "Показать секреты",
-                                tint = if (showSecrets) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        IconButton(
-                            onClick = {
-                                val text = readClipboard(context)
-                                if (text.isNotBlank()) {
-                                    val current = if (customHeaders.isBlank()) text.trim() else "${customHeaders.trim()}\n${text.trim()}"
-                                    viewModel.updateSettings(appSettings.copy(customHeaders = current))
-                                }
-                            },
-                            modifier = Modifier.size(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = RunnerIcons.ContentPaste,
-                                contentDescription = "Вставить заголовки из буфера",
-                                tint = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                BasicTextField(
-                    value = customHeaders,
-                    onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(customHeaders = it))
-                    },
-                    visualTransformation = if (showSecrets) VisualTransformation.None else remember { SecretHeadersVisualTransformation() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RunnerShapes.small)
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(
-                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            RunnerShapes.small
-                        )
-                        .padding(12.dp),
-                    textStyle = TextStyle(
-                        // Свой текст ярче подсказки: это содержимое, а не подпись
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.caption,
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = 16.sp
-                    ),
-                    minLines = 3,
-                    maxLines = 6,
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    decorationBox = { innerTextField ->
-                        Box {
-                            if (customHeaders.isEmpty()) {
-                                Text(
-                                    text = "CF-Access-Client-Id: xxx\nCF-Access-Client-Secret: yyy\nX-Custom-Auth: zzz",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    fontSize = TypeScale.caption,
-                                    fontFamily = FontFamily.Monospace,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Формат: Header: Value (по одной строке) или JSON объект.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.caption
-                )
-            }
-        }
-
-        SettingsGroup("Диагностика и отчет о сбоях") {
-            SettingsRow(
-                label = "Отчет о сбое и неполадках",
-                value = "Скопировать в буфер",
-                onClick = {
-                    CrashReportManager.copyReport(context, "Отчет вызван пользователем из настроек")
-                },
-                icon = RunnerIcons.BugReport
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Просмотр отчета",
-                value = "Открыть текст",
-                onClick = {
-                    showReportPreviewDialog = true
-                },
-                icon = RunnerIcons.Article
-            )
-        }
-
-        if (showReportPreviewDialog) {
-            val reportText = remember { CrashReportManager.buildReport(context, "Диагностический отчет") }
-            AlertDialog(
-                onDismissRequest = { showReportPreviewDialog = false },
-                title = {
-                    Text(
-                        text = "Диагностический отчет",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                },
-                text = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 380.dp)
-                            .clip(RunnerShapes.small)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
-                            .padding(10.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        SelectionContainer {
-                            Text(
-                                text = reportText,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = TypeScale.caption,
-                                fontFamily = FontFamily.Monospace,
-                                lineHeight = 16.sp
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчет о сбое Runner", reportText))
-                            Toast.makeText(context, "Отчет скопирован в буфер", Toast.LENGTH_SHORT).show()
-                            showReportPreviewDialog = false
-                        }
-                    ) {
-                        Text(
-                            text = "Скопировать",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showReportPreviewDialog = false }) {
-                        Text(
-                            text = "Закрыть",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RunnerShapes.large
-            )
-        }
-
-        SettingsGroup("О проекте") {
-            SettingsRow(
-                label = "Поддержать проект",
-                value = "TON · Telegram",
-                onClick = onOpenSupport,
-                icon = RunnerIcons.Favorite
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Telegram-канал",
-                value = "@runner_agent",
-                onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) },
-                icon = RunnerIcons.Telegram
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "TikTok",
-                value = "@runner_agent",
-                onClick = { openExternalUrl(context, DONATE_TIKTOK) },
-                icon = RunnerIcons.MusicNote
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Исходный код на GitHub",
-                value = "ArddMobX/Runner",
-                onClick = { openExternalUrl(context, DONATE_GITHUB_REPO) },
-                icon = RunnerIcons.Code
-            )
-        }
-
-        SettingsGroup("Сброс") {
-            var showResetDialog by remember { mutableStateOf(false) }
-
-            SettingsRow(
-                label = "Сбросить все настройки",
-                value = "К заводским значениям",
-                valueColor = MaterialTheme.colorScheme.error,
-                onClick = { showResetDialog = true },
-                icon = RunnerIcons.RestartAlt
-            )
-
-            if (showResetDialog) {
-                AlertDialog(
-                    onDismissRequest = { showResetDialog = false },
-                    title = {
-                        Text(
-                            text = "Сбросить настройки?",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = "Все параметры приложения вернутся к исходным заводским значениям. API-ключи провайдеров и история чатов не будут удалены.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = TypeScale.body
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                viewModel.resetSettingsToDefault()
-                                showResetDialog = false
-                            }
-                        ) {
-                            Text(
-                                text = "Сбросить",
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showResetDialog = false }) {
-                            Text(
-                                text = "Отмена",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = RunnerShapes.large
-                )
-            }
-        }
-    }
-
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
-
 @Composable
 private fun ApiQuickGuideCard() {
     var isExpanded by remember { mutableStateOf(false) }
@@ -2087,10 +2153,49 @@ private fun ProvidersList(
 @Composable
 private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
     val appSettings by viewModel.settings.collectAsState()
-    var showShellNoConfirmWarning by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    var rootStatus by remember { mutableStateOf(RootChecker.lastStatus) }
-    var rootChecking by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup("Агент") {
+            SettingsRow(
+                label = "Поведение",
+                value = "${appSettings.temperature} · " +
+                        if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps),
+                onClick = { onNavigate(SettingsRoute.AgentBehavior) },
+                icon = RunnerIcons.Tune
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Инструменты и доступ",
+                value = "Подтверждения, shell, root и мосты",
+                onClick = { onNavigate(SettingsRoute.AgentTools) },
+                icon = RunnerIcons.Terminal
+            )
+            SettingsDivider()
+            SettingsRow(
+                label = "Рабочая папка",
+                value = appSettings.defaultWorkingDir
+                    .takeIf { it.isNotBlank() }
+                    ?.trimEnd('/')
+                    ?.substringAfterLast('/')
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: "Вся память",
+                onClick = { onNavigate(SettingsRoute.AgentWorkspace) },
+                icon = RunnerIcons.FolderSpecial
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun AgentBehaviorSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
 
     Column(
         modifier = Modifier
@@ -2107,14 +2212,6 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             SettingsDivider()
 
-            WorkingDirField(
-                currentDir = appSettings.defaultWorkingDir,
-                autoApprove = appSettings.autoApproveInWorkingDir,
-                onDirChange = { viewModel.updateSettings(appSettings.copy(defaultWorkingDir = it)) },
-                onAutoApproveChange = { viewModel.updateSettings(appSettings.copy(autoApproveInWorkingDir = it)) }
-            )
-
-            SettingsDivider()
 
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
@@ -2241,6 +2338,107 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
 
             SettingsDivider()
 
+            // Бюджет контекста: сколько истории реально уходит в запрос.
+            // Старые реплики отбрасываются целиком, вместе с ответами инструментов.
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Бюджет контекста",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = TypeScale.body,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Сколько истории диалога уходит в запрос. Старые шаги отбрасываются, " +
+                            "хвост и системный промпт сохраняются.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = TypeScale.caption
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                SegmentedChips(
+                    options = AppSettings.CONTEXT_BUDGET_PRESETS.map { budget ->
+                        budget to when {
+                            budget >= 1_000_000 -> "${budget / 1_000_000}M"
+                            else -> "${budget / 1000}K"
+                        }
+                    },
+                    selected = appSettings.contextBudgetChars,
+                    onSelect = { viewModel.updateSettings(appSettings.copy(contextBudgetChars = it)) }
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Планирование шагов",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body
+                    )
+                    Text(
+                        text = if (appSettings.planningEnabled) {
+                            "Модель сначала составляет план, исполнение после подтверждения"
+                        } else {
+                            "Выключено: агент выполняет задачу сразу"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.caption
+                    )
+                }
+                Switch(
+                    checked = appSettings.planningEnabled,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(planningEnabled = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+        }
+    }
+}
+@Composable
+private fun AgentWorkspaceSettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup {
+            WorkingDirField(
+                currentDir = appSettings.defaultWorkingDir,
+                autoApprove = appSettings.autoApproveInWorkingDir,
+                onDirChange = { viewModel.updateSettings(appSettings.copy(defaultWorkingDir = it)) },
+                onAutoApproveChange = { viewModel.updateSettings(appSettings.copy(autoApproveInWorkingDir = it)) }
+            )
+        }
+    }
+}
+@Composable
+private fun AgentToolsSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
+    val appSettings by viewModel.settings.collectAsState()
+    var showShellNoConfirmWarning by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var rootStatus by remember { mutableStateOf(RootChecker.lastStatus) }
+    var rootChecking by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup {
             // Главный переключатель подтверждений. Выключение снимает диалог
             // для всех опасных действий, поэтому рядом предупреждение, а не
             // тихий тумблер.
@@ -2445,75 +2643,6 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     fontSize = TypeScale.caption,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
                 )
-            }
-
-            SettingsDivider()
-
-            // Авто-озвучка ответов через системный Text-to-Speech
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Озвучивать ответы голосом (TTS)",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body
-                    )
-                    Text(
-                        text = if (appSettings.autoSpeakResponses) {
-                            "Агент автоматически читает ответы вслух"
-                        } else {
-                            "Выключено: озвучка только по кнопке у сообщения"
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = TypeScale.caption
-                    )
-                }
-                Switch(
-                    checked = appSettings.autoSpeakResponses,
-                    onCheckedChange = {
-                        viewModel.updateSettings(appSettings.copy(autoSpeakResponses = it))
-                    },
-                    colors = runnerSwitchColors()
-                )
-            }
-
-            // Список запомненных разрешений: пользователь должен видеть, что уже
-            // выполняется молча, и уметь это забыть.
-            if (appSettings.approvedOperationSignatures.isNotEmpty()) {
-                SettingsDivider()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Запомненные разрешения",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = TypeScale.body
-                        )
-                        Text(
-                            text = PluralUtils.actions(appSettings.approvedOperationSignatures.size) +
-                                    " выполняется без подтверждения",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = TypeScale.caption
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            viewModel.updateSettings(
-                                appSettings.copy(approvedOperationSignatures = emptySet())
-                            )
-                        }
-                    ) {
-                        Text("Забыть все", fontSize = TypeScale.label)
-                    }
-                }
             }
 
             SettingsDivider()
@@ -2794,8 +2923,6 @@ private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
         BridgeSettings(viewModel, appSettings)
 
         WebSearchSettings(viewModel, appSettings)
-
-        TrashSettings(viewModel, onNavigate)
 
         Spacer(modifier = Modifier.height(12.dp))
     }
@@ -5680,9 +5807,8 @@ private fun AccessSettings(
                     }
                 }
             )
+            Spacer(modifier = Modifier.height(12.dp))
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
