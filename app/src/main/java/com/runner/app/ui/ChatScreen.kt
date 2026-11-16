@@ -15,8 +15,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import kotlinx.coroutines.launch
@@ -168,7 +166,6 @@ import com.runner.app.ui.components.attachmentTypeName
 import com.runner.app.ui.components.findWebPreviewInMarkdown
 import com.runner.app.ui.components.findWebPreviewInToolCall
 import com.runner.app.ui.components.rememberChatInputState
-import androidx.compose.ui.graphics.Brush
 import com.runner.app.ui.components.TerminalAmbientBackground
 import com.runner.app.ui.components.WorkspaceFolderBar
 import com.runner.app.ui.components.WorkspaceFolderSheet
@@ -176,7 +173,6 @@ import com.runner.app.ui.theme.GoogleSans
 import com.runner.app.ui.theme.GoogleSansDisplay
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
-import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
@@ -960,7 +956,6 @@ fun ChatScreen(
                 if (isEmptyChat) {
                     EmptyChatState(
                         settings = appSettings,
-                        sessionId = currentSessionId,
                         onSuggestion = { inputState.setText(it) },
                         modifier = Modifier.weight(1f)
                     )
@@ -984,6 +979,7 @@ fun ChatScreen(
                         val canShowFollowUps = !isRunning && streamingText.isNullOrBlank() &&
                                 pendingPlan == null && pendingConfirmation == null &&
                                 appSettings.showFollowUpSuggestions
+                        Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
@@ -1037,7 +1033,6 @@ fun ChatScreen(
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
-                                            onOpenChanges = { changesSheet = it },
                                             onAction = { action ->
                                                 when (action) {
                                                     MessageAction.OPEN_SETTINGS -> onOpenSettings()
@@ -1074,6 +1069,21 @@ fun ChatScreen(
                                     StreamingBubble(text = streamingText)
                                 }
                             }
+                        }
+                        if (!stickToBottom && chatItems.isNotEmpty()) {
+                            ScrollToBottomButton(
+                                onClick = {
+                                    stickToBottom = true
+                                    scope.launch {
+                                        val target = if (hasStreaming) chatItems.size else chatItems.lastIndex
+                                        if (target >= 0) listState.animateScrollToItem(target)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 8.dp, bottom = 8.dp)
+                            )
+                        }
                         }
                     }
                 }
@@ -1320,151 +1330,38 @@ private fun ModelChip(
 
 
 /**
- * Главный экран пустого чата (Empty State):
- * Спокойная центрированная типографика в стиле Claude / ChatGPT с большим
- * количеством свободного пространства и горизонтальный скроллируемый ряд
- * лёгких капсул-подсказок (Pill Chips) над полем ввода.
+ * Пустой чат: спокойная центрированная типографика и ряд подсказок
+ * над полем ввода. Никаких случайных приветствий и градиентных
+ * заставок, которые мешают начать работу.
  */
-private val GREETING_TEMPLATES = listOf(
-    "Чем заняться?",
-    "Готов к работе",
-    "Что делаем сегодня?",
-    "Жду задачу",
-    "Готов выполнять",
-    "Какой план?",
-    "В вашем распоряжении",
-    "Система в строю",
-    "На связи",
-    "Слушаю вас",
-    "Что оптимизируем?",
-    "Разберёмся с файлами?",
-    "Готов к запуску",
-    "Терминал наготове",
-    "Что запустим?"
-)
-
-private val LIVE_GREETING_TEMPLATES = listOf(
-    "Что сделать на экране?",
-    "Автопилот наготове",
-    "Какое приложение открыть?",
-    "Что найти или нажать?",
-    "Жду задачу по экрану",
-    "Готов к действиям в системе"
-)
-
 @Composable
 private fun EmptyChatState(
     settings: AppSettings,
-    sessionId: String?,
     onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isLive = settings.liveModeEnabled
-    val greeting = remember(sessionId, isLive) {
-        if (isLive) LIVE_GREETING_TEMPLATES.random() else GREETING_TEMPLATES.random()
-    }
-
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var resumeTrigger by remember { mutableStateOf(0) }
-    val activity = context as? androidx.activity.ComponentActivity
-    DisposableEffect(activity) {
-        if (activity == null) return@DisposableEffect onDispose {}
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
-                resumeTrigger++
-            }
-        }
-        activity.lifecycle.addObserver(observer)
-        onDispose {
-            activity.lifecycle.removeObserver(observer)
-        }
-    }
-
-    val titleAlpha = remember { Animatable(0f) }
-    val titleOffsetY = remember { Animatable(14f) }
-    val titleScale = remember { Animatable(0.96f) }
-    val greetingAlpha = remember { Animatable(0f) }
-    val greetingOffsetY = remember { Animatable(10f) }
-
-    LaunchedEffect(sessionId, resumeTrigger) {
-        titleAlpha.snapTo(0f)
-        titleOffsetY.snapTo(14f)
-        titleScale.snapTo(0.96f)
-        greetingAlpha.snapTo(0f)
-        greetingOffsetY.snapTo(10f)
-        launch {
-            titleAlpha.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 550,
-                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-                )
-            )
-        }
-        launch {
-            titleOffsetY.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 650,
-                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
-                )
-            )
-        }
-        launch {
-            titleScale.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 650,
-                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
-                )
-            )
-        }
-        launch {
-            kotlinx.coroutines.delay(80L)
-            greetingAlpha.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 500,
-                    easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-                )
-            )
-        }
-        launch {
-            kotlinx.coroutines.delay(80L)
-            greetingOffsetY.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 600,
-                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
-                )
-            )
-        }
-    }
 
     val defaultSuggestions = listOf(
         EmptyStateSuggestion(
             icon = RunnerIcons.Delete,
-            title = "Очистить кэш",
-            prompt = "Найди мусор: кэш, пустые папки и временные файлы",
-            isMint = true
+            title = "Найти мусор",
+            prompt = "Найди мусор: кэш, пустые папки и временные файлы"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.VideoLibrary,
             title = "Тяжёлые файлы",
-            prompt = "Найди файлы тяжелее 50 МБ: видео, архивы и загрузки",
-            isMint = false
+            prompt = "Найди файлы тяжелее 50 МБ: видео, архивы и загрузки"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.FolderOpen,
             title = "Разобрать Download",
-            prompt = "Разбери папку Download: архивы и свежие файлы",
-            isMint = true
+            prompt = "Разбери папку Download: архивы и свежие файлы"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.ContentPaste,
             title = "Буфер обмена",
-            prompt = "Прочитай буфер обмена",
-            isMint = false
+            prompt = "Прочитай буфер обмена"
         )
     )
 
@@ -1472,46 +1369,47 @@ private fun EmptyChatState(
         EmptyStateSuggestion(
             icon = RunnerIcons.Visibility,
             title = "Что на экране?",
-            prompt = "Посмотри на экран и подробно опиши, что сейчас открыто",
-            isMint = true
+            prompt = "Посмотри на экран и подробно опиши, что сейчас открыто"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.AutoAwesome,
             title = "Настройки системы",
-            prompt = "Открой настройки телефона и проверь статус сети",
-            isMint = false
+            prompt = "Открой настройки телефона и проверь статус сети"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.Psychology,
             title = "Поиск в Telegram",
-            prompt = "Открой Telegram и найди последний чат",
-            isMint = true
+            prompt = "Открой Telegram и найди последний чат"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.Info,
             title = "Проверить заряд и сеть",
-            prompt = "Проверь уровень заряда батареи и статус Wi-Fi",
-            isMint = false
+            prompt = "Проверь уровень заряда батареи и статус Wi-Fi"
         ),
         EmptyStateSuggestion(
             icon = RunnerIcons.AutoAwesome,
             title = "Погода в браузере",
-            prompt = "Открой браузер и найди прогноз погоды на сегодня",
-            isMint = true
+            prompt = "Открой браузер и найди прогноз погоды на сегодня"
         )
     )
 
     val allSuggestions: List<EmptyStateSuggestion> = if (isLive) {
         liveSuggestions
     } else {
-        val custom: List<EmptyStateSuggestion> = settings.customPromptSuggestions.mapIndexed { idx, promptText ->
-            EmptyStateSuggestion(
-                icon = RunnerIcons.AutoAwesome,
-                title = promptText.take(24),
-                prompt = promptText,
-                isMint = (idx % 2 == 1)
-            )
-        }
+        val custom = settings.customPromptSuggestions
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { promptText ->
+                EmptyStateSuggestion(
+                    icon = RunnerIcons.AutoAwesome,
+                    title = if (promptText.length > 24) {
+                        promptText.take(24).trimEnd() + "…"
+                    } else {
+                        promptText
+                    },
+                    prompt = promptText
+                )
+            }
         defaultSuggestions + custom
     }
 
@@ -1527,118 +1425,38 @@ private fun EmptyChatState(
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (isLive) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = titleAlpha.value
-                        translationY = titleOffsetY.value * density
-                        scaleX = titleScale.value
-                        scaleY = titleScale.value
-                    }
-                ) {
-                    Text(
-                        text = "RUNNER",
-                        fontFamily = GoogleSans,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 6.sp,
-                        style = TextStyle(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                )
-                            ),
-                            textAlign = TextAlign.Center
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Surface(
-                        shape = RunnerShapes.small,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "LIVE",
-                                fontSize = TypeScale.caption,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
-                }
-            } else {
-                Text(
-                    text = "RUNNER",
-                    fontFamily = GoogleSansDisplay,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 6.sp,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = titleAlpha.value
-                        translationY = titleOffsetY.value * density
-                        scaleX = titleScale.value
-                        scaleY = titleScale.value
-                    },
-                    style = TextStyle(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                            )
-                        ),
-                        textAlign = TextAlign.Center
-                    )
-                )
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer {
-                        alpha = greetingAlpha.value
-                        translationY = greetingOffsetY.value * density
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = greeting,
-                    fontFamily = GoogleSansDisplay,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = (-0.4).sp,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (isLive) {
-                        "Агент видит экран и автономно выполняет действия перед вашими глазами"
-                    } else {
-                        "Спросите о файлах, памяти или выберите сценарий"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.body,
-                    lineHeight = 20.sp,
-                    textAlign = TextAlign.Center
-                )
-            }
+            // Спокойный знак вместо крупного градиентного логотипа:
+            // пустой чат не должен выглядеть как рекламный экран.
+            Text(
+                text = "RUNNER",
+                fontFamily = GoogleSans,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 4.sp
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Text(
+                text = if (isLive) "Что сделать на экране?" else "Чем помочь?",
+                fontFamily = GoogleSansDisplay,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.4).sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = if (isLive) {
+                    "Агент видит экран и выполняет действия"
+                } else {
+                    "Файлы, команды, поиск и память в одном чате"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = TypeScale.body,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.Center
+            )
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -1665,13 +1483,12 @@ private fun EmptyChatState(
 private data class EmptyStateSuggestion(
     val icon: ImageVector,
     val title: String,
-    val prompt: String,
-    val isMint: Boolean = false
+    val prompt: String
 )
 
 /**
- * Лёгкая плавающая пилюля-подсказка (Pill Chip) со скруглением 20dp,
- * деликатным bounceClick и тонким фирменным акцентом Ice Blue / Mint.
+ * Лёгкая плавающая пилюля-подсказка (Pill Chip) с деликатным bounceClick
+ * и фирменным акцентом.
  */
 @Composable
 private fun EmptyStateChip(
@@ -1680,11 +1497,6 @@ private fun EmptyStateChip(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
-    val accent = if (suggestion.isMint) {
-        SecondaryMint
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
 
     val handleClick = {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1716,7 +1528,7 @@ private fun EmptyStateChip(
         Icon(
             imageVector = suggestion.icon,
             contentDescription = null,
-            tint = accent,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(15.dp)
         )
         Spacer(modifier = Modifier.width(7.dp))
@@ -1727,6 +1539,34 @@ private fun EmptyStateChip(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
+    }
+}
+
+/** Кнопка возврата к последнему сообщению, когда пользователь ушёл в историю. */
+@Composable
+private fun ScrollToBottomButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(40.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(
+            0.6.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        shadowElevation = 4.dp
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = RunnerIcons.KeyboardArrowDown,
+                contentDescription = "К последнему сообщению",
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -1786,7 +1626,6 @@ private fun MessageItem(
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onOpenSources: (List<WebSource>) -> Unit,
-    onOpenChanges: (List<FileChange>) -> Unit,
     onAction: (MessageAction) -> Unit
 ) {
     when (message.role) {
@@ -1932,7 +1771,7 @@ private fun MessageItem(
             val context = LocalContext.current
             Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.96f)
+                    .fillMaxWidth()
                     .padding(vertical = 2.dp)
             ) {
                 // Если модель вернула размышления, показываем их даже без
@@ -2352,7 +2191,6 @@ private fun LiveReasoningBlock(reasoning: String) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RunnerShapes.medium,
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 2.dp)
@@ -2404,7 +2242,6 @@ private fun ReasoningBlock(reasoning: String?, reasoningMs: Long?) {
             .padding(bottom = 6.dp)
             .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant), RunnerShapes.medium)
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable { expanded = !expanded }
             .padding(horizontal = 12.dp, vertical = 9.dp)
@@ -2469,7 +2306,7 @@ private fun StreamingBubble(text: String) {
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.96f)
+                .fillMaxWidth()
                 .padding(vertical = 2.dp)
         ) {
             MarkdownView(text = text, isStreaming = true)
@@ -2984,7 +2821,6 @@ private fun TaskActivityCard(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f),
         shape = shape,
-        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
@@ -3033,13 +2869,15 @@ private fun TaskActivityCard(
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = formatTimelineElapsed(elapsedMs),
-                    color = MaterialTheme.colorScheme.outline,
-                    fontSize = TypeScale.micro,
-                    fontFamily = FontFamily.Monospace
-                )
-                Spacer(modifier = Modifier.width(6.dp))
+                if (elapsedMs >= 1_000L) {
+                    Text(
+                        text = formatTimelineElapsed(elapsedMs),
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = TypeScale.micro,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
                 Icon(
                     imageVector = RunnerIcons.KeyboardArrowDown,
                     contentDescription = if (expanded) "Свернуть" else "Развернуть",
@@ -3470,10 +3308,6 @@ private fun ToolCard(
             .fillMaxWidth()
             .clip(compactShape)
             .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f))
-            .border(
-                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                compactShape
-            )
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
             .clickable(enabled = hasDetails && !message.isRunning) { expanded = !expanded }
     ) {
@@ -4906,11 +4740,6 @@ private fun ConfirmationBottomSheet(
                         fontSize = TypeScale.title,
                         fontWeight = FontWeight.Medium
                     )
-                    Text(
-                        text = "Подтверждение операции",
-                        color = MaterialTheme.colorScheme.outline,
-                        fontSize = TypeScale.label
-                    )
                 }
                 IconButton(onClick = { collapse() }) {
                     Icon(
@@ -4928,31 +4757,29 @@ private fun ConfirmationBottomSheet(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = request.details,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = TypeScale.caption,
-                    lineHeight = 17.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-
-            if (request.preview.isNotBlank()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                    shape = RunnerShapes.medium,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = request.preview,
+                        text = request.details,
                         fontFamily = FontFamily.Monospace,
                         fontSize = TypeScale.caption,
                         lineHeight = 17.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(12.dp)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
+                    if (request.preview.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            thickness = 0.5.dp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = request.preview,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = TypeScale.caption,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
