@@ -2,12 +2,14 @@ package com.runner.app.ui
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -55,16 +58,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.runner.app.data.ModelAccess
 import com.runner.app.data.ModelCatalog
+import com.runner.app.data.ModelInfo
 import com.runner.app.data.ModelRecommendations
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
+import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
 import com.runner.app.ui.theme.GoogleSansDisplay
 import com.runner.app.ui.theme.RunnerShapes
+import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusSuccess
+import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.TypeScale
 
 private enum class OnboardingStep(val index: Int) {
@@ -783,6 +791,29 @@ private fun WizardModelStep(
     val recommended = remember(provider?.id, models) {
         provider?.let { ModelRecommendations.preferred(it.id, it.models) }
     }
+    val providerId = provider?.id.orEmpty()
+    val providerName = provider?.name.orEmpty()
+
+    var query by remember(providerId) { mutableStateOf("") }
+    var showAll by remember(providerId) { mutableStateOf(false) }
+
+    val freeModels = remember(models, providerId, recommended) {
+        models
+            .filter { ModelAccess.isFreeWithLimits(providerId, it.id) }
+            .recommendedFirst(recommended)
+    }
+    val paidModels = remember(models, providerId, recommended) {
+        models
+            .filterNot { ModelAccess.isFreeWithLimits(providerId, it.id) }
+            .recommendedFirst(recommended)
+    }
+    val isSearching = query.isNotBlank()
+    val freeResults = if (isSearching) freeModels.filter { it.matches(query) } else freeModels
+    val paidResults = if (isSearching) paidModels.filter { it.matches(query) } else paidModels
+    val freeVisible = if (isSearching || showAll) freeResults else freeResults.take(FREE_PREVIEW)
+    val paidVisible = if (isSearching || showAll) paidResults else paidResults.take(PAID_PREVIEW)
+    val hiddenCount =
+        (freeResults.size - freeVisible.size) + (paidResults.size - paidVisible.size)
 
     LaunchedEffect(models, recommended, selectedModel) {
         if (selectedModel.isBlank()) {
@@ -819,6 +850,44 @@ private fun WizardModelStep(
                 fontSize = TypeScale.body,
                 lineHeight = 19.sp
             )
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = {
+                    Text(
+                        text = "Поиск по названию или ID",
+                        fontSize = TypeScale.label
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = RunnerIcons.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(
+                            onClick = { query = "" },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = RunnerIcons.Close,
+                                contentDescription = "Очистить поиск",
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RunnerShapes.medium,
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = TypeScale.label)
+            )
         }
 
         if (models.isEmpty()) {
@@ -839,97 +908,87 @@ private fun WizardModelStep(
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(models, key = { it.id }) { model ->
-                    val isSelected = model.id == selectedModel
-                    Surface(
-                        onClick = { onSelectModel(model.id) },
-                        shape = RunnerShapes.medium,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerLow
-                        },
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isSelected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                            } else {
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                            }
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                if (freeVisible.isNotEmpty()) {
+                    item(key = "free_header") {
+                        WizardModelGroupHeader(
+                            title = "Бесплатные с ограничениями",
+                            count = freeResults.size
+                        )
+                    }
+                    items(freeVisible, key = { "model_${it.id}" }) { model ->
+                        WizardModelRow(
+                            model = model,
+                            providerId = providerId,
+                            providerName = providerName,
+                            isSelected = model.id == selectedModel,
+                            isRecommended = model.id == recommended,
+                            onSelect = { onSelectModel(model.id) }
+                        )
+                    }
+                }
+
+                if (paidVisible.isNotEmpty()) {
+                    item(key = "paid_header") {
+                        WizardModelGroupHeader(
+                            title = "Платные",
+                            count = paidResults.size
+                        )
+                    }
+                    items(paidVisible, key = { "model_${it.id}" }) { model ->
+                        WizardModelRow(
+                            model = model,
+                            providerId = providerId,
+                            providerName = providerName,
+                            isSelected = model.id == selectedModel,
+                            isRecommended = model.id == recommended,
+                            onSelect = { onSelectModel(model.id) }
+                        )
+                    }
+                }
+
+                if (freeResults.isEmpty() && paidResults.isEmpty()) {
+                    item(key = "empty_search") {
+                        Text(
+                            text = "Ничего не нашлось. Попробуйте другое название или ID.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = TypeScale.label,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp)
+                        )
+                    }
+                }
+
+                if (!isSearching && hiddenCount > 0) {
+                    item(key = "toggle_all") {
+                        TextButton(
+                            onClick = { showAll = !showAll },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isSelected) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = RunnerIcons.Check,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = model.label,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = TypeScale.body,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (model.id == recommended) {
-                                        Spacer(modifier = Modifier.width(7.dp))
-                                        Text(
-                                            text = "Рекомендуем",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontSize = TypeScale.micro
-                                        )
-                                    }
-                                }
-                                if (model.id != model.label) {
-                                    Text(
-                                        text = model.id,
-                                        color = MaterialTheme.colorScheme.outline,
-                                        fontSize = TypeScale.micro,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                            val contextBadge = model.contextBadge
-                            if (contextBadge != null) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = contextBadge,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    fontSize = TypeScale.micro,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
+                            Text(
+                                text = if (showAll) {
+                                    "Свернуть список"
+                                } else {
+                                    "Показать все ($hiddenCount)"
+                                },
+                                fontSize = TypeScale.label
+                            )
+                        }
+                    }
+                }
+
+                if (!isSearching && showAll && hiddenCount == 0) {
+                    item(key = "collapse_all") {
+                        TextButton(
+                            onClick = { showAll = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Свернуть список", fontSize = TypeScale.label)
                         }
                     }
                 }
@@ -968,6 +1027,240 @@ private fun WizardModelStep(
             }
         }
     }
+}
+
+private const val FREE_PREVIEW = 3
+private const val PAID_PREVIEW = 4
+
+private fun ModelInfo.matches(query: String): Boolean {
+    val normalized = query.trim()
+    if (normalized.isBlank()) return true
+    return label.contains(normalized, ignoreCase = true) ||
+        id.contains(normalized, ignoreCase = true)
+}
+
+/** Рекомендованную модель всегда держим первой в своей группе. */
+private fun List<ModelInfo>.recommendedFirst(recommended: String?): List<ModelInfo> {
+    if (recommended.isNullOrBlank()) return this
+    val match = firstOrNull { it.id == recommended } ?: return this
+    return listOf(match) + filterNot { it.id == recommended }
+}
+
+@Composable
+private fun WizardModelGroupHeader(title: String, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = TypeScale.caption,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = count.toString(),
+            color = MaterialTheme.colorScheme.outline,
+            fontSize = TypeScale.micro
+        )
+    }
+}
+
+@Composable
+private fun WizardModelRow(
+    model: ModelInfo,
+    providerId: String,
+    providerName: String,
+    isSelected: Boolean,
+    isRecommended: Boolean,
+    onSelect: () -> Unit
+) {
+    val modelLogo = remember(model.id, providerId, providerName) {
+        ProviderLogos.forModelOrProvider(
+            modelId = model.id,
+            providerId = providerId,
+            providerName = providerName
+        )
+    }
+
+    Surface(
+        onClick = onSelect,
+        shape = RunnerShapes.medium,
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+            }
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModelAvatar(
+                modelId = model.id,
+                label = model.label,
+                logo = modelLogo
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = model.label,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    fontSize = TypeScale.body,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (isRecommended || model.id != model.label) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isRecommended) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RunnerShapes.pill)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "Рекомендуем",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = TypeScale.micro,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        if (model.id != model.label) {
+                            Text(
+                                text = model.id,
+                                color = MaterialTheme.colorScheme.outline,
+                                fontSize = TypeScale.micro,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
+                    }
+                }
+            }
+
+            model.contextBadge?.let { badge ->
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = badge,
+                    color = MaterialTheme.colorScheme.outline,
+                    fontSize = TypeScale.micro,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            Color.Transparent
+                        }
+                    )
+                    .border(
+                        1.dp,
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                        },
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = RunnerIcons.Check,
+                        contentDescription = "Выбрана",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelAvatar(
+    modelId: String,
+    label: String,
+    logo: ImageVector?
+) {
+    val tint = modelAvatarColor(modelId)
+    val initial = remember(label) {
+        label.trim().firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?"
+    }
+
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.14f))
+            .border(1.dp, tint.copy(alpha = 0.28f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (logo != null) {
+            Icon(
+                imageVector = logo,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
+        } else {
+            Text(
+                text = initial,
+                color = tint,
+                fontSize = TypeScale.body,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun modelAvatarColor(key: String): Color {
+    val palette = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.tertiary,
+        SecondaryMint,
+        StatusSuccess,
+        StatusWarning,
+        Color(0xFFB39DDB),
+        Color(0xFFF48FB1),
+        Color(0xFF4DD0E1)
+    )
+    return palette[key.hashCode().mod(palette.size)]
 }
 
 private fun readClipboardText(context: Context): String? {
