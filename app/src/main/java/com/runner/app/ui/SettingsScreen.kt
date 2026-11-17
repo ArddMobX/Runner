@@ -168,6 +168,7 @@ private sealed interface SettingsRoute {
     data object Network : SettingsRoute
     data object Diagnostics : SettingsRoute
     data object Data : SettingsRoute
+    data object Usage : SettingsRoute
     data object About : SettingsRoute
 
     /** Журнал обратимых операций: удаления и перемещения. */
@@ -203,6 +204,7 @@ fun SettingsScreen(
         SettingsRoute.Network -> "Сеть и прокси"
         SettingsRoute.Diagnostics -> "Диагностика"
         SettingsRoute.Data -> "Данные"
+        SettingsRoute.Usage -> "Расход и лимиты"
         SettingsRoute.About -> "О приложении"
         SettingsRoute.Trash -> "Корзина"
         SettingsRoute.ShellLog -> "Журнал команд"
@@ -279,6 +281,7 @@ fun SettingsScreen(
                 SettingsRoute.Network -> NetworkSettings(viewModel)
                 SettingsRoute.Diagnostics -> DiagnosticsSettings { route = it }
                 SettingsRoute.Data -> DataSettings(viewModel) { route = it }
+                SettingsRoute.Usage -> UsageSettings(viewModel)
                 SettingsRoute.About -> AboutSettings(viewModel, onOpenSupport)
 
                 SettingsRoute.Trash -> TrashListScreen(viewModel)
@@ -548,6 +551,13 @@ private fun SettingsRoot(
             route = SettingsRoute.Data
         ),
         SearchableSetting(
+            title = "Расход и лимиты",
+            section = "Данные",
+            description = "Токены, запросы и баланс провайдера",
+            icon = RunnerIcons.NetworkCheck,
+            route = SettingsRoute.Usage
+        ),
+        SearchableSetting(
             title = "Поддержать проект",
             section = "О приложении",
             description = "TON и Telegram Stars",
@@ -794,6 +804,13 @@ private fun SettingsRoot(
         }
 
         SettingsGroup("Данные") {
+            SettingsRow(
+                label = "Расход и лимиты",
+                value = "Токены, запросы и баланс",
+                onClick = { onNavigate(SettingsRoute.Usage) },
+                icon = RunnerIcons.NetworkCheck
+            )
+            SettingsDivider()
             SettingsRow(
                 label = "Корзина файлов",
                 value = "Восстановление и очистка",

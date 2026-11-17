@@ -33,6 +33,9 @@ import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
 import com.runner.app.data.ModelRecommendations
+import com.runner.app.data.ProviderBalanceChecker
+import com.runner.app.data.ProviderBalanceResult
+import com.runner.app.data.UsageStore
 import com.runner.app.data.OpenAIClient
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
@@ -798,7 +801,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val providerStore = ProviderStore(application)
     private val settingsStore = SettingsStore(application)
+    private val usageStore = UsageStore(application)
     private val repository = ChatRepository(ChatDatabase.get(application).chatDao())
+    val usageEvents = usageStore.events
     private val apiClient = OpenAIClient()
     val voiceManager = VoiceManager(application)
     val hapticManager = HapticManager(application)
@@ -1651,6 +1656,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     })
                 }
 
+                val compactionMetrics = GenerationMetrics()
                 val result = apiClient.sendChatCompletion(
                     baseUrl = provider.baseUrl,
                     apiKey = provider.apiKey,
@@ -1667,13 +1673,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         summaryTokenLimit
                     },
                     streaming = false,
-                    metrics = null,
+                    metrics = compactionMetrics,
                     withTools = false,
                     contextBudgetChars = maxOf(16_000, settings.contextBudgetChars * 3 / 4),
                     providerKind = provider.kind,
                     officialDeepSeekHost = provider.isOfficialDeepSeekHost,
                     shouldStop = { stopRequested }
                 )
+                val usedPrompt = compactionMetrics.promptTokens ?: 0
+                val usedCompletion = compactionMetrics.completionTokens ?: 0
+                if (usedPrompt + usedCompletion > 0) {
+                    usageStore.record(provider, model, sessionId, usedPrompt, usedCompletion)
+                }
 
                 val summary = when (result) {
                     is AIResponseResult.TextResult -> result.text.trim()
@@ -1949,6 +1960,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveProvider(provider: Provider) {
         _providers.value = providerStore.upsert(provider)
+    }
+
+    /** Проверка баланса только для провайдеров с официальным эндпоинтом. */
+    fun checkProviderBalance(
+        provider: Provider,
+        onResult: (ProviderBalanceResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val current = _settings.value
+            onResult(
+                ProviderBalanceChecker.check(
+                    provider = provider,
+                    timeoutSeconds = current.connectTimeoutSeconds,
+                    customHeaders = current.customHeaders
+                )
+            )
+        }
     }
 
     /**
@@ -2835,6 +2863,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             officialDeepSeekHost = provider.isOfficialDeepSeekHost
         )
 
+        val planPromptTokens = metrics.promptTokens ?: 0
+        val planCompletionTokens = metrics.completionTokens ?: 0
+        if (planPromptTokens + planCompletionTokens > 0) {
+            usageStore.record(provider, model, sessionId, planPromptTokens, planCompletionTokens)
+        }
+
         val planText = when (result) {
             is AIResponseResult.TextResult -> result.text.trim()
             is AIResponseResult.Cancelled -> return null
@@ -3065,6 +3099,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             metrics.promptTokens?.let { totalPromptTokens += it }
             metrics.completionTokens?.let { totalCompletionTokens += it }
+            val stepPromptTokens = metrics.promptTokens ?: 0
+            val stepCompletionTokens = metrics.completionTokens ?: 0
+            if (stepPromptTokens + stepCompletionTokens > 0) {
+                usageStore.record(
+                    provider = provider,
+                    model = model,
+                    sessionId = sessionId,
+                    promptTokens = stepPromptTokens,
+                    completionTokens = stepCompletionTokens
+                )
+            }
 
             val currentTaskTokens = totalPromptTokens + totalCompletionTokens
             if (currentSettings.maxTaskTokens > 0 && currentTaskTokens >= currentSettings.maxTaskTokens) {

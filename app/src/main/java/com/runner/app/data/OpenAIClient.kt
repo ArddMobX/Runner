@@ -11,6 +11,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -644,6 +645,7 @@ class OpenAIClient {
         var emitted = false
 
         call.execute().use { response ->
+            captureRateLimits(response)
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string().orEmpty()
                 return withEmitted(httpError(response.code, errorBody, call), emitted)
@@ -820,6 +822,7 @@ class OpenAIClient {
         metrics: GenerationMetrics?
     ): AIResponseResult {
         call.execute().use { response ->
+            captureRateLimits(response)
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 return httpError(response.code, responseBody, call)
@@ -1422,6 +1425,24 @@ class OpenAIClient {
                 message = "Ошибка: ${e.localizedMessage ?: "неизвестный сбой"}",
                 targetEndpoint = testEndpoint
             )
+        }
+    }
+
+    private fun captureRateLimits(response: Response) {
+        val headers = response.headers
+        fun intHeader(name: String): Int? =
+            headers[name]?.trim()?.toIntOrNull()
+
+        val info = RateLimitInfo(
+            remainingRequests = intHeader("x-ratelimit-remaining-requests"),
+            limitRequests = intHeader("x-ratelimit-limit-requests"),
+            resetRequests = headers["x-ratelimit-reset-requests"]?.trim(),
+            remainingTokens = intHeader("x-ratelimit-remaining-tokens"),
+            limitTokens = intHeader("x-ratelimit-limit-tokens"),
+            resetTokens = headers["x-ratelimit-reset-tokens"]?.trim()
+        )
+        if (info.hasAny) {
+            RateLimitStore.update(response.request.url.host, info)
         }
     }
 
