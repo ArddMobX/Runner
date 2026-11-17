@@ -2,6 +2,7 @@ package com.runner.app.ui
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,8 +57,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.runner.app.data.ModelAccess
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
@@ -191,122 +190,115 @@ fun OnboardingWizard(
         step = OnboardingStep.KEY
     }
 
-    Dialog(
-        onDismissRequest = { goBack() },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnClickOutside = false,
-            decorFitsSystemWindows = false
-        )
+    BackHandler { goBack() }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-            ) {
-                WizardHeader(
-                    step = step,
-                    onBack = ::goBack,
-                    onSkip = onDone
+            WizardHeader(
+                step = step,
+                onBack = ::goBack,
+                onSkip = onDone
+            )
+
+            when (step) {
+                OnboardingStep.WELCOME -> WizardWelcome(
+                    onNext = { step = OnboardingStep.PROVIDER }
                 )
 
-                when (step) {
-                    OnboardingStep.WELCOME -> WizardWelcome(
-                        onNext = { step = OnboardingStep.PROVIDER }
-                    )
+                OnboardingStep.PROVIDER -> WizardProviderStep(
+                    options = providerOptions,
+                    onSelect = ::chooseProvider
+                )
 
-                    OnboardingStep.PROVIDER -> WizardProviderStep(
-                        options = providerOptions,
-                        onSelect = ::chooseProvider
-                    )
-
-                    OnboardingStep.KEY -> WizardKeyStep(
-                        providerName = currentProvider?.name ?: providerName,
-                        option = currentOption,
-                        apiKey = apiKey,
-                        onApiKeyChange = { apiKey = it },
-                        baseUrl = baseUrl,
-                        onBaseUrlChange = { baseUrl = it },
-                        showBaseUrl = showBaseUrl,
-                        onToggleBaseUrl = { showBaseUrl = !showBaseUrl },
-                        isCustom = isCustom,
-                        isChecking = isChecking,
-                        error = error,
-                        onPasteKey = {
-                            readClipboardText(context)?.let {
-                                apiKey = it
-                                error = null
-                            }
-                        },
-                        onCheck = {
-                            val id = providerId ?: return@WizardKeyStep
-                            val provider = currentProvider ?: Provider(
-                                id = id,
-                                name = providerName.ifBlank { "Провайдер" },
-                                baseUrl = baseUrl.trim()
-                            )
-                            isChecking = true
+                OnboardingStep.KEY -> WizardKeyStep(
+                    providerName = currentProvider?.name ?: providerName,
+                    option = currentOption,
+                    apiKey = apiKey,
+                    onApiKeyChange = { apiKey = it },
+                    baseUrl = baseUrl,
+                    onBaseUrlChange = { baseUrl = it },
+                    showBaseUrl = showBaseUrl,
+                    onToggleBaseUrl = { showBaseUrl = !showBaseUrl },
+                    isCustom = isCustom,
+                    isChecking = isChecking,
+                    error = error,
+                    onPasteKey = {
+                        readClipboardText(context)?.let {
+                            apiKey = it
                             error = null
-                            viewModel.connectProviderForOnboarding(
-                                provider = provider,
-                                baseUrl = baseUrl,
-                                apiKey = apiKey
-                            ) { ok, message ->
-                                isChecking = false
-                                if (!ok) {
-                                    error = message
-                                } else {
-                                    val updated = viewModel.providers.value
-                                        .firstOrNull { it.id == id }
-                                    val models = updated?.models.orEmpty()
-                                    selectedModel = ModelRecommendations
-                                        .preferred(id, models)
-                                        .orEmpty()
-                                        .ifBlank { updated?.selectedModel.orEmpty() }
-                                    modelError = null
-                                    step = OnboardingStep.MODEL
-                                }
-                            }
                         }
-                    )
-
-                    OnboardingStep.MODEL -> WizardModelStep(
-                        provider = currentProvider,
-                        selectedModel = selectedModel,
-                        onSelectModel = {
-                            selectedModel = it
-                            modelError = null
-                        },
-                        isChecking = isTestingModel,
-                        error = modelError,
-                        onOpenChat = {
-                            val id = providerId
-                            val provider = currentProvider
-                            val model = selectedModel.ifBlank {
-                                ModelRecommendations
-                                    .preferred(id.orEmpty(), provider?.models.orEmpty())
+                    },
+                    onCheck = {
+                        val id = providerId ?: return@WizardKeyStep
+                        val provider = currentProvider ?: Provider(
+                            id = id,
+                            name = providerName.ifBlank { "Провайдер" },
+                            baseUrl = baseUrl.trim()
+                        )
+                        isChecking = true
+                        error = null
+                        viewModel.connectProviderForOnboarding(
+                            provider = provider,
+                            baseUrl = baseUrl,
+                            apiKey = apiKey
+                        ) { ok, message ->
+                            isChecking = false
+                            if (!ok) {
+                                error = message
+                            } else {
+                                val updated = viewModel.providers.value
+                                    .firstOrNull { it.id == id }
+                                val models = updated?.models.orEmpty()
+                                selectedModel = ModelRecommendations
+                                    .preferred(id, models)
                                     .orEmpty()
-                            }
-                            if (id != null && provider != null && model.isNotBlank()) {
-                                isTestingModel = true
+                                    .ifBlank { updated?.selectedModel.orEmpty() }
                                 modelError = null
-                                viewModel.testOnboardingModel(provider, model) { ok, message ->
-                                    isTestingModel = false
-                                    if (ok) {
-                                        viewModel.selectModel(id, model)
-                                        onDone()
-                                    } else {
-                                        modelError = message
-                                    }
+                                step = OnboardingStep.MODEL
+                            }
+                        }
+                    }
+                )
+
+                OnboardingStep.MODEL -> WizardModelStep(
+                    provider = currentProvider,
+                    selectedModel = selectedModel,
+                    onSelectModel = {
+                        selectedModel = it
+                        modelError = null
+                    },
+                    isChecking = isTestingModel,
+                    error = modelError,
+                    onOpenChat = {
+                        val id = providerId
+                        val provider = currentProvider
+                        val model = selectedModel.ifBlank {
+                            ModelRecommendations
+                                .preferred(id.orEmpty(), provider?.models.orEmpty())
+                                .orEmpty()
+                        }
+                        if (id != null && provider != null && model.isNotBlank()) {
+                            isTestingModel = true
+                            modelError = null
+                            viewModel.testOnboardingModel(provider, model) { ok, message ->
+                                isTestingModel = false
+                                if (ok) {
+                                    viewModel.selectModel(id, model)
+                                    onDone()
+                                } else {
+                                    modelError = message
                                 }
                             }
                         }
-                    )
-                }
+                    }
+                )
             }
         }
     }

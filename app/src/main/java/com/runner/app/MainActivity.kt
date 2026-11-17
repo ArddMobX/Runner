@@ -330,6 +330,7 @@ fun AppNavigation(viewModel: MainViewModel) {
                 }
             }
         )
+        return
     }
 
     // Плавная смена экранов. Только прозрачность: слайд вместе с ящиком
