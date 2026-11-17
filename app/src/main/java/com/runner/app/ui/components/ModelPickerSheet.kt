@@ -484,7 +484,7 @@ fun ModelPickerSheet(
                 }
 
                 displayModels.isEmpty() -> SheetMessage(
-                    if (query.isBlank()) "Список пуст. Нажмите обновление сверху." else "Ничего не найдено"
+                    if (query.isBlank()) "Список пуст. Нажмите кнопку обновления сверху." else "Ничего не найдено"
                 )
 
                 else -> LazyColumn(modifier = Modifier.fillMaxWidth()) {

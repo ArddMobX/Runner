@@ -124,7 +124,7 @@ fun LivePermissionSheet(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Выполнение действий на экране в реальном времени",
+                        text = "Действия на экране в реальном времени",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -134,7 +134,7 @@ fun LivePermissionSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "В этом режиме Runner сворачивается и по вашей команде взаимодействует с экраном: нажимает кнопки, ищет элементы и вводит текст прямо перед вашими глазами. Для работы требуются два разрешения:",
+                text = "В этом режиме Runner сворачивается и по вашей команде работает с экраном: нажимает кнопки, ищет элементы и вводит текст. Для работы нужны два разрешения:",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -144,7 +144,7 @@ fun LivePermissionSheet(
             // Разрешение 1: Специальные возможности
             PermissionCard(
                 title = "1. Специальные возможности",
-                description = "Позволяет анализировать иерархию элементов на экране и отправлять касания.",
+                description = "Позволяет агенту видеть элементы на экране и нажимать их.",
                 isGranted = hasAccessibility,
                 onGrantClick = {
                     try {

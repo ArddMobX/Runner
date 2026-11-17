@@ -23,9 +23,9 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
- * Менеджер сбора и копирования отчетов о сбоях, ошибках агента и системных неполадках.
+ * Менеджер сбора и копирования отчётов о сбоях, ошибках агента и системных неполадках.
  * Сохраняет последние события в кольцевой буфер, перехватывает необработанные исключения
- * и формирует безопасный текстовый отчет для передачи разработчикам.
+ * и формирует безопасный текстовый отчёт для передачи разработчикам.
  */
 object CrashReportManager {
     private const val TAG = "CrashReportManager"
@@ -124,7 +124,7 @@ object CrashReportManager {
 
     fun buildReport(
         context: Context,
-        title: String = "Отчет о сбое и неполадках",
+        title: String = "Отчёт о сбое и неполадках",
         customContext: String? = null,
         stackTrace: String? = null
     ): String {
@@ -229,9 +229,9 @@ object CrashReportManager {
 
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (clipboard != null) {
-            val clip = ClipData.newPlainText("Отчет о сбое Runner", report)
+            val clip = ClipData.newPlainText("Отчёт о сбое Runner", report)
             clipboard.setPrimaryClip(clip)
-            Toast.makeText(context, "Отчет о сбое скопирован в буфер", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Отчёт о сбое скопирован в буфер", Toast.LENGTH_SHORT).show()
             try {
                 HapticManager(context).testVibration(2)
             } catch (_: Exception) {}

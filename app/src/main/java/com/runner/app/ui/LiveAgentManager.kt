@@ -86,7 +86,7 @@ object LiveAgentManager {
             isExecuting = true,
             status = StepStatus.RUNNING,
             isFinished = false,
-            stepDescription = "Подготовка к выполнению...",
+            stepDescription = "Подготовка к выполнению…",
             stepIndex = 1,
             totalSteps = totalSteps,
             sessionId = sessionId

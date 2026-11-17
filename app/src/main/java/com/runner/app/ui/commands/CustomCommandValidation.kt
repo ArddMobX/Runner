@@ -21,9 +21,9 @@ object CustomCommandValidation {
     fun validateName(raw: String): String? {
         val name = normalizeName(raw)
         return when {
-            name.isEmpty() -> "Введи имя команды"
+            name.isEmpty() -> "Введите имя команды"
             !NAME_PATTERN.matches(name) ->
-                "Имя: латиница, цифры, _ и -, до $MAX_NAME_LENGTH символов, начинается с буквы."
+                "Имя: латиница, цифры, _ и -, до $MAX_NAME_LENGTH символов, начинается с буквы"
             SlashCommands.find(name) != null -> "Имя /$name уже занято встроенной командой"
             else -> null
         }

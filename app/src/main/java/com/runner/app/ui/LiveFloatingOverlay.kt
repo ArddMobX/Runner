@@ -544,10 +544,10 @@ object LiveFloatingOverlay {
                                 Spacer(modifier = Modifier.height(2.dp))
                             }
 
-                            // Описание текущего действия / отчет
+                            // Описание текущего действия / отчёт
                             Text(
                                 text = state.stepDescription.ifEmpty {
-                                    if (isFinished) "Задача завершена" else "Выполнение задачи..."
+                                    if (isFinished) "Задача завершена" else "Выполнение задачи…"
                                 },
                                 style = if (isFinished) {
                                     MaterialTheme.typography.bodyMedium
@@ -669,7 +669,7 @@ object LiveFloatingOverlay {
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Скопировать отчет о сбое",
+                                            text = "Скопировать отчёт о сбое",
                                             style = MaterialTheme.typography.labelMedium
                                         )
                                     }

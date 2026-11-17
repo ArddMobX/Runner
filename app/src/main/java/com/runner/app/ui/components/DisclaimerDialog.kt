@@ -121,7 +121,7 @@ fun DisclaimerDialog(onAccept: () -> Unit) {
                     Spacer(modifier = Modifier.height(10.dp))
                     DisclaimerPoint(
                         "Решения принимает модель, и она может ошибиться. " +
-                                "Иногда это значит, что будет сделано не то, что вы просили."
+                                "Иногда агент делает не то, что вы просили."
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     DisclaimerPoint(

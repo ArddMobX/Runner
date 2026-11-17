@@ -92,7 +92,7 @@ class ScreenCaptureService : Service() {
                 "Захват экрана",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Используется для моментального снимка экрана"
+                description = "Используется для снимка экрана"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
@@ -102,7 +102,7 @@ class ScreenCaptureService : Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Runner")
-            .setContentText("Снимок экрана...")
+            .setContentText("Снимок экрана…")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()

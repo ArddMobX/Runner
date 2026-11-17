@@ -278,7 +278,7 @@ fun ChatInputBar(
         if (isGranted) {
             onStartListening?.invoke()
         } else {
-            Toast.makeText(context, "Требуется разрешение на запись аудио", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Для голосового ввода нужен доступ к микрофону", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -346,7 +346,7 @@ fun ChatInputBar(
                 if (partial.size > 1) {
                     Toast.makeText(
                         context,
-                        "Уточни команду или выбери её из списка",
+                        "Уточните команду или выберите её из списка",
                         Toast.LENGTH_SHORT
                     ).show()
                     return
@@ -587,7 +587,7 @@ fun ChatInputBar(
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (rawText.isEmpty()) {
                             Text(
-                                text = if (isListening) "Слушаю речь..." else (placeholder ?: "Задать задачу или сказать голосом..."),
+                                text = if (isListening) "Слушаю речь…" else (placeholder ?: "Задать задачу или сказать голосом…"),
                                 color = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                 fontSize = TypeScale.bodyLarge,
                                 lineHeight = 22.sp

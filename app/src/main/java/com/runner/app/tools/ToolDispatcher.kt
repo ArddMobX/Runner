@@ -882,7 +882,7 @@ object ToolDispatcher {
         // 25. ui_finish
         tools.put(createToolFunction(
             name = "ui_finish",
-            description = "Завершает выполнение задачи в Live-режиме и передает итоговый отчет пользователю.",
+            description = "Завершает выполнение задачи в Live-режиме и передаёт итоговый отчёт пользователю.",
             properties = JSONObject().apply {
                 put("summary", JSONObject().apply {
                     put("type", "string")
@@ -3263,7 +3263,7 @@ object ToolDispatcher {
                 }
                 append("Перемещено файлов: ${movedFiles.size} (категория '$category'):\n")
                 movedFiles.take(10).forEach { append("  • $it\n") }
-                if (movedFiles.size > 10) append("  ...и еще ${movedFiles.size - 10} файлов.")
+                if (movedFiles.size > 10) append("  …и ещё ${movedFiles.size - 10} файлов.")
                 if (entry != null) {
                     append("\nОткатить сортировку можно кнопкой «Отменить» в этом сообщении.")
                 }

@@ -263,7 +263,7 @@ fun ChatScreen(
                 onError = { error -> Toast.makeText(context, error, Toast.LENGTH_SHORT).show() }
             )
         } else {
-            Toast.makeText(context, "Требуется разрешение на запись аудио для голосового ввода", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Для голосового ввода нужен доступ к микрофону", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -392,7 +392,7 @@ fun ChatScreen(
         if (isRunning && !command.availableWhileRunning) {
             Toast.makeText(
                 context,
-                "Дождись завершения задачи или нажми /stop",
+                "Дождитесь завершения задачи или нажмите /stop",
                 Toast.LENGTH_SHORT
             ).show()
             return true
@@ -1124,8 +1124,8 @@ fun ChatScreen(
                         val report = CrashReportManager.getPendingCrashReport(context)
                         if (report != null) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчет о сбое Runner", report))
-                            Toast.makeText(context, "Отчет о сбое скопирован в буфер", Toast.LENGTH_SHORT).show()
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчёт о сбое Runner", report))
+                            Toast.makeText(context, "Отчёт о сбое скопирован в буфер", Toast.LENGTH_SHORT).show()
                         }
                         CrashReportManager.clearPendingCrashReport(context)
                         pendingCrashReport = false
@@ -1202,7 +1202,7 @@ fun ChatScreen(
                 isListening = isListening,
                 rmsLevel = rmsLevel,
                 sendOnEnter = appSettings.sendOnEnter,
-                placeholder = if (appSettings.liveModeEnabled) "Опишите действие на экране..." else "Задать задачу или сказать голосом...",
+                placeholder = if (appSettings.liveModeEnabled) "Опишите действие на экране…" else "Задать задачу или сказать голосом…",
                 isLiveMode = appSettings.liveModeEnabled,
                 onSend = { text, images, files ->
                     if (appSettings.liveModeEnabled) {
@@ -2136,7 +2136,7 @@ private fun MessageItem(
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    text = "Заново",
+                                    text = "Повторить",
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = TypeScale.body
                                 )
@@ -2236,7 +2236,7 @@ private fun MessageItem(
                             if (message.isError) {
                                 MessageActionIcon(
                                     icon = RunnerIcons.BugReport,
-                                    label = "Отчет о сбое",
+                                    label = "Отчёт о сбое",
                                     onClick = { CrashReportManager.copyReport(context, "Ответ ассистента с ошибкой: ${message.content}") }
                                 )
                             }
@@ -2432,7 +2432,7 @@ private fun openAttachment(context: Context, attachment: ChatAttachment) {
     } catch (_: Exception) {
         Toast.makeText(
             context,
-            "Не нашлось приложения для этого файла",
+            "Не удалось найти приложение для этого файла",
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -2529,7 +2529,7 @@ private fun LiveTaskStrip(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = " · действие ${state.stepIndex.coerceAtLeast(1)}",
+                text = " · шаг ${state.stepIndex.coerceAtLeast(1)}",
                 color = MaterialTheme.colorScheme.outline,
                 fontSize = TypeScale.caption,
                 maxLines = 1
@@ -2553,7 +2553,7 @@ private fun LiveTaskStrip(
                 onClick = onOpenActivity,
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text("Лента", fontSize = TypeScale.caption)
+                Text("К ленте", fontSize = TypeScale.caption)
             }
             Button(
                 onClick = onStop,
@@ -2906,7 +2906,7 @@ private fun PlanCard(
                             .height(42.dp),
                         shape = RunnerShapes.medium
                     ) {
-                        Text("Без плана", fontSize = TypeScale.label)
+                        Text("Отклонить", fontSize = TypeScale.label)
                     }
                 }
             }
@@ -3360,7 +3360,7 @@ private fun TaskActivityCard(
                 }
                 if (toolMessages.size > 3) {
                     Text(
-                        text = "Ещё ${toolMessages.size - 3}",
+                        text = "Ещё ${PluralUtils.actions(toolMessages.size - 3)}",
                         color = MaterialTheme.colorScheme.outline,
                         fontSize = TypeScale.micro,
                         modifier = Modifier.padding(start = 15.dp, top = 1.dp, bottom = 2.dp)
@@ -3948,7 +3948,7 @@ private fun ChangeLine(
         if (onClick != null) {
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "Дифф",
+                text = "Показать",
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                 fontSize = TypeScale.micro,
                 fontWeight = FontWeight.Medium
@@ -4025,7 +4025,7 @@ private fun TaskTotalsRow(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "Дифф",
+                        text = "Изменения",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = TypeScale.caption
                     )
@@ -4749,19 +4749,19 @@ private fun getErrorHint(text: String): String? {
     val lower = text.lowercase()
     return when {
         lower.contains("(400)") || lower.contains("400") ->
-            "Возможно, выбранная модель не поддерживается провайдером или в настройках указаны несовместимые параметры. Попробуйте сменить модель или проверить настройки."
+            "Провайдер отклонил запрос. Проверьте выбранную модель и параметры генерации."
         lower.contains("(401)") || lower.contains("401") || lower.contains("авторизац") ->
-            "Ключ не подошёл выбранному провайдеру. Проверьте, что он от этого сервиса, а не от другого, и что Base URL совпадает. Если задан кастомный заголовок Authorization, он заменяет ключ провайдера."
+            "Ключ не подходит выбранному провайдеру. Проверьте, что он от этого сервиса и что Base URL совпадает. Заголовок Authorization, если он задан, заменяет ключ."
         lower.contains("(403)") || lower.contains("403") || lower.contains("доступ запрещ") ->
-            "Возможно, на балансе закончились средства, у ключа нет прав к этой модели или требуется включить VPN."
+            "Провайдер запретил доступ: возможно, закончились средства, у ключа нет прав к этой модели или нужен VPN."
         lower.contains("(404)") || lower.contains("404") || lower.contains("не найден") ->
-            "Возможно, опечатка в Base URL адреса или провайдер убрал эту модель. Проверьте адрес и список моделей."
+            "Проверьте Base URL: возможно, в адресе опечатка или провайдер убрал эту модель."
         lower.contains("(429)") || lower.contains("429") || lower.contains("лимит") ->
-            "Возможно, превышен лимит запросов в минуту (RPM) или исчерпан баланс. Подождите пару минут или смените модель."
+            "Превышен лимит запросов или исчерпан баланс. Подождите пару минут или смените модель."
         lower.contains("500") || lower.contains("502") || lower.contains("503") || lower.contains("504") || lower.contains("сервер") ->
-            "Возможно, сервер провайдера временно перегружен или проводит техработы. Попробуйте повторить запрос позже."
+            "Провайдер временно недоступен. Повторите запрос позже."
         lower.contains("таймаут") || lower.contains("timeout") || lower.contains("сеть") || lower.contains("connection") ->
-            "Возможно, нет подключения к интернету, сайт заблокирован провайдером или стоит настроить Reverse Proxy."
+            "Нет связи с провайдером. Проверьте интернет или настройки прокси-сервера."
         else -> null
     }
 }
@@ -4823,7 +4823,7 @@ private fun NoticeBanner(
                     val label = when (action) {
                         MessageAction.OPEN_SETTINGS -> "Открыть настройки"
                         MessageAction.OPEN_MODELS -> "Выбрать модель"
-                        MessageAction.GRANT_STORAGE -> "Разрешить доступ"
+                        MessageAction.GRANT_STORAGE -> "Выдать доступ"
                         MessageAction.EXECUTE_DRY_RUN -> "Выполнить"
                     }
                     TextButton(onClick = { onAction(action) }) {
@@ -4842,7 +4842,7 @@ private fun NoticeBanner(
                             tint = MaterialTheme.colorScheme.error
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Скопировать отчет", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.label)
+                        Text("Скопировать отчёт", color = MaterialTheme.colorScheme.error, fontSize = TypeScale.label)
                     }
                 }
             }
@@ -4877,7 +4877,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "Скопируйте отчет для передачи разработчику",
+                text = "Скопируйте отчёт и передайте разработчику",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = TypeScale.caption
             )
@@ -4893,7 +4893,7 @@ private fun CrashReportBanner(onCopy: () -> Unit, onDismiss: () -> Unit) {
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Отчет", fontSize = TypeScale.caption, color = MaterialTheme.colorScheme.primary)
+            Text("Отчёт", fontSize = TypeScale.caption, color = MaterialTheme.colorScheme.primary)
         }
         IconButton(
             onClick = onDismiss,
@@ -4929,13 +4929,13 @@ private fun PermissionBanner(onOpenSettings: () -> Unit) {
         )
         Spacer(modifier = Modifier.width(9.dp))
         Text(
-            text = "Нет доступа ко всем файлам",
+            text = "Нужен доступ ко всем файлам",
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = TypeScale.label,
             modifier = Modifier.weight(1f)
         )
         TextButton(onClick = onOpenSettings) {
-            Text("Выдать", color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.label)
+            Text("Выдать доступ", color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.label)
         }
     }
 }
@@ -5016,7 +5016,7 @@ private fun StoragePromptSheet(
             }
 
             Text(
-                text = "Без него файловые инструменты не сработают. Право выдаётся только на системном экране, кнопка ниже его откроет.",
+                text = "Без него файловые инструменты не сработают. Право выдаётся только в системных настройках. Кнопка ниже их откроет.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = TypeScale.label,
                 lineHeight = 19.sp
@@ -5502,7 +5502,7 @@ object SmartFollowUpGenerator {
             hasError -> {
                 suggestions.add("Как это исправить?")
                 suggestions.add("Показать рабочий пример")
-                suggestions.add("В чем причина ошибки?")
+                suggestions.add("В чём причина ошибки?")
             }
             hasPaths -> {
                 suggestions.add("Показать подробности о файлах")
@@ -5510,7 +5510,7 @@ object SmartFollowUpGenerator {
                 suggestions.add("Сохранить результат")
             }
             isComparison -> {
-                suggestions.add("Какой вариант ты рекомендуешь?")
+                suggestions.add("Какой вариант выбрать?")
                 suggestions.add("Сравнить по скорости и ресурсам")
                 suggestions.add("Показать пример использования")
             }
@@ -5520,7 +5520,7 @@ object SmartFollowUpGenerator {
                 suggestions.add("Какие могут быть сложности?")
             }
             endsWithQuestion -> {
-                suggestions.add("Да, давай")
+                suggestions.add("Да, продолжи")
                 suggestions.add("Расскажи подробнее")
                 suggestions.add("Предложи другой вариант")
             }

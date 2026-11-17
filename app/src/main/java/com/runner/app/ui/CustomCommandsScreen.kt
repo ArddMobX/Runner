@@ -392,7 +392,7 @@ private fun CustomCommandEditorSheet(
                     error = null
                 },
                 label = { Text("Промпт") },
-                placeholder = { Text("Проверь код в {{args}} и найди ошибки...") },
+                placeholder = { Text("Проверь код в {{args}} и найди ошибки…") },
                 supportingText = {
                     Text(
                         "{{args}} заменится текстом после команды. " +
@@ -444,7 +444,7 @@ private fun CustomCommandEditorSheet(
                     },
                     enabled = !saving && name.isNotBlank() && prompt.isNotBlank()
                 ) {
-                    Text(if (saving) "Сохраняю..." else "Сохранить")
+                    Text(if (saving) "Сохраняю…" else "Сохранить")
                 }
             }
         }

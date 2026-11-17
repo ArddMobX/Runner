@@ -71,7 +71,11 @@ object TaskNotificationManager {
         )
 
         val title = if (!sessionTitle.isNullOrBlank()) "Задача выполнена: $sessionTitle" else "Задача выполнена"
-        val body = if (!previewText.isNullOrBlank()) previewText.take(150) else "Агент завершил выполнение шагов."
+        val body = if (!previewText.isNullOrBlank()) {
+            previewText.take(150)
+        } else {
+            "Откройте Runner, чтобы посмотреть результат."
+        }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_runner)
@@ -162,7 +166,7 @@ object TaskNotificationManager {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_runner)
             .setContentTitle("Требуется подтверждение")
-            .setContentText(actionTitle.ifBlank { "Агент ожидает решения перед выполнением операции" })
+            .setContentText(actionTitle.ifBlank { "Агент ждёт подтверждения операции" })
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

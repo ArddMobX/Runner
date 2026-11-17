@@ -26,7 +26,7 @@ class AgentExecutionService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-    private var currentStatusText: String = "Выполняется..."
+    private var currentStatusText: String = "Выполняется…"
 
     private val renewHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val renewRunnable = object : Runnable {
@@ -214,7 +214,7 @@ class AgentExecutionService : Service() {
                 "Выполнение задач агента",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Отображает текущий статус работы Runner и предотвращает остановку сети"
+                description = "Показывает статус задачи, пока Runner работает в фоне"
                 setShowBadge(false)
             }
             val manager = getSystemService(NotificationManager::class.java)
@@ -244,7 +244,7 @@ class AgentExecutionService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Runner выполняет задачу...")
+            .setContentTitle("Runner выполняет задачу…")
             .setContentText(statusText)
             .setSubText("Runner")
             .setSmallIcon(R.drawable.ic_qs_runner)
@@ -322,7 +322,7 @@ class AgentExecutionService : Service() {
             }
         }
 
-        fun start(context: Context, status: String = "Выполняется...") {
+        fun start(context: Context, status: String = "Выполняется…") {
             activeTasks.incrementAndGet()
             try {
                 val intent = Intent(context, AgentExecutionService::class.java).apply {

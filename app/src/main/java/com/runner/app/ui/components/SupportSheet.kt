@@ -130,7 +130,7 @@ fun SupportSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "Runner - полностью открытый и бесплатный локальный агент. Ваша поддержка помогает автору развивать приложение, внедрять новые возможности и улучшать архитектуру.",
+                text = "Runner полностью открыт и бесплатен. Поддержка помогает развивать проект и выпускать новые версии.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = TypeScale.label,
                 lineHeight = 18.sp
@@ -140,7 +140,7 @@ fun SupportSheet(
 
             // Карточка 1: Telegram & Звёзды
             SupportItemCard(
-                title = "Telegram-канал и Звёзды ⭐️",
+                title = "Telegram-канал и Звёзды",
                 subtitle = "@runner_agent",
                 description = "Новости проекта, релизы и возможность отправить звёзды к постам",
                 icon = RunnerIcons.Telegram,
@@ -272,9 +272,9 @@ fun SupportSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Карточка 4: Отчет о сбоях и диагностика
+            // Карточка 4: Отчёт о сбоях и диагностика
             SupportItemCard(
-                title = "Отчет о сбоях и диагностика",
+                title = "Отчёт о сбоях и диагностика",
                 subtitle = "Сводка для разработчика",
                 description = "Скопировать в буфер информацию об устройстве, ошибках и последних системных событиях",
                 icon = RunnerIcons.BugReport,
@@ -282,7 +282,7 @@ fun SupportSheet(
                 actionIcon = RunnerIcons.ContentCopy,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    CrashReportManager.copyReport(context, "Диагностический отчет из меню поддержки")
+                    CrashReportManager.copyReport(context, "Диагностический отчёт из меню поддержки")
                 }
             )
 

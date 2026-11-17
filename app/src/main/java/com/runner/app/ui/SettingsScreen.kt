@@ -365,7 +365,7 @@ private fun SettingsRoot(
         SearchableSetting(
             title = "Подтверждения и сухой прогон",
             section = "Агент · Инструменты",
-            description = if (appSettings.confirmDangerous) "Опасные действия спрашивают" else "Без подтверждений",
+            description = if (appSettings.confirmDangerous) "Подтверждение опасных действий" else "Без подтверждений",
             icon = RunnerIcons.Warning,
             route = SettingsRoute.AgentTools
         ),
@@ -400,7 +400,7 @@ private fun SettingsRoot(
         SearchableSetting(
             title = "Свои команды",
             section = "Агент",
-            description = if (customCommands.isEmpty()) "Нет команд" else "Сохранено: ${customCommands.size}",
+            description = if (customCommands.isEmpty()) "Нет команд" else "Сохранено: ${PluralUtils.commands(customCommands.size)}",
             icon = RunnerIcons.Terminal,
             route = SettingsRoute.Commands
         ),
@@ -521,7 +521,7 @@ private fun SettingsRoot(
         SearchableSetting(
             title = "Диагностика и отчёт",
             section = "Диагностика",
-            description = "Отчёт о сбое, логи и память",
+            description = "Отчёт о сбое и журнал shell",
             icon = RunnerIcons.BugReport,
             route = SettingsRoute.Diagnostics
         ),
@@ -542,7 +542,7 @@ private fun SettingsRoot(
         SearchableSetting(
             title = "Telegram-канал",
             section = "О приложении",
-            description = "@runner_agent - новости разработки",
+            description = "@runner_agent: новости разработки",
             icon = RunnerIcons.Telegram,
             onClick = { openExternalUrl(context, DONATE_TG_CHANNEL) }
         ),
@@ -602,7 +602,7 @@ private fun SettingsRoot(
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Поиск по настройкам...",
+                                text = "Поиск по настройкам…",
                                 color = MaterialTheme.colorScheme.outline,
                                 fontSize = TypeScale.label
                             )
@@ -724,7 +724,7 @@ private fun SettingsRoot(
             SettingsDivider()
             SettingsRow(
                 label = "Свои команды",
-                value = if (customCommands.isEmpty()) "Нет команд" else "${customCommands.size} шт.",
+                value = if (customCommands.isEmpty()) "Нет команд" else PluralUtils.commands(customCommands.size),
                 onClick = { onNavigate(SettingsRoute.Commands) },
                 icon = RunnerIcons.Terminal
             )
@@ -772,7 +772,7 @@ private fun SettingsRoot(
         SettingsGroup("Внешний вид") {
             SettingsRow(
                 label = "Тема, голос и интерфейс",
-                value = "Тема, TTS, вибрация, подсказки",
+                value = "Тема, озвучка, вибрация, подсказки",
                 onClick = { onNavigate(SettingsRoute.Appearance) },
                 icon = RunnerIcons.AutoAwesome
             )
@@ -780,8 +780,8 @@ private fun SettingsRoot(
 
         SettingsGroup("Данные") {
             SettingsRow(
-                label = "Корзина и история",
-                value = "Восстановление, очистка, экспорт",
+                label = "Корзина файлов",
+                value = "Восстановление и очистка",
                 onClick = { onNavigate(SettingsRoute.Data) },
                 icon = RunnerIcons.Undo
             )
@@ -789,8 +789,8 @@ private fun SettingsRoot(
 
         SettingsGroup("Диагностика") {
             SettingsRow(
-                label = "Отчёты, логи и проверки",
-                value = "Сбой, shell, мосты и root",
+                label = "Диагностика и журналы",
+                value = "Отчёт о сбое и журнал shell",
                 onClick = { onNavigate(SettingsRoute.Diagnostics) },
                 icon = RunnerIcons.BugReport
             )
@@ -936,18 +936,18 @@ private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(Spacing.lg)
     ) {
-        SettingsGroup("Диагностика и отчет о сбоях") {
+        SettingsGroup("Диагностика и отчёт о сбоях") {
             SettingsRow(
-                label = "Отчет о сбое и неполадках",
+                label = "Отчёт о сбое и неполадках",
                 value = "Скопировать в буфер",
                 onClick = {
-                    CrashReportManager.copyReport(context, "Отчет вызван пользователем из настроек")
+                    CrashReportManager.copyReport(context, "Отчёт вызван пользователем из настроек")
                 },
                 icon = RunnerIcons.BugReport
             )
             SettingsDivider()
             SettingsRow(
-                label = "Просмотр отчета",
+                label = "Просмотр отчёта",
                 value = "Открыть текст",
                 onClick = {
                     showReportPreviewDialog = true
@@ -957,12 +957,12 @@ private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
         }
 
         if (showReportPreviewDialog) {
-            val reportText = remember { CrashReportManager.buildReport(context, "Диагностический отчет") }
+            val reportText = remember { CrashReportManager.buildReport(context, "Диагностический отчёт") }
             AlertDialog(
                 onDismissRequest = { showReportPreviewDialog = false },
                 title = {
                     Text(
-                        text = "Диагностический отчет",
+                        text = "Диагностический отчёт",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -992,8 +992,8 @@ private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
                     TextButton(
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчет о сбое Runner", reportText))
-                            Toast.makeText(context, "Отчет скопирован в буфер", Toast.LENGTH_SHORT).show()
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Отчёт о сбое Runner", reportText))
+                            Toast.makeText(context, "Отчёт скопирован в буфер", Toast.LENGTH_SHORT).show()
                             showReportPreviewDialog = false
                         }
                     ) {
@@ -1047,7 +1047,7 @@ private fun NetworkSettings(viewModel: MainViewModel) {
             // 1. Поле Reverse Proxy
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    text = "Reverse proxy",
+                    text = "Прокси-сервер (Reverse Proxy)",
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
@@ -1137,13 +1137,13 @@ private fun NetworkSettings(viewModel: MainViewModel) {
             // Тап по плашке запускает проверку заново, отдельная кнопка не нужна.
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    text = "Проверка связи",
+                    text = "Проверка соединения",
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = TypeScale.body,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = if (proxyUrl.isNotBlank()) "Тест пинга до ${activeProvider?.name ?: "API"} через reverse proxy" else "Тест пинга до ${activeProvider?.name ?: "API"}",
+                    text = if (proxyUrl.isNotBlank()) "Проверка соединения с ${activeProvider?.name ?: "API"} через прокси-сервер" else "Проверка соединения с ${activeProvider?.name ?: "API"}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption
                 )
@@ -1326,7 +1326,7 @@ private fun NetworkSettings(viewModel: MainViewModel) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Формат: Header: Value (по одной строке) или JSON объект.",
+                    text = "Формат: Header: Value (по одной строке) или JSON-объект.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption
                 )
@@ -1398,7 +1398,7 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
                         fontSize = TypeScale.body
                     )
                     Text(
-                        text = "Показывать аргументы и вывод тулов",
+                        text = "Показывать аргументы и результат инструментов",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption
                     )
@@ -1422,7 +1422,7 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Время генерации и статистика",
+                        text = "Статистика ответов",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = TypeScale.body
                     )
@@ -1485,7 +1485,7 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
                         fontSize = TypeScale.body
                     )
                     Text(
-                        text = "Прежний пустой экран, лента 96% и карточки с рамками",
+                        text = "Вернуть прежний пустой экран и оформление сообщений",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption
                     )
@@ -1832,7 +1832,7 @@ private fun ApiQuickGuideCard() {
                         )
                     }
                     Text(
-                        text = "Это ваш персональный код доступа к нейросетям (Gemini, Claude, GPT, DeepSeek). С ним Runner отправляет запросы напрямую к выбранному сервису без очередей и посредников.",
+                        text = "Ключ доступа к API провайдера. Runner отправляет запросы напрямую: без посредников и общей очереди.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption,
                         lineHeight = 17.sp
@@ -1851,7 +1851,7 @@ private fun ApiQuickGuideCard() {
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Где получить (бесплатно или недорого):",
+                            text = "Где взять ключ:",
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = TypeScale.label,
                             fontWeight = FontWeight.SemiBold
@@ -1970,7 +1970,7 @@ private fun ApiQuickGuideCard() {
                                 }
                             }
                             Text(
-                                text = "Один ключ открывает доступ сразу ко всем моделям мира: Claude, GPT, DeepSeek, Llama. Есть бесплатные модели с суффиксом :free.",
+                                text = "Один ключ OpenRouter открывает доступ ко многим моделям: Claude, GPT, DeepSeek, Llama. У некоторых есть бесплатная версия с суффиксом :free.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = TypeScale.caption,
                                 lineHeight = 16.sp
@@ -2316,7 +2316,7 @@ private fun AgentBehaviorSettings(viewModel: MainViewModel) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Ниже - предсказуемее, выше - креативнее.",
+                    text = "Ниже: предсказуемее. Выше: креативнее.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption
                 )
@@ -2717,7 +2717,7 @@ private fun AgentToolsSettings(viewModel: MainViewModel, onNavigate: (SettingsRo
                     text = "Схемы инструментов занимают заметную часть запроса, поэтому " +
                             "их список сужается до чтения и того, что назвал утверждённый " +
                             "план. Если понадобится что-то ещё, агент подключит это сам. " +
-                            "Без плана список не сужается - иначе инструмента может " +
+                            "Без плана список не сужается, иначе инструмента может " +
                             "не оказаться в нужный момент.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption,
@@ -2869,7 +2869,7 @@ private fun AgentToolsSettings(viewModel: MainViewModel, onNavigate: (SettingsRo
                     )
                     Text(
                         text = if (appSettings.allowRootShell) {
-                            "Каждое su-действие - по подтверждению"
+                            "Каждое su-действие выполняется после подтверждения"
                         } else {
                             "Команды с su отклоняются"
                         },
@@ -3013,10 +3013,9 @@ private fun AgentToolsSettings(viewModel: MainViewModel, onNavigate: (SettingsRo
             title = { Text("Выполнять shell без подтверждения?") },
             text = {
                 Text(
-                    "Все shell-команды будут запускаться сразу. Абсолютные запреты " +
-                            "(pm clear, удаление данных приложений), root-гейт, режим " +
-                            "«только чтение» и сухой прогон остаются. Включайте только " +
-                            "если понимаете риск."
+                    "Все shell-команды будут запускаться сразу. Запреты вроде pm clear " +
+                            "и удаления данных приложений, root-команды, режим «только чтение» " +
+                            "и сухой прогон остаются. Включайте, только если понимаете риск."
                 )
             },
             confirmButton = {
@@ -3377,7 +3376,7 @@ private fun WebSearchSettings(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Агент ищет и читает страницы через web_search и web_fetch. " +
+                text = "Агент ищет и читает страницы в интернете. " +
                         "Без настройки используется DuckDuckGo. Ключ Tavily (1000 запросов " +
                         "в месяц бесплатно) делает выдачу стабильнее.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -3390,7 +3389,7 @@ private fun WebSearchSettings(
                 onValueChange = { keyDraft = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Ключ Tavily (необязательно)", fontSize = TypeScale.label) },
-                placeholder = { Text("tvly-...", fontSize = TypeScale.label) },
+                placeholder = { Text("tvly-…", fontSize = TypeScale.label) },
                 singleLine = true,
                 visualTransformation = if (keyVisible) {
                     VisualTransformation.None
@@ -3577,8 +3576,8 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "По истечении срока записи исчезают при следующем запуске. " +
-                            "Для удалённого и перезаписанного это означает безвозвратное " +
-                            "стирание, для перемещённого - только потерю возможности откатить.",
+                            "Удалённое и перезаписанное стирается безвозвратно, " +
+                            "а перемещённое теряет возможность откатить.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption
                 )
@@ -3635,9 +3634,9 @@ private fun TrashSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) 
                     "Удалённое и старые версии перезаписанных файлов будут стёрты навсегда, " +
                             "вернуть их больше не получится. " +
                             "Сейчас в корзине ${PluralUtils.files(trash.deletedFileCount)} " +
-                            "на ${ToolDispatcher.formatFileSize(trash.totalBytes)}.\n\n" +
+                            "общим размером ${ToolDispatcher.formatFileSize(trash.totalBytes)}.\n\n" +
                             "Файлы, которые агент переместил, останутся на своих новых " +
-                            "местах - но откатить эти перемещения станет нельзя."
+                            "местах, но откатить эти перемещения станет нельзя."
                 )
             },
             confirmButton = {
@@ -3753,7 +3752,7 @@ private fun TrashListScreen(viewModel: MainViewModel) {
             title = { Text("Вернуть всё?") },
             text = {
                 Text(
-                    "Удалённое вернётся на исходные места, перемещённое - обратно туда, " +
+                    "Удалённое вернётся на исходные места, перемещённое отправится обратно туда, " +
                             "откуда его взяли, а файлы с перезаписью получат обратно прежнее " +
                             "содержимое. Если место занято, файл получит новое имя."
                 )
@@ -4169,11 +4168,11 @@ private fun InstructionProfilesField(
                     if (activeProfile.instructions.isEmpty()) {
                         Text(
                             text = when (activeProfile.id) {
-                                "standard" -> "Стандартный режим (без дополнительных инструкций). Задайте свои правила, если необходимо..."
-                                "brief" -> "Краткий режим: модель отвечает максимально коротко, без лишних слов..."
-                                "detailed" -> "Подробный режим: модель объясняет шаги и ход рассуждений..."
-                                "cautious" -> "Осторожный режим: модель переспрашивает перед любыми действиями..."
-                                else -> "Инструкции для профиля «${activeProfile.title}»..."
+                                "standard" -> "Без дополнительных инструкций. Задайте свои правила, если нужно…"
+                                "brief" -> "Отвечает коротко и по делу, без вступлений…"
+                                "detailed" -> "Объясняет шаги и ход рассуждений…"
+                                "cautious" -> "Переспрашивает перед действиями…"
+                                else -> "Инструкции для профиля «${activeProfile.title}»…"
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                             fontSize = TypeScale.label,
@@ -4208,7 +4207,7 @@ private fun InstructionProfilesField(
                         value = newProfileInstructions,
                         onValueChange = { newProfileInstructions = it },
                         label = { Text("Инструкции") },
-                        placeholder = { Text("Правила и стиль поведения агента...") },
+                        placeholder = { Text("Правила и стиль поведения агента…") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .defaultMinSize(minHeight = 80.dp),
@@ -4496,9 +4495,9 @@ private fun VibrationSettingsCard(
                         }
                         val hasVib = viewModel.hapticManager.hasVibrator()
                         if (hasVib) {
-                            Toast.makeText(context, "Тест вибрации запущен (3 сек)...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Тест вибрации запущен (3 сек)…", Toast.LENGTH_SHORT).show()
                         } else {
-                            Toast.makeText(context, "Внимание: вибромотор не обнаружен устройством", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "На устройстве нет вибромотора", Toast.LENGTH_LONG).show()
                         }
                         viewModel.testHaptic3Seconds(appSettings.hapticIntensity)
                         isHapticTestRunning = true
@@ -4704,7 +4703,7 @@ private fun WorkingDirField(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Обзор...",
+                    text = "Обзор…",
                     fontSize = TypeScale.label,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -4788,7 +4787,7 @@ private fun WorkingDirField(
             text = {
                 Column {
                     Text(
-                        text = "Укажи путь внутри /storage/emulated/0",
+                        text = "Укажите путь внутри /storage/emulated/0",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.label
                     )
@@ -5247,8 +5246,8 @@ private fun AccessSettings(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Нужно, чтобы агент мгновенно совершал прямые телефонные звонки " +
-                            "по вашим запросам («Позвони Маме») и искал контакты в телефонной книге.",
+                    text = "Нужно, чтобы агент звонил по вашим просьбам («Позвони маме») " +
+                            "и искал контакты в телефонной книге.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.label,
                     lineHeight = 18.sp
@@ -5267,7 +5266,7 @@ private fun AccessSettings(
                     )
                 ) {
                     Text(
-                        text = "Открыть разрешения приложения",
+                        text = "Открыть настройки разрешений",
                         fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
@@ -5318,7 +5317,7 @@ private fun AccessSettings(
                     )
                 ) {
                     Text(
-                        text = "Открыть разрешения приложения",
+                        text = "Открыть настройки разрешений",
                         fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
@@ -5422,7 +5421,7 @@ private fun AccessSettings(
         var showAssistantBetaWarningDialog by remember { mutableStateOf(false) }
 
         SettingsGroup(
-            title = "Системный ассистент Android",
+            title = "Системный помощник Android",
             badgeText = "БЕТА",
             badgeColor = MaterialTheme.colorScheme.tertiary,
             badgeContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
@@ -5446,7 +5445,7 @@ private fun AccessSettings(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Бета-версия: на некоторых прошивках (MIUI/HyperOS, ColorOS, OneUI) системный вызов ассистента жестом или скриншоты экрана могут работать нестабильно.",
+                            text = "Бета-версия: на некоторых прошивках (MIUI/HyperOS, ColorOS, OneUI) вызов помощника жестом или скриншоты экрана могут работать нестабильно.",
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                             fontSize = TypeScale.caption,
                             lineHeight = 16.sp
@@ -5465,7 +5464,7 @@ private fun AccessSettings(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (isAssistantActive) "Runner назначен цифровым помощником" else "Вызов ассистента жестом или кнопкой",
+                        text = if (isAssistantActive) "Runner назначен цифровым помощником" else "Вызов помощника жестом или кнопкой",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
@@ -5474,7 +5473,7 @@ private fun AccessSettings(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (isAssistantActive) {
-                        "Жест свайпа из угла экрана или долгое нажатие кнопки питания вызывают оверлей Runner поверх любого приложения."
+                        "Жест свайпа из угла экрана или долгое нажатие кнопки питания вызывают панель Runner поверх любого приложения."
                     } else {
                         "Позволяет вызывать Runner долгим удержанием кнопки питания, свайпом из нижнего угла экрана или кнопкой Домой поверх любого приложения."
                     },
@@ -5535,7 +5534,7 @@ private fun AccessSettings(
                     )
                 ) {
                     Text(
-                        text = if (isAssistantActive) "Настройки ассистента в системе" else "Назначить помощником по умолчанию",
+                        text = if (isAssistantActive) "Настройки помощника в системе" else "Назначить помощником по умолчанию",
                         fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
@@ -5570,14 +5569,14 @@ private fun AccessSettings(
                 },
                 title = {
                     Text(
-                        text = "Бета-версия ассистента",
+                        text = "Бета-версия помощника",
                         fontWeight = FontWeight.Bold,
                         fontSize = TypeScale.title
                     )
                 },
                 text = {
                     Text(
-                        text = "Внимание: системный цифровой ассистент Runner находится на этапе бета-тестирования.\n\nНа некоторых устройствах и сторонних прошивках (MIUI/HyperOS, ColorOS, OneUI) вызов по жесту свайпа или захват экрана может работать нестабильно. Вы можете протестировать функцию сейчас или вернуться к штатному ассистенту в любой момент.",
+                        text = "Runner как системный помощник пока в бете. На MIUI/HyperOS, ColorOS и OneUI жест вызова или захват экрана могут работать нестабильно. Можно попробовать сейчас и в любой момент вернуть штатный помощник.",
                         fontSize = TypeScale.label,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -5644,7 +5643,7 @@ private fun AccessSettings(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Бета-версия: Live-режим позволяет агенту самостоятельно взаимодействовать с приложениями на экране через службу спецвозможностей. Не передавайте управление на экранах ввода паролей и платежных сервисов.",
+                            text = "Бета: агент управляет приложениями через службу специальных возможностей. Не используйте на экранах ввода паролей и в платёжных приложениях.",
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontSize = TypeScale.caption,
                             lineHeight = 16.sp
@@ -5665,7 +5664,7 @@ private fun AccessSettings(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (hasAccessibility) "Служба спецвозможностей активна" else "Служба спецвозможностей отключена",
+                        text = if (hasAccessibility) "Служба специальных возможностей активна" else "Служба специальных возможностей отключена",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = TypeScale.body,
                         fontWeight = FontWeight.Medium
@@ -5723,7 +5722,7 @@ private fun AccessSettings(
                         shape = RunnerShapes.small
                     ) {
                         Text(
-                            text = if (!hasAccessibility) "Включить спецвозможности" else "Разрешить наложение поверх окон",
+                            text = if (!hasAccessibility) "Включить специальные возможности" else "Разрешить наложение поверх окон",
                             fontSize = TypeScale.label,
                             fontWeight = FontWeight.Medium
                         )
@@ -6103,7 +6102,7 @@ private fun ConnectionStatusWidget(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = when {
-                        isTesting -> "Проверка..."
+                        isTesting -> "Проверка…"
                         result == null -> "Проверить связь"
                         else -> result.message
                     },

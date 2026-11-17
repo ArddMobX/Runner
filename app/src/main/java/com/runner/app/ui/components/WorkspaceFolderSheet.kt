@@ -117,7 +117,7 @@ fun WorkspaceFolderBar(
 
                 if (hasFolder && autoApprove) {
                     Text(
-                        text = "• Без подтверждений",
+                        text = "· Без подтверждений",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = TypeScale.caption,
                         fontWeight = FontWeight.Medium
@@ -209,7 +209,7 @@ fun WorkspaceFolderSheet(
 
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Агент считает эту папку корневым репозиторием. Все относительные пути и файловые команды будут привязаны к ней.",
+                text = "Агент считает эту папку рабочей. Относительные пути и файловые команды будут привязаны к ней.",
                 fontSize = TypeScale.label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
@@ -364,7 +364,7 @@ fun WorkspaceFolderSheet(
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
-                            text = "Автономный режим в папке",
+                            text = "Без подтверждений в папке",
                             fontSize = TypeScale.body,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
@@ -414,7 +414,7 @@ fun WorkspaceFolderSheet(
                         onValueChange = { inputPath = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        placeholder = { Text("/storage/emulated/0/...") },
+                        placeholder = { Text("/storage/emulated/0/Download") },
                         textStyle = TextStyle(fontSize = TypeScale.label, fontFamily = FontFamily.Monospace)
                     )
                 }
@@ -427,7 +427,7 @@ fun WorkspaceFolderSheet(
                             onWorkingDirChange(trimmed)
                             showManualPathDialog = false
                         } else {
-                            Toast.makeText(context, "Папка не существует, но путь сохранён", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Папка не найдена. Путь сохранён.", Toast.LENGTH_SHORT).show()
                             onWorkingDirChange(trimmed)
                             showManualPathDialog = false
                         }

@@ -1213,7 +1213,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 ""
             }
-            appendSystemInfo("Возвращено объектов: ${outcome.restored}.$renamedNote", null)
+            appendSystemInfo("Восстановлено объектов: ${outcome.restored}.$renamedNote", null)
             refreshTrash()
         }
     }
@@ -1420,7 +1420,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             sessionSwitchLock.withLock {
                 val emptySession = repository.getRecentEmptySession()
-                val session = emptySession ?: repository.createSession("Быстрый ассистент")
+                val session = emptySession ?: repository.createSession("Быстрый чат")
                 loadSession(session.id)
             }
         }
@@ -1522,11 +1522,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun createProjectInstructions() {
         val workingDir = _settings.value.defaultWorkingDir
         if (workingDir.isBlank()) {
-            appendSystemInfo("Сначала выбери рабочую папку проекта в настройках.", null)
+            appendSystemInfo("Сначала выберите рабочую папку проекта в настройках.", null)
             return
         }
         if (_settings.value.readOnlyMode) {
-            appendSystemInfo("Режим только чтения включён: создать файл инструкций нельзя.", null)
+            appendSystemInfo("В режиме «только чтение» нельзя создать файл инструкций.", null)
             return
         }
 
@@ -1621,7 +1621,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _streamingText.value = ""
         _streamingReasoning.value = ""
         _streamStartedAt.value = System.currentTimeMillis()
-        AgentExecutionService.start(getApplication(), "Runner сжимает контекст...")
+        AgentExecutionService.start(getApplication(), "Runner сжимает контекст…")
 
         viewModelScope.launch {
             try {
@@ -1910,7 +1910,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onResult: (String) -> Unit = {}
     ) {
         if (baseUrl.isBlank() || apiKey.isBlank()) {
-            onResult("Нужны Base URL и API Key")
+            onResult("Нужны Base URL и API-ключ")
             return
         }
 
@@ -2189,7 +2189,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val provider = activeProvider.value
         if (provider == null || provider.apiKey.isBlank()) {
             appendSystemInfo(
-                "Ключ провайдера не задан, модель не ответит. Необходимо указать API-ключ в настройках.",
+                "Не задан API-ключ провайдера. Добавьте его в настройках, иначе модель не ответит.",
                 MessageAction.OPEN_SETTINGS
             )
             return
@@ -2276,7 +2276,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isRunning.value = true
         _streamStartedAt.value = now
         _streamingReasoning.value = ""
-        AgentExecutionService.start(getApplication(), "Runner выполняет задачу...")
+        AgentExecutionService.start(getApplication(), "Runner выполняет задачу…")
         if (_settings.value.liveModeEnabled) {
             // Обработчик «Стоп» привязан к этой сессии Live-режима, а не
             // к глобальной переменной: иначе его перезапишет ViewModel
@@ -2440,7 +2440,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hapticManager.onError(_settings.value)
                 appendSystemInfo(
                     "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
-                            "Стек сохранён в отчёте о сбое (Настройки → Диагностика).",
+                            "Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
                     null
                 )
             } finally {
@@ -2496,7 +2496,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val provider = activeProvider.value
         if (provider == null || provider.apiKey.isBlank()) {
             appendSystemInfo(
-                "Ключ провайдера не задан, модель не ответит. Необходимо указать API-ключ в настройках.",
+                "Не задан API-ключ провайдера. Добавьте его в настройках, иначе модель не ответит.",
                 MessageAction.OPEN_SETTINGS
             )
             return
@@ -2528,7 +2528,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isRunning.value = true
         _streamStartedAt.value = System.currentTimeMillis()
         _streamingReasoning.value = ""
-        AgentExecutionService.start(getApplication(), "Повтор задачи...")
+        AgentExecutionService.start(getApplication(), "Повтор задачи…")
         if (_settings.value.liveModeEnabled) {
             // Повтор в Live-режиме тоже должен показывать плавающую карточку.
             LiveAgentManager.start(getApplication(), onStop = { stopGeneration() }, sessionId = sessionId)
@@ -2574,7 +2574,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hapticManager.onError(_settings.value)
                 appendSystemInfo(
                     "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
-                            "Стек сохранён в отчёте о сбое (Настройки → Диагностика).",
+                            "Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
                     null
                 )
             } finally {

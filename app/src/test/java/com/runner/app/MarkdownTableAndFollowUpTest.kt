@@ -66,6 +66,6 @@ class MarkdownTableAndFollowUpTest {
         val tableResponse = "Сравнение вариантов:\n| Модель | Скорость |\n|---|---|\n| Flash | 120 tps |\n| Pro | 40 tps |\nКакой вариант подходит?"
         val followUps = SmartFollowUpGenerator.generate(tableResponse)
         assertTrue(followUps.isNotEmpty())
-        assertTrue(followUps.contains("Сравнить подробнее") || followUps.contains("Какой вариант лучше?") || followUps.contains("Да, давай"))
+        assertTrue(followUps.contains("Сравнить подробнее") || followUps.contains("Какой вариант лучше?") || followUps.contains("Да, продолжи"))
     }
 }

@@ -249,7 +249,7 @@ fun ProviderEditScreen(
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
-                FieldLabel("Base URL")
+                FieldLabel("Base URL (адрес API)")
                 TextField(
                     value = baseUrl,
                     onValueChange = {
@@ -266,7 +266,7 @@ fun ProviderEditScreen(
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
-                FieldLabel("API Key")
+                FieldLabel("API-ключ")
                 TextField(
                     value = apiKey,
                     onValueChange = {
@@ -277,12 +277,12 @@ fun ProviderEditScreen(
                     placeholder = {
                         val isGemini = provider.id.contains("gemini", ignoreCase = true) || name.contains("gemini", ignoreCase = true)
                         val keyPlaceholder = when {
-                            isGemini -> "AIzaSy..."
-                            provider.id.contains("anthropic", ignoreCase = true) -> "sk-ant-..."
-                            provider.id.contains("openrouter", ignoreCase = true) -> "sk-or-..."
-                            provider.id.contains("groq", ignoreCase = true) -> "gsk_..."
-                            provider.id.contains("openai", ignoreCase = true) -> "sk-..."
-                            else -> "Введите API-ключ..."
+                            isGemini -> "AIzaSy…"
+                            provider.id.contains("anthropic", ignoreCase = true) -> "sk-ant-…"
+                            provider.id.contains("openrouter", ignoreCase = true) -> "sk-or-…"
+                            provider.id.contains("groq", ignoreCase = true) -> "gsk_…"
+                            provider.id.contains("openai", ignoreCase = true) -> "sk-…"
+                            else -> "Введите API-ключ…"
                         }
                         Text(keyPlaceholder, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label)
                     },
@@ -300,7 +300,7 @@ fun ProviderEditScreen(
                                 } else {
                                     RunnerIcons.Visibility
                                 },
-                                contentDescription = "Показать ключ",
+                                contentDescription = if (keyVisible) "Скрыть ключ" else "Показать ключ",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(17.dp)
                             )
@@ -311,7 +311,7 @@ fun ProviderEditScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Ключ шифруется ключом Android Keystore и наружу не уходит.",
+                    text = "Ключ хранится в зашифрованном виде через Android Keystore и не покидает устройство.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption,
                     lineHeight = 15.sp
@@ -435,7 +435,7 @@ fun ProviderEditScreen(
                             "Загружаю список моделей…"
                         } else {
                             "Список пуст. Модели подтянутся сами после ввода ключа, " +
-                                    "либо нажми обновление."
+                                    "либо нажмите кнопку обновления."
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption,
