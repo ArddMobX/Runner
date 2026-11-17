@@ -30,6 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -147,7 +151,10 @@ fun AgentStatusIndicator(
                 fontSize = TypeScale.caption,
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics {
+                    liveRegion = LiveRegionMode.Polite
+                }
             )
         }
         if (elapsedSeconds != null) {
@@ -156,7 +163,10 @@ fun AgentStatusIndicator(
                 color = MaterialTheme.colorScheme.outline,
                 fontSize = TypeScale.caption,
                 fontFamily = RobotoMono,
-                maxLines = 1
+                maxLines = 1,
+                modifier = Modifier.semantics {
+                    contentDescription = "Прошло ${formatElapsed(elapsedSeconds)}"
+                }
             )
         }
     }

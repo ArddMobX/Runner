@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -84,10 +85,16 @@ import com.runner.app.data.SelectedFile
 import com.runner.app.ui.commands.SlashCommand
 import com.runner.app.ui.commands.SlashCommandParser
 import com.runner.app.ui.commands.SlashCommands
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.TypeScale
+import com.runner.app.ui.theme.accessibleMinHeight
+import com.runner.app.ui.theme.accessibleTouchSize
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.DocumentExtractor
 import kotlinx.coroutines.Dispatchers
@@ -208,6 +215,10 @@ fun ChatInputBar(
 
     var showAttachMenu by remember { mutableStateOf(false) }
     var currentCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val attachAction = {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        showAttachMenu = true
+    }
 
     // Лаунчер галереи (фото): выбор существующих изображений
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -458,17 +469,23 @@ fun ChatInputBar(
             // Кнопка «+»: файл, камера или галерея.
             // Идеально сбалансирована по центру, размеру (38dp) и форме с кнопкой микрофона/отправки.
             Box(
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(accessibleTouchSize(38.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(accessibleTouchSize(38.dp))
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f))
+                        .semantics(mergeDescendants = true) {
+                            role = Role.Button
+                            onClick(label = "Прикрепить файл") {
+                                attachAction()
+                                true
+                            }
+                        }
                         .bounceClick(enabled = !isRunning, scaleDown = 0.90f) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showAttachMenu = true
+                            attachAction()
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -683,6 +700,7 @@ private fun InputModeChip(
     )
     Row(
         modifier = Modifier
+            .heightIn(min = accessibleMinHeight())
             .clip(shape)
             .background(background)
             .border(
@@ -696,6 +714,7 @@ private fun InputModeChip(
                 ),
                 shape
             )
+            .semantics(mergeDescendants = true) { role = Role.Button }
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -762,6 +781,7 @@ private fun SelectedFileChip(
             modifier = Modifier
                 .size(26.dp)
                 .clip(CircleShape)
+                .semantics(mergeDescendants = true) { role = Role.Button }
                 .clickable(onClick = onRemove),
             contentAlignment = Alignment.Center
         ) {
@@ -840,6 +860,13 @@ private fun SelectedImageThumbnail(
                 .size(18.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.65f))
+                .semantics(mergeDescendants = true) {
+                    role = Role.Button
+                    onClick(label = "Удалить изображение") {
+                        onRemove()
+                        true
+                    }
+                }
                 .bounceClick(scaleDown = 0.85f) { onRemove() },
             contentAlignment = Alignment.Center
         ) {
@@ -926,21 +953,38 @@ private fun SendMicStopButton(
         label = "send_scale"
     )
 
+    val actionLabel = when (mode) {
+        ActionButtonMode.STOP -> "Остановить"
+        ActionButtonMode.RECORDING -> "Остановить запись"
+        ActionButtonMode.SEND -> "Отправить"
+        ActionButtonMode.MIC -> "Голосовой ввод"
+    }
+    fun activate() {
+        when (mode) {
+            ActionButtonMode.STOP -> onStop()
+            ActionButtonMode.RECORDING, ActionButtonMode.MIC -> onMicClick()
+            ActionButtonMode.SEND -> onSend()
+        }
+    }
+
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(accessibleTouchSize(38.dp))
             .graphicsLayer {
                 scaleX = buttonScale
                 scaleY = buttonScale
             }
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick(label = actionLabel) {
+                    activate()
+                    true
+                }
+            }
             .clip(CircleShape)
             .background(background)
             .bounceClick(enabled = enabled, scaleDown = 0.90f) {
-                when (mode) {
-                    ActionButtonMode.STOP -> onStop()
-                    ActionButtonMode.RECORDING, ActionButtonMode.MIC -> onMicClick()
-                    ActionButtonMode.SEND -> onSend()
-                }
+                activate()
             },
         contentAlignment = Alignment.Center
     ) {
@@ -950,16 +994,9 @@ private fun SendMicStopButton(
             ActionButtonMode.SEND -> RunnerIcons.ArrowUpward
         }
 
-        val desc = when (mode) {
-            ActionButtonMode.STOP -> "Остановить"
-            ActionButtonMode.RECORDING -> "Остановить запись"
-            ActionButtonMode.SEND -> "Отправить"
-            ActionButtonMode.MIC -> "Голосовой ввод"
-        }
-
         Icon(
             imageVector = icon,
-            contentDescription = desc,
+            contentDescription = actionLabel,
             tint = iconTint,
             modifier = Modifier.size(19.dp)
         )

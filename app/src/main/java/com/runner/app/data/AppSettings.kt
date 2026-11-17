@@ -37,6 +37,8 @@ data class AppSettings(
     val showStats: Boolean = false,
     /** Плавные анимации интерфейса. Выключено — переходы и нажатия без движения. */
     val motionEnabled: Boolean = true,
+    /** Усиленная доступность: крупные зоны нажатия и подсказки для TalkBack. */
+    val accessibilityEnhanced: Boolean = false,
     /**
      * Классический вид чата: прежний пустой экран и оформление ленты.
      * Выключено по умолчанию — новый вид спокойнее.
@@ -575,6 +577,7 @@ class SettingsStore(context: Context) {
             showToolDetails = prefs.getBoolean(KEY_SHOW_TOOL_DETAILS, true),
             showStats = prefs.getBoolean(KEY_SHOW_STATS, false),
             motionEnabled = prefs.getBoolean(KEY_MOTION_ENABLED, true),
+            accessibilityEnhanced = prefs.getBoolean(KEY_ACCESSIBILITY_ENHANCED, false),
             chatClassicLook = prefs.getBoolean(KEY_CHAT_CLASSIC_LOOK, false),
             disclaimerAccepted = prefs.getBoolean(KEY_DISCLAIMER_ACCEPTED, false),
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
@@ -656,6 +659,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_SHOW_TOOL_DETAILS, settings.showToolDetails)
             .putBoolean(KEY_SHOW_STATS, settings.showStats)
             .putBoolean(KEY_MOTION_ENABLED, settings.motionEnabled)
+            .putBoolean(KEY_ACCESSIBILITY_ENHANCED, settings.accessibilityEnhanced)
             .putBoolean(KEY_CHAT_CLASSIC_LOOK, settings.chatClassicLook)
             .putBoolean(KEY_DISCLAIMER_ACCEPTED, settings.disclaimerAccepted)
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
@@ -743,6 +747,7 @@ class SettingsStore(context: Context) {
         const val KEY_SHOW_TOOL_DETAILS = "show_tool_details"
         const val KEY_SHOW_STATS = "show_stats"
         const val KEY_MOTION_ENABLED = "motion_enabled"
+        const val KEY_ACCESSIBILITY_ENHANCED = "accessibility_enhanced"
         const val KEY_CHAT_CLASSIC_LOOK = "chat_classic_look"
         const val KEY_DISCLAIMER_ACCEPTED = "disclaimer_accepted"
         const val KEY_PLANNING_ENABLED = "planning_enabled"

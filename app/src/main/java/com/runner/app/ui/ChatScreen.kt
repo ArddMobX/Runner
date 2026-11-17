@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -182,6 +183,8 @@ import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.TypeScale
+import com.runner.app.ui.theme.accessibleMinHeight
+import com.runner.app.ui.theme.accessibleTouchSize
 import com.runner.app.util.DocumentExtractor
 import com.runner.app.util.PrefatoryText
 import com.runner.app.ui.theme.bounceClick
@@ -1318,6 +1321,8 @@ private fun ModelChip(
                 ),
                 RunnerShapes.pill
             )
+            .heightIn(min = accessibleMinHeight())
+            .semantics(mergeDescendants = true) { role = Role.Button }
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1896,6 +1901,7 @@ private fun EmptyStateChip(
 
     Row(
         modifier = modifier
+            .heightIn(min = accessibleMinHeight())
             .clip(RunnerShapes.pill)
             .bounceClick(scaleDown = 0.96f, onClick = handleClick)
             .semantics(mergeDescendants = true) {
@@ -1941,7 +1947,7 @@ private fun ScrollToBottomButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.size(40.dp),
+        modifier = modifier.size(accessibleTouchSize(40.dp)),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1975,7 +1981,7 @@ private fun MessageActionIcon(
     }
     Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(accessibleTouchSize(36.dp))
             .clip(CircleShape)
             .bounceClick(scaleDown = 0.88f, onClick = handleClick)
             .semantics(mergeDescendants = true) {
@@ -2659,6 +2665,10 @@ private fun ReasoningBlock(
                 }
             )
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+            }
             .clickable { expanded = !expanded }
             .padding(horizontal = 12.dp, vertical = 9.dp)
     ) {
@@ -2781,6 +2791,10 @@ private fun PlanCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Button
+                        stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+                    }
                     .clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3258,6 +3272,10 @@ private fun TaskActivityCard(
                     .clip(RunnerShapes.small)
                     // Пока план ждёт решения, прятать его нельзя: кнопки
                     // утверждения находятся внутри.
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Button
+                        stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+                    }
                     .clickable(enabled = !planAwaiting) { expanded = !expanded }
                     .padding(horizontal = 2.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -3752,6 +3770,10 @@ private fun ToolCard(
                 }
             )
             .animateContentSize(animationSpec = MotionTokens.fluidSpring())
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+            }
             .clickable(enabled = hasDetails && !message.isRunning) { expanded = !expanded }
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {

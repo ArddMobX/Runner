@@ -71,6 +71,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +88,7 @@ import kotlin.math.roundToInt
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.ui.components.AgentStatusIndicator
 import com.runner.app.ui.components.rememberChatInputState
+import com.runner.app.ui.theme.ApplyAccessibilitySetting
 import com.runner.app.ui.theme.ApplyMotionSetting
 import com.runner.app.ui.theme.RunnerTheme
 import com.runner.app.ui.theme.SecondaryMint
@@ -120,6 +125,7 @@ class OverlayActivity : ComponentActivity() {
             val screenshotUri by pendingScreenshotUri
 
             ApplyMotionSetting(appSettings.motionEnabled)
+            ApplyAccessibilitySetting(appSettings.accessibilityEnhanced)
             RunnerTheme(themeConfig = themeConfig) {
                 OverlayScreen(
                     viewModel = viewModel,
@@ -445,6 +451,13 @@ private fun OverlayScreen(
                         },
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier
+                            .semantics(mergeDescendants = true) {
+                                role = Role.Button
+                                onClick(label = "Снимок экрана") {
+                                    triggerScreenCapture()
+                                    true
+                                }
+                            }
                             .bounceClick { triggerScreenCapture() }
                     ) {
                         Row(
@@ -707,7 +720,7 @@ private fun OverlayTaskApprovalDialogs(viewModel: MainViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.resolvePlan(false) }) {
-                    Text("Без плана")
+                    Text("Отклонить")
                 }
             }
         )
@@ -722,7 +735,15 @@ private fun QuickPromptChip(
     Surface(
         shape = RunnerShapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.bounceClick { onClick() }
+        modifier = Modifier
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                onClick(label = label) {
+                    onClick()
+                    true
+                }
+            }
+            .bounceClick { onClick() }
     ) {
         Text(
             text = label,

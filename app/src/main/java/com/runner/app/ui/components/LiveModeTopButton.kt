@@ -14,8 +14,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.runner.app.ui.theme.MotionTokens
+import com.runner.app.ui.theme.accessibleTouchSize
 
 /**
  * Кнопка переключения Live-режима (автопилот по экрану) в верхнем правом углу.
@@ -60,10 +64,11 @@ fun LiveModeTopButton(
 
     Box(
         modifier = modifier
-            .size(36.dp)
+            .size(accessibleTouchSize(36.dp))
             .clip(CircleShape)
             .background(backgroundColor)
             .border(if (isActive) 1.2.dp else 0.8.dp, borderColor, CircleShape)
+            .semantics(mergeDescendants = true) { role = Role.Button }
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {

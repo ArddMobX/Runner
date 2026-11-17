@@ -133,12 +133,17 @@ import com.runner.app.ui.components.DONATE_TIKTOK
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.Spacing
 import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.TypeScale
+import com.runner.app.ui.theme.accessibleMinHeight
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.PluralUtils
 import kotlinx.coroutines.launch
@@ -453,6 +458,13 @@ private fun SettingsRoot(
             section = "Внешний вид",
             description = if (appSettings.motionEnabled) "Включены" else "Выключены",
             icon = RunnerIcons.AutoAwesome,
+            route = SettingsRoute.Appearance
+        ),
+        SearchableSetting(
+            title = "Улучшенная доступность",
+            section = "Внешний вид",
+            description = if (appSettings.accessibilityEnhanced) "Крупные зоны нажатия включены" else "Выключена",
+            icon = RunnerIcons.TouchApp,
             route = SettingsRoute.Appearance
         ),
         SearchableSetting(
@@ -1465,6 +1477,35 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
                     checked = appSettings.motionEnabled,
                     onCheckedChange = {
                         viewModel.updateSettings(appSettings.copy(motionEnabled = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Улучшенная доступность",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body
+                    )
+                    Text(
+                        text = "Крупные зоны нажатия и подсказки для TalkBack",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.caption
+                    )
+                }
+                Switch(
+                    checked = appSettings.accessibilityEnhanced,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(accessibilityEnhanced = it))
                     },
                     colors = runnerSwitchColors()
                 )
@@ -4877,6 +4918,7 @@ private fun <T> SegmentedChips(
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = accessibleMinHeight())
                     .clip(shape)
                     .background(background)
                     .border(BorderStroke(1.dp, borderColor), shape)
@@ -5920,7 +5962,8 @@ private fun SettingsGroup(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = TypeScale.caption,
                     fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.2.sp
+                    letterSpacing = 0.2.sp,
+                    modifier = Modifier.semantics { heading() }
                 )
                 if (badgeText != null) {
                     Spacer(modifier = Modifier.width(Spacing.sm))
@@ -5970,6 +6013,7 @@ private fun SettingsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .semantics(mergeDescendants = true) { role = Role.Button }
             .clickable { onClick() }
             .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically

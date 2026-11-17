@@ -60,6 +60,7 @@ import com.runner.app.ui.components.AppDrawerContent
 import com.runner.app.ui.components.DisclaimerDialog
 import com.runner.app.ui.components.SupportSheet
 import com.runner.app.ui.formatModelName
+import com.runner.app.ui.theme.ApplyAccessibilitySetting
 import com.runner.app.ui.theme.ApplyMotionSetting
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerTheme
@@ -258,6 +259,7 @@ fun AppNavigation(viewModel: MainViewModel) {
     // Предупреждение о рисках показываем один раз, до всего остального
     val appSettings by viewModel.settings.collectAsState()
     ApplyMotionSetting(appSettings.motionEnabled)
+    ApplyAccessibilitySetting(appSettings.accessibilityEnhanced)
     if (!appSettings.disclaimerAccepted) {
         DisclaimerDialog(
             onAccept = {
