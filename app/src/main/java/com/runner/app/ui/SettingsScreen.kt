@@ -446,7 +446,7 @@ private fun SettingsRoot(
             title = "Тема и AMOLED",
             section = "Внешний вид",
             description = "Тёмная/светлая тема, динамический цвет, чистый чёрный",
-            icon = RunnerIcons.AutoAwesome,
+            icon = RunnerIcons.FormatPaint,
             route = SettingsRoute.Appearance
         ),
         SearchableSetting(
@@ -474,7 +474,7 @@ private fun SettingsRoot(
             title = "Плавные анимации",
             section = "Внешний вид",
             description = if (appSettings.motionEnabled) "Включены" else "Выключены",
-            icon = RunnerIcons.AutoAwesome,
+            icon = RunnerIcons.PlayCircle,
             route = SettingsRoute.Appearance
         ),
         SearchableSetting(
@@ -839,7 +839,7 @@ private fun SettingsRoot(
                 label = "Тема, голос и интерфейс",
                 value = "Тема, озвучка, вибрация, подсказки",
                 onClick = { onNavigate(SettingsRoute.Appearance) },
-                icon = RunnerIcons.AutoAwesome
+                icon = RunnerIcons.FormatPaint
             )
         }
 
@@ -1898,7 +1898,7 @@ private fun ApiQuickGuideCard() {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = RunnerIcons.AutoAwesome,
+                        imageVector = RunnerIcons.Key,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
@@ -2200,7 +2200,7 @@ private fun ProvidersList(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = providerLogo ?: RunnerIcons.AutoAwesome,
+                            imageVector = providerLogo ?: RunnerIcons.SmartToy,
                             contentDescription = null,
                             tint = if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
@@ -5596,7 +5596,7 @@ private fun AccessSettings(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (isAssistantActive) RunnerIcons.CheckCircle else RunnerIcons.AutoAwesome,
+                        imageVector = if (isAssistantActive) RunnerIcons.CheckCircle else RunnerIcons.SmartToy,
                         contentDescription = null,
                         tint = if (isAssistantActive) StatusSuccess else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(17.dp)
@@ -6900,7 +6900,7 @@ private fun CustomSuggestionsManager(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = RunnerIcons.AutoAwesome,
+                                imageVector = RunnerIcons.ChatBubble,
                                 contentDescription = null,
                                 tint = SecondaryMint,
                                 modifier = Modifier.size(15.dp)

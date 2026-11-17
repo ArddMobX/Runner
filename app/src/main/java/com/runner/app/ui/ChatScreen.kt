@@ -1348,7 +1348,7 @@ private fun ModelChip(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = brandLogo ?: RunnerIcons.AutoAwesome,
+            imageVector = brandLogo ?: RunnerIcons.SmartToy,
             contentDescription = null,
             tint = when {
                 !hasKey -> StatusWarning
@@ -1428,7 +1428,7 @@ private fun EmptyChatState(
             prompt = "Посмотри на экран и подробно опиши, что сейчас открыто"
         ),
         EmptyStateSuggestion(
-            icon = RunnerIcons.AutoAwesome,
+            icon = RunnerIcons.Settings,
             title = "Настройки системы",
             prompt = "Открой настройки телефона и проверь статус сети"
         ),
@@ -1443,7 +1443,7 @@ private fun EmptyChatState(
             prompt = "Проверь уровень заряда батареи и статус Wi-Fi"
         ),
         EmptyStateSuggestion(
-            icon = RunnerIcons.AutoAwesome,
+            icon = RunnerIcons.Public,
             title = "Погода в браузере",
             prompt = "Открой браузер и найди прогноз погоды на сегодня"
         )
@@ -1457,7 +1457,7 @@ private fun EmptyChatState(
             .filter { it.isNotBlank() }
             .map { promptText ->
                 EmptyStateSuggestion(
-                    icon = RunnerIcons.AutoAwesome,
+                    icon = RunnerIcons.ChatBubble,
                     title = if (promptText.length > 24) {
                         promptText.take(24).trimEnd() + "…"
                     } else {
@@ -1701,7 +1701,7 @@ private fun ClassicEmptyChatState(
             isMint = true
         ),
         EmptyStateSuggestion(
-            icon = RunnerIcons.AutoAwesome,
+            icon = RunnerIcons.Settings,
             title = "Настройки системы",
             prompt = "Открой настройки телефона и проверь статус сети"
         ),
@@ -1717,7 +1717,7 @@ private fun ClassicEmptyChatState(
             prompt = "Проверь уровень заряда батареи и статус Wi-Fi"
         ),
         EmptyStateSuggestion(
-            icon = RunnerIcons.AutoAwesome,
+            icon = RunnerIcons.Public,
             title = "Погода в браузере",
             prompt = "Открой браузер и найди прогноз погоды на сегодня",
             isMint = true
@@ -1729,7 +1729,7 @@ private fun ClassicEmptyChatState(
     } else {
         val custom = settings.customPromptSuggestions.mapIndexed { index, promptText ->
             EmptyStateSuggestion(
-                icon = RunnerIcons.AutoAwesome,
+                icon = RunnerIcons.ChatBubble,
                 title = promptText.take(24),
                 prompt = promptText,
                 isMint = index % 2 == 1
@@ -2819,7 +2819,7 @@ private fun PlanCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = RunnerIcons.AutoAwesome,
+                    imageVector = RunnerIcons.Layers,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(15.dp)

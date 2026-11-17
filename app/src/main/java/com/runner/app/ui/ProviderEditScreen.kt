@@ -150,7 +150,7 @@ fun ProviderEditScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = providerLogo ?: RunnerIcons.AutoAwesome,
+                            imageVector = providerLogo ?: RunnerIcons.SmartToy,
                             contentDescription = null,
                             tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(19.dp)

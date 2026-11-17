@@ -380,7 +380,7 @@ private fun OverlayScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = RunnerIcons.AutoAwesome,
+                        imageVector = RunnerIcons.SmartToy,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)

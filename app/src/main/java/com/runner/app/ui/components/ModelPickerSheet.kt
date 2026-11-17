@@ -568,7 +568,7 @@ private fun ModelRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = modelLogo ?: RunnerIcons.AutoAwesome,
+                imageVector = modelLogo ?: RunnerIcons.SmartToy,
                 contentDescription = null,
                 tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp)
