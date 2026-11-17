@@ -162,6 +162,8 @@ data class AppSettings(
     val notifyOnCompletion: Boolean = true,
     /** Блокировать скриншоты и скрывать превью приложения в списке недавних задач (FLAG_SECURE). */
     val secureScreenMode: Boolean = false,
+    /** Не показывать названия чатов и текст ответов в уведомлениях. */
+    val hideNotificationPreviews: Boolean = false,
     /** Список избранных моделей в формате "providerId:modelId" для быстрого доступа. */
     val favoriteModels: Set<String> = emptySet(),
     /** Лимит токенов на один ответ модели (0 = без ограничений / по умолчанию). */
@@ -610,6 +612,7 @@ class SettingsStore(context: Context) {
             sendOnEnter = prefs.getBoolean(KEY_SEND_ON_ENTER, false),
             notifyOnCompletion = prefs.getBoolean(KEY_NOTIFY_ON_COMPLETION, true),
             secureScreenMode = prefs.getBoolean(KEY_SECURE_SCREEN_MODE, false),
+            hideNotificationPreviews = prefs.getBoolean(KEY_HIDE_NOTIFICATION_PREVIEWS, false),
             favoriteModels = prefs.getStringSet(KEY_FAVORITE_MODELS, emptySet())?.toSet() ?: emptySet(),
             maxOutputTokens = prefs.getInt(KEY_MAX_OUTPUT_TOKENS, 0),
             maxTaskTokens = prefs.getInt(KEY_MAX_TASK_TOKENS, 0),
@@ -687,6 +690,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_SEND_ON_ENTER, settings.sendOnEnter)
             .putBoolean(KEY_NOTIFY_ON_COMPLETION, settings.notifyOnCompletion)
             .putBoolean(KEY_SECURE_SCREEN_MODE, settings.secureScreenMode)
+            .putBoolean(KEY_HIDE_NOTIFICATION_PREVIEWS, settings.hideNotificationPreviews)
             .putStringSet(KEY_FAVORITE_MODELS, HashSet(settings.favoriteModels))
             .putInt(KEY_MAX_OUTPUT_TOKENS, settings.maxOutputTokens)
             .putInt(KEY_MAX_TASK_TOKENS, settings.maxTaskTokens)
@@ -776,6 +780,7 @@ class SettingsStore(context: Context) {
         const val KEY_SEND_ON_ENTER = "send_on_enter"
         const val KEY_NOTIFY_ON_COMPLETION = "notify_on_completion"
         const val KEY_SECURE_SCREEN_MODE = "secure_screen_mode"
+        const val KEY_HIDE_NOTIFICATION_PREVIEWS = "hide_notification_previews"
         const val KEY_FAVORITE_MODELS = "favorite_models"
         const val KEY_MAX_OUTPUT_TOKENS = "max_output_tokens"
         const val KEY_MAX_TASK_TOKENS = "max_task_tokens"

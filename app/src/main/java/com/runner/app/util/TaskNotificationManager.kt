@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.runner.app.MainActivity
 import com.runner.app.R
+import com.runner.app.data.SettingsStore
 
 object TaskNotificationManager {
 
@@ -48,6 +49,12 @@ object TaskNotificationManager {
         }
     }
 
+    private fun hidePreviews(context: Context): Boolean = try {
+        SettingsStore(context).load().hideNotificationPreviews
+    } catch (_: Exception) {
+        false
+    }
+
     fun notifyTaskCompleted(
         context: Context,
         sessionId: String? = null,
@@ -70,8 +77,17 @@ object TaskNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (!sessionTitle.isNullOrBlank()) "Задача выполнена: $sessionTitle" else "Задача выполнена"
-        val body = if (!previewText.isNullOrBlank()) {
+        val privateMode = hidePreviews(context)
+        val title = if (privateMode) {
+            "Задача выполнена"
+        } else if (!sessionTitle.isNullOrBlank()) {
+            "Задача выполнена: $sessionTitle"
+        } else {
+            "Задача выполнена"
+        }
+        val body = if (privateMode) {
+            "Откройте Runner, чтобы посмотреть результат."
+        } else if (!previewText.isNullOrBlank()) {
             previewText.take(150)
         } else {
             "Откройте Runner, чтобы посмотреть результат."
@@ -81,7 +97,11 @@ object TaskNotificationManager {
             .setSmallIcon(R.drawable.ic_qs_runner)
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(previewText ?: body))
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    if (privateMode) body else previewText ?: body
+                )
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
@@ -118,15 +138,26 @@ object TaskNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (!sessionTitle.isNullOrBlank()) {
+        val privateMode = hidePreviews(context)
+        val title = if (privateMode) {
+            "Задача завершилась с ошибкой"
+        } else if (!sessionTitle.isNullOrBlank()) {
             "Ошибка: $sessionTitle"
         } else {
             "Задача завершилась с ошибкой"
         }
-        val details = errorText?.take(300)?.takeIf { it.isNotBlank() }
-            ?: "Агент не смог завершить задачу. Откройте Runner и посмотрите историю."
-        val body = errorText?.take(150)?.takeIf { it.isNotBlank() }
-            ?: "Агент не смог завершить задачу."
+        val details = if (privateMode) {
+            "Откройте Runner и посмотрите историю."
+        } else {
+            errorText?.take(300)?.takeIf { it.isNotBlank() }
+                ?: "Агент не смог завершить задачу. Откройте Runner и посмотрите историю."
+        }
+        val body = if (privateMode) {
+            "Откройте Runner и посмотрите историю."
+        } else {
+            errorText?.take(150)?.takeIf { it.isNotBlank() }
+                ?: "Агент не смог завершить задачу."
+        }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_runner)
@@ -163,10 +194,17 @@ object TaskNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val privateMode = hidePreviews(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_qs_runner)
             .setContentTitle("Требуется подтверждение")
-            .setContentText(actionTitle.ifBlank { "Агент ждёт подтверждения операции" })
+            .setContentText(
+                if (privateMode) {
+                    "Агент ждёт подтверждения операции"
+                } else {
+                    actionTitle.ifBlank { "Агент ждёт подтверждения операции" }
+                }
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

@@ -1,4 +1,6 @@
 package com.runner.app.ui
+
+import com.runner.app.data.SettingsStore
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
@@ -120,12 +122,22 @@ object LiveFloatingOverlay {
                 WindowManager.LayoutParams.TYPE_PHONE
             }
 
+            val secureScreenMode = try {
+                SettingsStore(context).load().secureScreenMode
+            } catch (_: Exception) {
+                false
+            }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) or
+                        (if (secureScreenMode) {
+                            WindowManager.LayoutParams.FLAG_SECURE
+                        } else {
+                            0
+                        }),
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START

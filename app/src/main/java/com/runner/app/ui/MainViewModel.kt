@@ -15,6 +15,7 @@ import com.runner.app.util.DocumentExtractor
 import com.runner.app.util.HapticManager
 import com.runner.app.util.ImageUtils
 import com.runner.app.util.PrefatoryText
+import com.runner.app.util.SecretRedactor
 import com.runner.app.util.ProjectInstructionsGenerator
 import com.runner.app.util.TaskNotificationManager
 import com.runner.app.util.VoiceManager
@@ -4418,15 +4419,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * игнорируется - в ленте висит один актуальный баннер.
      */
     private fun appendSystemInfo(text: String, action: MessageAction?) {
+        val safeText = SecretRedactor.redact(text)
         val last = _messages.value.lastOrNull()
         if (last != null && last.role == MessageRole.SYSTEM_INFO &&
-            last.content == text && last.action == action
+            last.content == safeText && last.action == action
         ) {
             return
         }
         _messages.value = _messages.value + ChatMessage(
             role = MessageRole.SYSTEM_INFO,
-            content = text,
+            content = safeText,
             isError = action == MessageAction.OPEN_SETTINGS ||
                     action == MessageAction.TEST_CONNECTION,
             action = action

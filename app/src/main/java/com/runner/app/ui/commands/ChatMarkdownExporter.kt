@@ -4,6 +4,7 @@ import com.runner.app.data.FileChangeKind
 import com.runner.app.data.WebSource
 import com.runner.app.ui.ChatMessage
 import com.runner.app.ui.MessageRole
+import com.runner.app.util.SecretRedactor
 
 /**
  * Собирает Markdown для /export.
@@ -23,7 +24,7 @@ object ChatMarkdownExporter {
         val visible = messages.filter { it.role != MessageRole.SYSTEM_INFO }
         if (visible.isEmpty()) return ""
 
-        return buildString {
+        val markdown = buildString {
             append("# ").append(title.ifBlank { "Чат Runner" }).append("\n\n")
             if (providerName.isNotBlank() || modelName.isNotBlank()) {
                 append("Провайдер: ").append(providerName.ifBlank { "не выбран" }).append("  \n")
@@ -108,6 +109,7 @@ object ChatMarkdownExporter {
                 }
             }
         }.trimEnd() + "\n"
+        return SecretRedactor.redact(markdown)
     }
 
     private fun changeAction(kind: FileChangeKind): String = when (kind) {

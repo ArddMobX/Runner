@@ -432,6 +432,17 @@ private fun SettingsRoot(
             }
         ),
         SearchableSetting(
+            title = "Скрывать текст в уведомлениях",
+            section = "Безопасность",
+            description = if (appSettings.hideNotificationPreviews) "Включено" else "Выключено",
+            icon = RunnerIcons.VisibilityOff,
+            onClick = {
+                viewModel.updateSettings(
+                    appSettings.copy(hideNotificationPreviews = !appSettings.hideNotificationPreviews)
+                )
+            }
+        ),
+        SearchableSetting(
             title = "Тема и AMOLED",
             section = "Внешний вид",
             description = "Тёмная/светлая тема, динамический цвет, чистый чёрный",
@@ -792,6 +803,35 @@ private fun SettingsRoot(
                     colors = runnerSwitchColors()
                 )
             }
+
+            SettingsDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Скрывать текст в уведомлениях",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = TypeScale.body
+                    )
+                    Text(
+                        text = "Без названий чатов и ответов в шторке уведомлений",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.caption
+                    )
+                }
+                Switch(
+                    checked = appSettings.hideNotificationPreviews,
+                    onCheckedChange = {
+                        viewModel.updateSettings(appSettings.copy(hideNotificationPreviews = it))
+                    },
+                    colors = runnerSwitchColors()
+                )
+            }
         }
 
         SettingsGroup("Внешний вид") {
@@ -985,6 +1025,14 @@ private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
                     showReportPreviewDialog = true
                 },
                 icon = RunnerIcons.Article
+            )
+            SettingsDivider()
+            Text(
+                text = "Ключи, заголовки Authorization и пароли вырезаются из отчёта автоматически.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = TypeScale.caption,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
             )
         }
 

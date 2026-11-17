@@ -212,7 +212,7 @@ object CrashReportManager {
         if (recentLogs.isNotEmpty()) {
             sb.append("\nПоследние события (LogBuffer):\n")
             for (log in recentLogs.takeLast(30)) {
-                sb.append(log).append("\n")
+                sb.append(SecretRedactor.redact(log)).append("\n")
             }
         }
 
@@ -241,22 +241,6 @@ object CrashReportManager {
     }
 
     private fun sanitize(input: String): String {
-        if (input.isBlank()) return ""
-        // Маскирование ключей: OpenAI/Anthropic (sk-), Groq (gsk_),
-        // Google Gemini (AIza...). Без последних двух ключ уезжал в отчёт
-        // как есть, а отчёт копируется в буфер и уходит разработчику.
-        var result = input.replace(Regex("""sk-[a-zA-Z0-9_\-]{16,}"""), "sk-...***")
-        result = result.replace(Regex("""gsk_[a-zA-Z0-9_\-]{16,}"""), "gsk_...***")
-        result = result.replace(Regex("""AIza[0-9A-Za-z_\-]{20,}"""), "AIza...***")
-        // Заголовок Gemini, если он попал в текст ошибки или журнал.
-        result = result.replace(
-            Regex("""x-goog-api-key["']?\s*[:=]\s*["']?[^\s"',}]+""", RegexOption.IGNORE_CASE),
-            "x-goog-api-key: ***"
-        )
-        // Маскирование Bearer токенов
-        result = result.replace(Regex("""Bearer\s+[a-zA-Z0-9_\-\.]{16,}""", RegexOption.IGNORE_CASE), "Bearer ...***")
-        // Маскирование паролей
-        result = result.replace(Regex("""password["':\s]+[^\s,"']+""", RegexOption.IGNORE_CASE), "password: ***")
-        return result
+        return SecretRedactor.redact(input)
     }
 }

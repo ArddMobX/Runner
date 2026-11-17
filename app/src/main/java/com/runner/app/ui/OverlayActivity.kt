@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
@@ -58,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -126,6 +128,16 @@ class OverlayActivity : ComponentActivity() {
 
             ApplyMotionSetting(appSettings.motionEnabled)
             ApplyAccessibilitySetting(appSettings.accessibilityEnhanced)
+            DisposableEffect(appSettings.secureScreenMode) {
+                if (appSettings.secureScreenMode) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+                onDispose {
+                    window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
             RunnerTheme(themeConfig = themeConfig) {
                 OverlayScreen(
                     viewModel = viewModel,
