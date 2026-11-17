@@ -164,6 +164,7 @@ private sealed interface SettingsRoute {
     data object AgentWorkspace : SettingsRoute
     data object Commands : SettingsRoute
     data object Access : SettingsRoute
+    data object Security : SettingsRoute
     data object Appearance : SettingsRoute
     data object Network : SettingsRoute
     data object Diagnostics : SettingsRoute
@@ -200,6 +201,7 @@ fun SettingsScreen(
         SettingsRoute.AgentWorkspace -> "Рабочая папка"
         SettingsRoute.Commands -> "Свои команды"
         SettingsRoute.Access -> "Доступы"
+        SettingsRoute.Security -> "Безопасность"
         SettingsRoute.Appearance -> "Внешний вид"
         SettingsRoute.Network -> "Сеть и прокси"
         SettingsRoute.Diagnostics -> "Диагностика"
@@ -277,6 +279,8 @@ fun SettingsScreen(
 
                 SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
 
+                SettingsRoute.Security -> SecuritySettings(viewModel)
+
                 SettingsRoute.Appearance -> AppearanceSettings(viewModel)
                 SettingsRoute.Network -> NetworkSettings(viewModel)
                 SettingsRoute.Diagnostics -> DiagnosticsSettings { route = it }
@@ -315,6 +319,13 @@ private fun SettingsRoot(
     val hasCall by viewModel.hasCallPermission.collectAsState()
     val hasAudio by viewModel.hasAudioPermission.collectAsState()
     val allPermissionsGranted = hasStorage && hasContacts && hasCall && hasAudio
+    val securitySummary = when {
+        appSettings.secureScreenMode && appSettings.hideNotificationPreviews ->
+            "Экран и уведомления защищены"
+        appSettings.secureScreenMode || appSettings.hideNotificationPreviews ->
+            "Часть защиты включена"
+        else -> "Всё выключено"
+    }
     val customCommands by viewModel.customCommands.collectAsState()
     val context = LocalContext.current
 
@@ -423,24 +434,25 @@ private fun SettingsRoot(
             route = SettingsRoute.Access
         ),
         SearchableSetting(
+            title = "Безопасность",
+            section = "Безопасность",
+            description = securitySummary,
+            icon = RunnerIcons.Security,
+            route = SettingsRoute.Security
+        ),
+        SearchableSetting(
             title = "Скрывать в недавних (FLAG_SECURE)",
             section = "Безопасность",
             description = if (appSettings.secureScreenMode) "Включено" else "Выключено",
             icon = RunnerIcons.VisibilityOff,
-            onClick = {
-                viewModel.updateSettings(appSettings.copy(secureScreenMode = !appSettings.secureScreenMode))
-            }
+            route = SettingsRoute.Security
         ),
         SearchableSetting(
             title = "Скрывать текст в уведомлениях",
             section = "Безопасность",
             description = if (appSettings.hideNotificationPreviews) "Включено" else "Выключено",
             icon = RunnerIcons.VisibilityOff,
-            onClick = {
-                viewModel.updateSettings(
-                    appSettings.copy(hideNotificationPreviews = !appSettings.hideNotificationPreviews)
-                )
-            }
+            route = SettingsRoute.Security
         ),
         SearchableSetting(
             title = "Тема и AMOLED",
@@ -777,61 +789,12 @@ private fun SettingsRoot(
         }
 
         SettingsGroup("Безопасность") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Скрывать в недавних приложениях",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body
-                    )
-                    Text(
-                        text = "Блокирует скриншоты и скрывает экран в списке задач",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = TypeScale.caption
-                    )
-                }
-                Switch(
-                    checked = appSettings.secureScreenMode,
-                    onCheckedChange = {
-                        viewModel.updateSettings(appSettings.copy(secureScreenMode = it))
-                    },
-                    colors = runnerSwitchColors()
-                )
-            }
-
-            SettingsDivider()
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Скрывать текст в уведомлениях",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = TypeScale.body
-                    )
-                    Text(
-                        text = "Без названий чатов и ответов в шторке уведомлений",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = TypeScale.caption
-                    )
-                }
-                Switch(
-                    checked = appSettings.hideNotificationPreviews,
-                    onCheckedChange = {
-                        viewModel.updateSettings(appSettings.copy(hideNotificationPreviews = it))
-                    },
-                    colors = runnerSwitchColors()
-                )
-            }
+            SettingsRow(
+                label = "Защита экрана и уведомлений",
+                value = securitySummary,
+                onClick = { onNavigate(SettingsRoute.Security) },
+                icon = RunnerIcons.Security
+            )
         }
 
         SettingsGroup("Внешний вид") {
@@ -1026,14 +989,6 @@ private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
                 },
                 icon = RunnerIcons.Article
             )
-            SettingsDivider()
-            Text(
-                text = "Ключи, заголовки Authorization и пароли вырезаются из отчёта автоматически.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = TypeScale.caption,
-                lineHeight = 16.sp,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-            )
         }
 
         if (showReportPreviewDialog) {
@@ -1107,6 +1062,85 @@ private fun DiagnosticsSettings(onNavigate: (SettingsRoute) -> Unit) {
         }
     }
 }
+
+@Composable
+private fun SecuritySettings(viewModel: MainViewModel) {
+    val appSettings by viewModel.settings.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        SettingsGroup("Экран и уведомления") {
+            SecurityToggleRow(
+                title = "Скрывать в недавних приложениях",
+                description = "Блокирует скриншоты и скрывает экран в списке задач",
+                checked = appSettings.secureScreenMode,
+                onCheckedChange = {
+                    viewModel.updateSettings(appSettings.copy(secureScreenMode = it))
+                }
+            )
+            SettingsDivider()
+            SecurityToggleRow(
+                title = "Скрывать текст в уведомлениях",
+                description = "Без названий чатов и ответов в шторке уведомлений",
+                checked = appSettings.hideNotificationPreviews,
+                onCheckedChange = {
+                    viewModel.updateSettings(appSettings.copy(hideNotificationPreviews = it))
+                }
+            )
+        }
+
+        SettingsGroup("Отчёты и приватность") {
+            Text(
+                text = "Ключи, заголовки Authorization и пароли вырезаются из отчётов автоматически.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = TypeScale.caption,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun SecurityToggleRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = TypeScale.body
+            )
+            Text(
+                text = description,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = TypeScale.caption
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = runnerSwitchColors()
+        )
+    }
+}
+
 @Composable
 private fun NetworkSettings(viewModel: MainViewModel) {
     val appSettings by viewModel.settings.collectAsState()

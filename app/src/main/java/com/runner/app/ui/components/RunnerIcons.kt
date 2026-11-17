@@ -69,6 +69,7 @@ object RunnerIcons {
     val Refresh: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_refresh)
     val RestartAlt: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_restart_alt)
     val Search: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_search)
+    val Security: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_security)
     val Settings: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_settings)
     val SmartToy: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_smart_toy)
     val Star: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_star)
