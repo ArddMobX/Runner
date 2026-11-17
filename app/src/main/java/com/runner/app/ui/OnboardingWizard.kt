@@ -116,7 +116,7 @@ fun OnboardingWizard(
             subtitle = "Много моделей, есть бесплатные",
             badge = "Рекомендуем",
             keyUrl = "https://openrouter.ai/keys",
-            icon = RunnerIcons.Public
+            icon = ProviderLogos.OpenRouter
         ),
         OnboardingProviderOption(
             id = "gemini",
@@ -124,7 +124,7 @@ fun OnboardingWizard(
             subtitle = "Gemini с бесплатным лимитом",
             badge = "Бесплатно",
             keyUrl = "https://aistudio.google.com/app/apikey",
-            icon = RunnerIcons.SmartToy
+            icon = ProviderLogos.Gemini
         ),
         OnboardingProviderOption(
             id = "groq",
@@ -132,14 +132,14 @@ fun OnboardingWizard(
             subtitle = "Быстрые модели, есть бесплатный лимит",
             badge = "Бесплатно",
             keyUrl = "https://console.groq.com/keys",
-            icon = RunnerIcons.Terminal
+            icon = ProviderLogos.Groq
         ),
         OnboardingProviderOption(
             id = "deepseek",
             title = "DeepSeek",
             subtitle = "Недорогие модели, ключ на платформе",
             keyUrl = "https://platform.deepseek.com/api_keys",
-            icon = RunnerIcons.Functions
+            icon = ProviderLogos.DeepSeek
         ),
         OnboardingProviderOption(
             id = "custom",
