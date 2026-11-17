@@ -17,6 +17,7 @@ import android.provider.Settings
 import android.view.WindowManager
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -40,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +56,7 @@ import com.runner.app.ui.ChatScreen
 import com.runner.app.ui.LiveAgentManager
 import com.runner.app.ui.LiveFloatingOverlay
 import com.runner.app.ui.MainViewModel
+import com.runner.app.ui.OnboardingWizard
 import com.runner.app.util.CrashReportManager
 import com.runner.app.ui.SettingsScreen
 import com.runner.app.ui.components.AppDrawerContent
@@ -238,6 +241,7 @@ fun AppNavigation(viewModel: MainViewModel) {
     val sessionsQuery by viewModel.sessionsQuery.collectAsState()
     val searchSnippets by viewModel.searchSnippets.collectAsState()
     val drawerProvider by viewModel.activeProvider.collectAsState()
+    val providers by viewModel.providers.collectAsState()
     val provider = drawerProvider
     val formattedModel = if (provider != null) formatModelName(provider.activeModel) else ""
     val drawerFooter = if (provider != null && provider.apiKey.isNotBlank()) {
@@ -295,6 +299,37 @@ fun AppNavigation(viewModel: MainViewModel) {
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
+    }
+
+    // Мастер первого запуска: показываем только когда нет ни одного ключа.
+    val hasConfiguredProvider = providers.any { it.apiKey.isNotBlank() }
+    var onboardingVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(
+        appSettings.disclaimerAccepted,
+        appSettings.onboardingCompleted,
+        hasConfiguredProvider
+    ) {
+        if (appSettings.onboardingCompleted) {
+            onboardingVisible = false
+        } else if (appSettings.disclaimerAccepted && !hasConfiguredProvider) {
+            onboardingVisible = true
+        }
+    }
+    if (onboardingVisible) {
+        OnboardingWizard(
+            viewModel = viewModel,
+            onDone = {
+                onboardingVisible = false
+                viewModel.updateAppSettings { copy(onboardingCompleted = true) }
+                if (providers.none { it.apiKey.isNotBlank() }) {
+                    Toast.makeText(
+                        context,
+                        "Ключ можно добавить позже в настройках",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
     }
 
     // Плавная смена экранов. Только прозрачность: слайд вместе с ящиком

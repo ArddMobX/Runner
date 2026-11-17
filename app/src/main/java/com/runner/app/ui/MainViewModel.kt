@@ -32,6 +32,7 @@ import com.runner.app.data.FileChangeKind
 import com.runner.app.data.GenerationMetrics
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
+import com.runner.app.data.ModelRecommendations
 import com.runner.app.data.OpenAIClient
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
@@ -1946,6 +1947,130 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveProvider(provider: Provider) {
         _providers.value = providerStore.upsert(provider)
+    }
+
+    /**
+     * Подключение провайдера из мастера первого запуска.
+     * Проверяет ключ через список моделей, сохраняет провайдера и сразу
+     * выбирает рабочую модель, чтобы человек не остался с пустым списком.
+     */
+    fun connectProviderForOnboarding(
+        provider: Provider,
+        baseUrl: String,
+        apiKey: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        val cleanUrl = baseUrl.trim()
+        val cleanKey = apiKey.trim()
+        if (cleanUrl.isBlank()) {
+            onResult(false, "Укажите Base URL")
+            return
+        }
+        if (cleanKey.isBlank()) {
+            onResult(false, "Вставьте API-ключ")
+            return
+        }
+
+        _modelsLoadingFor.value = provider.id
+        viewModelScope.launch {
+            val currentSettings = _settings.value
+            val result = ModelCatalog.fetchModels(
+                baseUrl = cleanUrl,
+                apiKey = cleanKey,
+                reverseProxyUrl = currentSettings.reverseProxyUrl,
+                timeoutSeconds = currentSettings.connectTimeoutSeconds,
+                customHeaders = currentSettings.customHeaders
+            )
+
+            result.onSuccess { models ->
+                if (models.isEmpty()) {
+                    onResult(false, "Провайдер не вернул ни одной модели")
+                    return@onSuccess
+                }
+                val selected = provider.selectedModel
+                    .takeIf { id -> models.any { it.id == id } }
+                    ?: ModelRecommendations.preferred(provider.id, models)
+                    ?: models.first().id
+                _providers.value = providerStore.upsert(
+                    provider.copy(
+                        apiKey = cleanKey,
+                        baseUrl = cleanUrl,
+                        models = models,
+                        selectedModel = selected
+                    )
+                )
+                providerStore.setActiveProviderId(provider.id)
+                _activeProviderId.value = provider.id
+                onResult(true, "Найдено моделей: ${models.size}")
+            }.onFailure { error ->
+                onResult(false, onboardingConnectionMessage(error))
+            }
+
+            _modelsLoadingFor.value = null
+        }
+    }
+
+    private fun onboardingConnectionMessage(error: Throwable): String {
+        return onboardingConnectionMessage(error.localizedMessage.orEmpty())
+    }
+
+    private fun onboardingConnectionMessage(raw: String): String {
+        val lower = raw.lowercase()
+        return when {
+            "401" in raw -> "Ключ не подошёл. Проверьте, что он от этого провайдера."
+            "403" in raw -> "Провайдер ограничил доступ. Проверьте ключ, регион или VPN."
+            "429" in raw -> "Превышен лимит запросов. Подождите и попробуйте снова."
+            "timeout" in lower || "таймаут" in lower ->
+                "Провайдер не ответил. Проверьте интернет и адрес API."
+            "tool" in lower && ("not supported" in lower || "unsupported" in lower ||
+                    "не поддерж" in lower) ->
+                "Эта модель не принимает инструменты. Выберите другую."
+            else -> "Не удалось подключиться: ${raw.ifBlank { "проверьте ключ и адрес" }}"
+        }
+    }
+
+    /**
+     * Финальная проверка выбранной модели: маленький запрос с инструментами.
+     * Нужен, потому что список моделей у OpenRouter открыт и без ключа,
+     * а сам агент без tool calling работать не будет.
+     */
+    fun testOnboardingModel(
+        provider: Provider,
+        model: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val currentSettings = _settings.value
+            val messages = JSONArray().put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put("content", "Ответь одним словом: ок")
+                }
+            )
+            val result = apiClient.sendChatCompletion(
+                baseUrl = provider.baseUrl,
+                apiKey = provider.apiKey,
+                modelName = model,
+                messages = messages,
+                reverseProxyUrl = currentSettings.reverseProxyUrl,
+                connectTimeoutSeconds = currentSettings.connectTimeoutSeconds,
+                responseTimeoutSeconds = currentSettings.responseTimeoutSeconds,
+                customHeaders = currentSettings.customHeaders,
+                temperature = 0.0,
+                maxTokens = 8,
+                streaming = false,
+                withTools = true,
+                providerKind = provider.kind,
+                officialDeepSeekHost = provider.isOfficialDeepSeekHost,
+                contextBudgetChars = 4_000
+            )
+            when (result) {
+                is AIResponseResult.TextResult,
+                is AIResponseResult.ToolCallsResult -> onResult(true, "Модель отвечает, инструменты подключены")
+                is AIResponseResult.Error -> onResult(false, onboardingConnectionMessage(result.message))
+                AIResponseResult.Cancelled -> onResult(false, "Проверка отменена")
+            }
+        }
     }
 
     fun deleteProvider(providerId: String) {

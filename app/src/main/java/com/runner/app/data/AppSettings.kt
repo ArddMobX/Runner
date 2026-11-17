@@ -141,6 +141,8 @@ data class AppSettings(
     val contextBudgetChars: Int = DEFAULT_CONTEXT_BUDGET,
     /** Пользователь принял предупреждение о рисках при первом запуске. */
     val disclaimerAccepted: Boolean = false,
+    /** Мастер первого запуска пройден или пропущен. */
+    val onboardingCompleted: Boolean = false,
     /**
      * Сколько дней объекты лежат в корзине. По истечении срока они удаляются
      * безвозвратно при очередной уборке. 0 — хранить бессрочно.
@@ -580,6 +582,7 @@ class SettingsStore(context: Context) {
             accessibilityEnhanced = prefs.getBoolean(KEY_ACCESSIBILITY_ENHANCED, false),
             chatClassicLook = prefs.getBoolean(KEY_CHAT_CLASSIC_LOOK, false),
             disclaimerAccepted = prefs.getBoolean(KEY_DISCLAIMER_ACCEPTED, false),
+            onboardingCompleted = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false),
             planningEnabled = prefs.getBoolean(KEY_PLANNING_ENABLED, true),
             confirmEveryStep = prefs.getBoolean(KEY_CONFIRM_EVERY_STEP, false),
             confirmDangerous = prefs.getBoolean(KEY_CONFIRM_DANGEROUS, true),
@@ -662,6 +665,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_ACCESSIBILITY_ENHANCED, settings.accessibilityEnhanced)
             .putBoolean(KEY_CHAT_CLASSIC_LOOK, settings.chatClassicLook)
             .putBoolean(KEY_DISCLAIMER_ACCEPTED, settings.disclaimerAccepted)
+            .putBoolean(KEY_ONBOARDING_COMPLETED, settings.onboardingCompleted)
             .putBoolean(KEY_PLANNING_ENABLED, settings.planningEnabled)
             .putBoolean(KEY_CONFIRM_EVERY_STEP, settings.confirmEveryStep)
             .putBoolean(KEY_CONFIRM_DANGEROUS, settings.confirmDangerous)
@@ -750,6 +754,7 @@ class SettingsStore(context: Context) {
         const val KEY_ACCESSIBILITY_ENHANCED = "accessibility_enhanced"
         const val KEY_CHAT_CLASSIC_LOOK = "chat_classic_look"
         const val KEY_DISCLAIMER_ACCEPTED = "disclaimer_accepted"
+        const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         const val KEY_PLANNING_ENABLED = "planning_enabled"
         const val KEY_CONFIRM_EVERY_STEP = "confirm_every_step"
         const val KEY_CONFIRM_DANGEROUS = "confirm_dangerous"
