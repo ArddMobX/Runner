@@ -151,6 +151,7 @@ import com.runner.app.ui.components.AudioPreviewPlayer
 import com.runner.app.ui.components.ChatInputBar
 import com.runner.app.ui.components.CommandStatusSheet
 import com.runner.app.ui.components.CommandToolsSheet
+import com.runner.app.ui.components.ConnectionCheckDialog
 import com.runner.app.ui.components.MarkdownView
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.components.LiveModeTopButton
@@ -224,6 +225,7 @@ fun ChatScreen(
         mutableStateOf(false)
     }
     val pendingPlan by viewModel.pendingPlan.collectAsState()
+    val connectionState by viewModel.connectionTestState.collectAsState()
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val appSettings by viewModel.settings.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
@@ -280,6 +282,7 @@ fun ChatScreen(
     var showCommandHelp by remember { mutableStateOf(false) }
     var statusSheet by remember { mutableStateOf<CommandStatusInfo?>(null) }
     var toolsSheet by remember { mutableStateOf<CommandToolsInfo?>(null) }
+    var showConnectionCheck by remember { mutableStateOf(false) }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
     val scope = rememberCoroutineScope()
@@ -777,6 +780,19 @@ fun ChatScreen(
         )
     }
 
+    if (showConnectionCheck) {
+        ConnectionCheckDialog(
+            providerName = provider?.name ?: "Провайдер не настроен",
+            state = connectionState,
+            onCheck = { viewModel.testConnection() },
+            onOpenSettings = {
+                showConnectionCheck = false
+                onOpenSettings()
+            },
+            onDismiss = { showConnectionCheck = false }
+        )
+    }
+
     undoCandidate?.let { entry ->
         AlertDialog(
             onDismissRequest = { undoCandidate = null },
@@ -1066,6 +1082,10 @@ fun ChatScreen(
                                                     MessageAction.OPEN_MODELS -> showModelPicker = true
                                                     MessageAction.GRANT_STORAGE -> onOpenStorageSettings()
                                                     MessageAction.EXECUTE_DRY_RUN -> viewModel.confirmDryRun()
+                                                    MessageAction.TEST_CONNECTION -> {
+                                                        showConnectionCheck = true
+                                                        viewModel.testConnection()
+                                                    }
                                                 }
                                             }
                                         )
@@ -4783,7 +4803,7 @@ private fun getErrorHint(text: String): String? {
         lower.contains("500") || lower.contains("502") || lower.contains("503") || lower.contains("504") || lower.contains("сервер") ->
             "Провайдер временно недоступен. Повторите запрос позже."
         lower.contains("таймаут") || lower.contains("timeout") || lower.contains("сеть") || lower.contains("connection") ->
-            "Нет связи с провайдером. Проверьте интернет или настройки прокси-сервера."
+            "Нет связи с провайдером. Проверьте интернет, VPN или настройки прокси-сервера."
         else -> null
     }
 }
@@ -4847,6 +4867,7 @@ private fun NoticeBanner(
                         MessageAction.OPEN_MODELS -> "Выбрать модель"
                         MessageAction.GRANT_STORAGE -> "Выдать доступ"
                         MessageAction.EXECUTE_DRY_RUN -> "Выполнить"
+                        MessageAction.TEST_CONNECTION -> "Проверить соединение"
                     }
                     TextButton(onClick = { onAction(action) }) {
                         Text(label, color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.label)

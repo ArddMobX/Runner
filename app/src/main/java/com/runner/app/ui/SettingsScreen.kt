@@ -14,6 +14,8 @@ import androidx.compose.runtime.DisposableEffect
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -118,6 +120,7 @@ import com.runner.app.data.ColorSource
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.data.ConnectionTestResult
+import com.runner.app.data.ConnectionDiagnosis
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
 import com.runner.app.data.ThemeConfig
@@ -1047,6 +1050,35 @@ private fun NetworkSettings(viewModel: MainViewModel) {
     val context = LocalContext.current
     val proxyUrl = appSettings.reverseProxyUrl
     val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
+
+    // VPN или другая сеть включилась, пока открыт экран: перепроверяем сами,
+    // но только если предыдущая проверка не удалась или её ещё не было.
+    DisposableEffect(context) {
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        if (manager == null) {
+            onDispose { }
+        } else {
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    val state = viewModel.connectionTestState.value
+                    if (!state.isTesting && state.result?.isSuccess != true) {
+                        viewModel.testConnection()
+                    }
+                }
+            }
+            try {
+                manager.registerDefaultNetworkCallback(callback)
+            } catch (_: Exception) {
+                // На некоторых прошивках колбэк недоступен. Ручная кнопка остаётся.
+            }
+            onDispose {
+                try {
+                    manager.unregisterNetworkCallback(callback)
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -6083,6 +6115,7 @@ private fun ConnectionStatusWidget(
     result: ConnectionTestResult?,
     onCheck: () -> Unit
 ) {
+    val diagnosis = remember(result) { ConnectionDiagnosis.of(result) }
     val errorColor = MaterialTheme.colorScheme.error
     val bg = when {
         isTesting -> MaterialTheme.colorScheme.surfaceContainerHighest
@@ -6147,8 +6180,9 @@ private fun ConnectionStatusWidget(
                 Text(
                     text = when {
                         isTesting -> "Проверка…"
-                        result == null -> "Проверить связь"
-                        else -> result.message
+                        result == null -> "Проверить соединение"
+                        result.isSuccess -> result.message
+                        else -> diagnosis?.title ?: result.message
                     },
                     color = if (result == null && !isTesting) MaterialTheme.colorScheme.onSurface else accent,
                     fontSize = TypeScale.label,
@@ -6158,9 +6192,17 @@ private fun ConnectionStatusWidget(
                 )
                 if (!isTesting && result == null) {
                     Text(
-                        text = "Нажмите, чтобы запустить тест пинга",
+                        text = "Нажмите, чтобы запустить проверку соединения",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption
+                    )
+                } else if (!isTesting && diagnosis != null) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = diagnosis.detail,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.caption,
+                        lineHeight = 16.sp
                     )
                 }
             }

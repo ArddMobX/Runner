@@ -102,7 +102,9 @@ enum class MessageAction {
     OPEN_MODELS,
     GRANT_STORAGE,
     /** Сухой прогон закончился: запустить ту же задачу по-настоящему. */
-    EXECUTE_DRY_RUN
+    EXECUTE_DRY_RUN,
+    /** Ошибка похожа на сетевую: предложить проверить соединение. */
+    TEST_CONNECTION
 }
 
 /**
@@ -2566,7 +2568,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 appendSystemInfo(
                     "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
                             "Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
-                    null
+                    MessageAction.TEST_CONNECTION
                 )
             } finally {
                 finishDryRunIfNeeded()
@@ -2700,7 +2702,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 appendSystemInfo(
                     "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
                             "Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
-                    null
+                    MessageAction.TEST_CONNECTION
                 )
             } finally {
                 finishDryRunIfNeeded()
@@ -3104,9 +3106,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     hapticManager.onError(_settings.value)
                     lastRunError = result.message
                     val action = when {
-                        result.message.contains("401") || result.message.contains("API-ключ") -> MessageAction.OPEN_SETTINGS
-                        result.message.contains("400") || result.message.contains("404") || result.message.contains("модел") -> MessageAction.OPEN_MODELS
-                        else -> null
+                        result.message.contains("401") || result.message.contains("API-ключ") ->
+                            MessageAction.OPEN_SETTINGS
+                        result.message.contains("400") || result.message.contains("404") ||
+                                result.message.contains("модел") ->
+                            MessageAction.OPEN_MODELS
+                        else -> MessageAction.TEST_CONNECTION
                     }
                     appendSystemInfo(result.message, action)
                     attachTurnStats(sessionId, turnStartedAt, totalPromptTokens, totalCompletionTokens, trackStats, turnAssistantId)
@@ -4377,7 +4382,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = _messages.value + ChatMessage(
             role = MessageRole.SYSTEM_INFO,
             content = text,
-            isError = action == MessageAction.OPEN_SETTINGS,
+            isError = action == MessageAction.OPEN_SETTINGS ||
+                    action == MessageAction.TEST_CONNECTION,
             action = action
         )
     }
