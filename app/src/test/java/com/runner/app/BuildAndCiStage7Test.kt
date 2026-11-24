@@ -139,9 +139,14 @@ class BuildAndCiStage7Test {
         val overlayBlock = Regex("""<activity[^>]*OverlayActivity[^>]*>""", RegexOption.DOT_MATCHES_ALL)
             .find(manifest)?.value
         assertNotNull("Блок OverlayActivity не найден в манифесте", overlayBlock)
-        assertTrue(overlayBlock!!.contains("android:exported=\"false\""))
+        assertTrue(overlayBlock!!.contains("android:exported=\"true\""))
         assertTrue(overlayBlock.contains("android:showWhenLocked=\"true\""))
         assertTrue(overlayBlock.contains("android:turnScreenOn=\"true\""))
+
+        val receiverBlock = Regex("""<receiver[^>]*TermuxResultReceiver[^>]*>""", RegexOption.DOT_MATCHES_ALL)
+            .find(manifest)?.value
+        assertNotNull("Блок TermuxResultReceiver не найден в манифесте", receiverBlock)
+        assertTrue(receiverBlock!!.contains("android:exported=\"false\""))
 
         val extractionRules = File(repoRoot, "app/src/main/res/xml/data_extraction_rules.xml")
         assertTrue("Отсутствует res/xml/data_extraction_rules.xml", extractionRules.isFile)

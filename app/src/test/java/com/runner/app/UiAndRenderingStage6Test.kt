@@ -269,7 +269,9 @@ class UiAndRenderingStage6Test {
         assertEquals(1000.0, parseCellSortKey("1,000").first!!, 0.0001)
         assertEquals(1234.5, parseCellSortKey("1 234,5").first!!, 0.0001)
         assertEquals(85.0, parseCellSortKey("85%").first!!, 0.0001)
-        assertNull(parseCellSortKey("текст"))
+        val textKey = parseCellSortKey("текст")
+        assertNull(textKey.first)
+        assertEquals("текст", textKey.second)
     }
 
     @Test
