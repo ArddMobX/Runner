@@ -15,12 +15,29 @@ enum class ProviderKind {
     DEEPSEEK
 }
 
-/** Хосты, по которым узнаём провайдера, если его id нестандартный. */
-private fun hostOf(url: String): String = url
-    .substringAfter("://", url)
-    .substringBefore('/')
-    .substringBefore('?')
-    .lowercase()
+/**
+ * Извлекает нормализованный хост из URL без схемы, userinfo, порта, пути,
+ * query/fragment и хвостовой точки FQDN.
+ */
+internal fun extractHost(url: String): String {
+    val trimmed = url.trim()
+    if (trimmed.isEmpty()) return ""
+    val authority = trimmed
+        .substringAfter("://", trimmed)
+        .substringBefore('/')
+        .substringBefore('?')
+        .substringBefore('#')
+        .substringAfterLast('@')
+        .trim()
+    if (authority.isEmpty()) return ""
+    val host = if (authority.startsWith('[')) {
+        val closeIdx = authority.indexOf(']')
+        if (closeIdx > 0) authority.substring(0, closeIdx + 1) else authority
+    } else {
+        authority.substringBefore(':')
+    }
+    return host.trimEnd('.').lowercase()
+}
 
 /**
  * Провайдер — это имя, Base URL, свой ключ и список моделей.
@@ -51,13 +68,13 @@ data class Provider(
      * id пресета остаётся рабочим ориентиром: его пользователь не переименует.
      */
     val kind: ProviderKind get() = when {
-        id == "gemini" || hostOf(baseUrl) == "generativelanguage.googleapis.com" -> ProviderKind.GEMINI
-        id == "deepseek" || hostOf(baseUrl) == "api.deepseek.com" -> ProviderKind.DEEPSEEK
+        id == "gemini" || extractHost(baseUrl) == "generativelanguage.googleapis.com" -> ProviderKind.GEMINI
+        id == "deepseek" || extractHost(baseUrl) == "api.deepseek.com" -> ProviderKind.DEEPSEEK
         else -> ProviderKind.OPENAI_COMPATIBLE
     }
 
     /** Base URL ведёт ровно на официальный DeepSeek, а не на похожий по имени прокси. */
-    val isOfficialDeepSeekHost: Boolean get() = hostOf(baseUrl) == "api.deepseek.com"
+    val isOfficialDeepSeekHost: Boolean get() = extractHost(baseUrl) == "api.deepseek.com"
 }
 
 /**
@@ -75,33 +92,54 @@ class ProviderStore(context: Context) {
     private val legacyPrefs = context.applicationContext
         .getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun loadProviders(): List<Provider> {
+    fun loadProviders(): List<Provider> = synchronized(storeLock) {
+        loadProvidersLocked()
+    }
+
+    private fun loadProvidersLocked(): List<Provider> {
         val blob = prefs.getString(KEY_BLOB, null)
-        if (blob != null) {
-            val json = SecureStore.decrypt(blob) ?: prefs.getString(KEY_BLOB_FALLBACK, null)
-            if (json != null) {
-                val parsed = parse(json)
-                if (!parsed.isNullOrEmpty()) {
-                    val migrated = migrateStalePresets(parsed)
-                    if (migrated != parsed) saveProviders(migrated)
-                    return migrated
+        val fallback = prefs.getString(KEY_BLOB_FALLBACK, null)
+        val resolved = resolveStoredProvidersJson(blob, fallback)
+        if (resolved != null) {
+            val parsed = parse(resolved.json)
+            if (!parsed.isNullOrEmpty()) {
+                val migrated = migrateStalePresets(parsed)
+                // Если обновились пресеты или данные пришли из plaintext fallback,
+                // пробуем пересохранить их (при восстановлении Keystore fallback зашифруется).
+                if (migrated != parsed || resolved.fromFallback) {
+                    saveProvidersLocked(migrated)
                 }
+                return migrated
             }
         }
 
-        val migrated = migrateLegacy()
-        if (migrated != null) {
-            saveProviders(migrated)
-            legacyPrefs.edit().clear().apply()
-            return migrated
+        val legacy = migrateLegacy()
+        if (legacy != null) {
+            saveProvidersLocked(legacy.providers)
+            if (!legacy.activeProviderId.isNullOrBlank()) {
+                prefs.edit().putString(KEY_ACTIVE_ID, legacy.activeProviderId).apply()
+            }
+            // Удаляем только ключи провайдеров, не трогая api_reverse_proxy_url
+            // и прочие ключи, которые мигрирует SettingsStore.
+            legacyPrefs.edit()
+                .remove("api_base_url")
+                .remove("api_key")
+                .remove("groq_api_key")
+                .remove("api_model_name")
+                .apply()
+            return legacy.providers
         }
 
         val seeds = defaultProviders()
-        saveProviders(seeds)
+        saveProvidersLocked(seeds)
         return seeds
     }
 
-    fun saveProviders(providers: List<Provider>) {
+    fun saveProviders(providers: List<Provider>) = synchronized(storeLock) {
+        saveProvidersLocked(providers)
+    }
+
+    private fun saveProvidersLocked(providers: List<Provider>) {
         val json = serialize(providers).toString()
         val encrypted = SecureStore.encrypt(json)
         prefs.edit().apply {
@@ -118,47 +156,59 @@ class ProviderStore(context: Context) {
     fun activeProviderId(): String =
         prefs.getString(KEY_ACTIVE_ID, DEFAULT_PROVIDER_ID) ?: DEFAULT_PROVIDER_ID
 
-    fun setActiveProviderId(id: String) {
+    fun setActiveProviderId(id: String) = synchronized(storeLock) {
         prefs.edit().putString(KEY_ACTIVE_ID, id).apply()
     }
 
-    fun upsert(provider: Provider): List<Provider> {
-        val current = loadProviders().toMutableList()
+    fun upsert(provider: Provider): List<Provider> = synchronized(storeLock) {
+        val current = loadProvidersLocked().toMutableList()
         val index = current.indexOfFirst { it.id == provider.id }
         if (index >= 0) current[index] = provider else current.add(provider)
-        saveProviders(current)
-        return current
+        saveProvidersLocked(current)
+        current
     }
 
-    fun remove(id: String): List<Provider> {
-        val current = loadProviders().filterNot { it.id == id }
+    fun remove(id: String): List<Provider> = synchronized(storeLock) {
+        val current = loadProvidersLocked().filterNot { it.id == id }
         val safe = current.ifEmpty { defaultProviders() }
-        saveProviders(safe)
-        if (activeProviderId() == id) setActiveProviderId(safe.first().id)
-        return safe
+        saveProvidersLocked(safe)
+        if (activeProviderId() == id) {
+            prefs.edit().putString(KEY_ACTIVE_ID, safe.first().id).apply()
+        }
+        safe
     }
 
     /** Провайдер, выбранный для работы. Если выбранного нет — первый доступный. */
-    fun activeProvider(): Provider? {
-        val providers = loadProviders()
-        return providers.firstOrNull { it.id == activeProviderId() } ?: providers.firstOrNull()
+    fun activeProvider(): Provider? = synchronized(storeLock) {
+        val providers = loadProvidersLocked()
+        val activeId = activeProviderId()
+        providers.firstOrNull { it.id == activeId } ?: providers.firstOrNull()
     }
 
-    private fun migrateLegacy(): List<Provider>? {
+    private data class LegacyMigrationResult(
+        val providers: List<Provider>,
+        val activeProviderId: String?
+    )
+
+    private fun migrateLegacy(): LegacyMigrationResult? {
         val baseUrl = legacyPrefs.getString("api_base_url", null)?.trim().orEmpty()
-        val apiKey = legacyPrefs.getString("api_key", null)
-            ?: legacyPrefs.getString("groq_api_key", null)
+        val apiKey = (legacyPrefs.getString("api_key", null)
+            ?: legacyPrefs.getString("groq_api_key", null))?.trim().orEmpty()
         val model = legacyPrefs.getString("api_model_name", null)?.trim().orEmpty()
 
-        if (baseUrl.isBlank() && apiKey.isNullOrBlank()) return null
+        if (baseUrl.isBlank() && apiKey.isBlank()) return null
 
         val providers = defaultProviders().toMutableList()
+        val activeId: String?
         if (baseUrl.isNotBlank()) {
-            val index = providers.indexOfFirst { it.baseUrl == baseUrl }
+            val normalizedUrl = baseUrl.trimEnd('/')
+            val index = providers.indexOfFirst {
+                it.baseUrl.trimEnd('/').equals(normalizedUrl, ignoreCase = true)
+            }
             if (index >= 0) {
                 val existing = providers[index]
                 providers[index] = existing.copy(
-                    apiKey = apiKey.orEmpty(),
+                    apiKey = apiKey,
                     selectedModel = model.ifBlank { existing.selectedModel },
                     models = if (model.isNotBlank() && existing.models.none { it.id == model }) {
                         listOf(ModelInfo(id = model)) + existing.models
@@ -166,21 +216,43 @@ class ProviderStore(context: Context) {
                         existing.models
                     }
                 )
+                activeId = existing.id
             } else {
+                val customId = "custom_${System.currentTimeMillis()}"
                 providers.add(
                     0,
                     Provider(
-                        id = "custom_${System.currentTimeMillis()}",
+                        id = customId,
                         name = "Свой провайдер",
                         baseUrl = baseUrl,
-                        apiKey = apiKey.orEmpty(),
+                        apiKey = apiKey,
                         models = if (model.isNotBlank()) listOf(ModelInfo(id = model)) else emptyList(),
                         selectedModel = model
                     )
                 )
+                activeId = customId
+            }
+        } else {
+            // Задан только legacy api_key / groq_api_key без кастомного baseUrl:
+            // переносим его в дефолтный провайдер (Groq), чтобы ключ не потерялся.
+            val defaultIdx = providers.indexOfFirst { it.id == DEFAULT_PROVIDER_ID }
+            if (defaultIdx >= 0) {
+                val existing = providers[defaultIdx]
+                providers[defaultIdx] = existing.copy(
+                    apiKey = apiKey,
+                    selectedModel = model.ifBlank { existing.selectedModel },
+                    models = if (model.isNotBlank() && existing.models.none { it.id == model }) {
+                        listOf(ModelInfo(id = model)) + existing.models
+                    } else {
+                        existing.models
+                    }
+                )
+                activeId = existing.id
+            } else {
+                activeId = null
             }
         }
-        return providers
+        return LegacyMigrationResult(providers = providers, activeProviderId = activeId)
     }
 
     /**
@@ -195,13 +267,13 @@ class ProviderStore(context: Context) {
      */
     private fun migrateStalePresets(providers: List<Provider>): List<Provider> {
         return providers.map { provider ->
-            val legacy = LEGACY_SEED_MODELS[provider.id] ?: return@map provider
+            val legacySets = LEGACY_SEED_MODELS[provider.id] ?: return@map provider
             val currentIds = provider.models.map { it.id }.toSet()
-            if (currentIds != legacy) return@map provider
+            val matchedLegacy = legacySets.firstOrNull { it == currentIds } ?: return@map provider
             val preset = PRESETS.firstOrNull { it.id == provider.id } ?: return@map provider
             provider.copy(
                 models = preset.models,
-                selectedModel = if (provider.selectedModel in legacy) {
+                selectedModel = if (provider.selectedModel in matchedLegacy) {
                     preset.selectedModel
                 } else {
                     provider.selectedModel
@@ -242,19 +314,19 @@ class ProviderStore(context: Context) {
         val array = JSONArray(json)
         (0 until array.length()).mapNotNull { index ->
             val item = array.optJSONObject(index) ?: return@mapNotNull null
-            val id = item.optString("id")
+            val id = item.optStringOrEmpty("id")
             if (id.isBlank()) return@mapNotNull null
 
             Provider(
                 id = id,
-                name = item.optString("name").ifBlank { id },
-                baseUrl = item.optString("baseUrl"),
-                apiKey = item.optString("apiKey"),
+                name = item.optStringOrEmpty("name").ifBlank { id },
+                baseUrl = item.optStringOrEmpty("baseUrl"),
+                apiKey = item.optStringOrEmpty("apiKey"),
                 models = parseModels(item.optJSONArray("models")),
-                selectedModel = item.optString("selectedModel")
+                selectedModel = item.optStringOrEmpty("selectedModel")
             )
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 
@@ -267,11 +339,11 @@ class ProviderStore(context: Context) {
             when (raw) {
                 is String -> if (raw.isNotBlank()) result[raw] = ModelInfo(id = raw)
                 is JSONObject -> {
-                    val id = raw.optString("id")
+                    val id = raw.optStringOrEmpty("id")
                     if (id.isBlank()) continue
                     result[id] = ModelInfo(
                         id = id,
-                        name = raw.optString("name"),
+                        name = raw.optStringOrEmpty("name"),
                         contextLength = raw.optInt("contextLength", 0).takeIf { it > 0 }
                     )
                 }
@@ -281,7 +353,12 @@ class ProviderStore(context: Context) {
         return result.values.toList()
     }
 
+    private fun JSONObject.optStringOrEmpty(key: String): String =
+        (opt(key) as? String).orEmpty()
+
     companion object {
+        private val storeLock = Any()
+
         private const val PREFS_NAME = "runner_secure"
         private const val LEGACY_PREFS_NAME = "runner_prefs"
         private const val KEY_BLOB = "providers_blob"
@@ -290,19 +367,78 @@ class ProviderStore(context: Context) {
 
         const val DEFAULT_PROVIDER_ID = "groq"
 
+        internal data class StoredProvidersResolution(
+            val json: String,
+            val fromFallback: Boolean
+        )
+
+        /**
+         * Разрешает сохранённый JSON провайдеров из зашифрованного блоба и plaintext-резерва.
+         * При отсутствии [encryptedBlob] (например, если Keystore упал при сохранении и
+         * удалил [KEY_BLOB]) обязан читаться [fallbackBlob], чтобы ключи пользователя не стирались.
+         */
+        internal fun resolveStoredProvidersJson(
+            encryptedBlob: String?,
+            fallbackBlob: String?,
+            decrypt: (String) -> String? = SecureStore::decrypt
+        ): StoredProvidersResolution? {
+            val decrypted = encryptedBlob?.let(decrypt)
+            if (decrypted != null) {
+                return StoredProvidersResolution(json = decrypted, fromFallback = false)
+            }
+            if (!fallbackBlob.isNullOrBlank()) {
+                return StoredProvidersResolution(json = fallbackBlob, fromFallback = true)
+            }
+            return null
+        }
+
         /**
          * Старые стартовые списки пресетов: по ним узнаём установки, где
          * список моделей ни разу не обновляли. Ключ - id провайдера.
          */
-        private val LEGACY_SEED_MODELS: Map<String, Set<String>> = mapOf(
-            "tokenharbor" to setOf("gpt-4o", "claude-3-5-sonnet", "gemini-2.0-flash", "deepseek-chat"),
-            "cleanapi" to setOf("gpt-4o", "claude-3-5-sonnet", "gemini-2.0-flash"),
-            "abnibots" to setOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"),
-            "proxyapi" to setOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet-20241022"),
-            "vsegpt" to setOf("openai/gpt-4o", "anthropic/claude-3-5-sonnet"),
-            "together" to setOf(
-                "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-                "Qwen/Qwen2.5-72B-Instruct-Turbo"
+        private val LEGACY_SEED_MODELS: Map<String, List<Set<String>>> = mapOf(
+            "tokenharbor" to listOf(
+                setOf("gpt-4o", "claude-3-5-sonnet", "gemini-2.0-flash", "deepseek-chat"),
+                setOf("gpt-5.4-nano", "claude-sonnet-4.5", "gemini-2.5-flash", "deepseek-v4-pro")
+            ),
+            "cleanapi" to listOf(
+                setOf("gpt-4o", "claude-3-5-sonnet", "gemini-2.0-flash"),
+                setOf("gpt-5.4-nano", "claude-sonnet-4.5", "gemini-2.5-flash")
+            ),
+            "abnibots" to listOf(
+                setOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"),
+                setOf("gpt-5.4-nano", "gpt-6-luna", "claude-sonnet-4.5")
+            ),
+            "proxyapi" to listOf(
+                setOf("gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet-20241022"),
+                setOf("gpt-5.4-nano", "gpt-6-luna", "claude-sonnet-4.5")
+            ),
+            "vsegpt" to listOf(
+                setOf("openai/gpt-4o", "anthropic/claude-3-5-sonnet"),
+                setOf("openai/gpt-5.4-nano", "anthropic/claude-sonnet-4.5")
+            ),
+            "together" to listOf(
+                setOf(
+                    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                    "Qwen/Qwen2.5-72B-Instruct-Turbo"
+                ),
+                setOf(
+                    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo",
+                    "Qwen/Qwen3.8-72B-Instruct-Turbo"
+                )
+            ),
+            "gemini" to listOf(
+                setOf("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro")
+            ),
+            "openai" to listOf(
+                setOf("gpt-5.4-nano", "gpt-6-luna", "gpt-6-astra")
+            ),
+            "openrouter" to listOf(
+                setOf(
+                    "qwen/qwen3.8-27b:free",
+                    "nvidia/nemotron-3.5-lightning:free",
+                    "deepseek/deepseek-v4.1-flash"
+                )
             )
         )
 
@@ -315,65 +451,69 @@ class ProviderStore(context: Context) {
                 name = "Token Harbor",
                 baseUrl = "https://tokenharbor.ai/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
-                    ModelInfo("claude-sonnet-4.5"),
-                    ModelInfo("gemini-2.5-flash"),
+                    ModelInfo("deepseek-v4.1-flash"),
+                    ModelInfo("claude-sonnet-5.5"),
+                    ModelInfo("gemini-4-hydrogen"),
+                    ModelInfo("gpt-5.6-luna"),
                     ModelInfo("deepseek-v4-pro")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "deepseek-v4.1-flash"
             ),
             Provider(
                 id = "cleanapi",
                 name = "Clean API",
                 baseUrl = "https://cleanapis.com/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
-                    ModelInfo("claude-sonnet-4.5"),
-                    ModelInfo("gemini-2.5-flash")
+                    ModelInfo("gpt-5.6-luna"),
+                    ModelInfo("claude-sonnet-5"),
+                    ModelInfo("gemini-3.6-flash"),
+                    ModelInfo("deepseek-v4-flash-0731")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-5.6-luna"
             ),
             Provider(
                 id = "abnibots",
                 name = "AbniBots",
                 baseUrl = "https://api.abnibots.ru/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
                     ModelInfo("gpt-6-luna"),
-                    ModelInfo("claude-sonnet-4.5")
+                    ModelInfo("gpt-5.6-luna"),
+                    ModelInfo("claude-sonnet-5-5")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-6-luna"
             ),
             Provider(
                 id = "proxyapi",
                 name = "ProxyAPI",
                 baseUrl = "https://api.proxyapi.ru/openai/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
                     ModelInfo("gpt-6-luna"),
-                    ModelInfo("claude-sonnet-4.5")
+                    ModelInfo("gpt-5.6-luna"),
+                    ModelInfo("claude-sonnet-5-5")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-6-luna"
             ),
             Provider(
                 id = "vsegpt",
                 name = "VseGPT",
                 baseUrl = "https://api.vsegpt.ru/v1",
                 models = listOf(
-                    ModelInfo("openai/gpt-5.4-nano"),
-                    ModelInfo("anthropic/claude-sonnet-4.5")
+                    ModelInfo("openai/gpt-6-luna"),
+                    ModelInfo("anthropic/claude-sonnet-5.5-medium"),
+                    ModelInfo("deepseek/deepseek-v4.1-flash-1017-alt-lowcost")
                 ),
-                selectedModel = "openai/gpt-5.4-nano"
+                selectedModel = "openai/gpt-6-luna"
             ),
             Provider(
                 id = "together",
                 name = "Together AI",
                 baseUrl = "https://api.together.xyz/v1",
                 models = listOf(
-                    ModelInfo("meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo"),
-                    ModelInfo("Qwen/Qwen3.8-72B-Instruct-Turbo")
+                    ModelInfo("zai-org/GLM-5.3-Flash"),
+                    ModelInfo("deepseek-ai/DeepSeek-V4.1-Flash-1017"),
+                    ModelInfo("Qwen/Qwen3.8-Flash")
                 ),
-                selectedModel = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo"
+                selectedModel = "zai-org/GLM-5.3-Flash"
             ),
             Provider(
                 id = "groq",
@@ -391,22 +531,23 @@ class ProviderStore(context: Context) {
                 name = "Gemini",
                 baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
                 models = listOf(
-                    ModelInfo("gemini-2.5-flash"),
-                    ModelInfo("gemini-2.5-flash-lite"),
-                    ModelInfo("gemini-2.5-pro")
+                    ModelInfo("gemini-4-hydrogen"),
+                    ModelInfo("gemini-3.5-flash-lite"),
+                    ModelInfo("gemini-3.8-flash")
                 ),
-                selectedModel = "gemini-2.5-flash"
+                selectedModel = "gemini-4-hydrogen"
             ),
             Provider(
                 id = "openrouter",
                 name = "OpenRouter",
                 baseUrl = "https://openrouter.ai/api/v1",
                 models = listOf(
-                    ModelInfo("qwen/qwen3.8-27b:free"),
+                    ModelInfo("nvidia/nemotron-3-ultra-550b-a55b:free"),
+                    ModelInfo("nvidia/nemotron-3.5-super-vl:free"),
                     ModelInfo("nvidia/nemotron-3.5-lightning:free"),
-                    ModelInfo("deepseek/deepseek-v4.1-flash")
+                    ModelInfo("deepseek/deepseek-v4.1-flash-1017")
                 ),
-                selectedModel = "qwen/qwen3.8-27b:free"
+                selectedModel = "nvidia/nemotron-3-ultra-550b-a55b:free"
             ),
             Provider(
                 id = "deepseek",
@@ -420,11 +561,12 @@ class ProviderStore(context: Context) {
                 name = "OpenAI",
                 baseUrl = "https://api.openai.com/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-5.6-luna"),
                     ModelInfo("gpt-6-luna"),
-                    ModelInfo("gpt-6-astra")
+                    ModelInfo("gpt-5.6-terra"),
+                    ModelInfo("gpt-6.1-sol")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-5.6-luna"
             )
         )
 
@@ -449,22 +591,23 @@ class ProviderStore(context: Context) {
                 name = "Gemini",
                 baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
                 models = listOf(
-                    ModelInfo("gemini-2.5-flash"),
-                    ModelInfo("gemini-2.5-flash-lite"),
-                    ModelInfo("gemini-2.5-pro")
+                    ModelInfo("gemini-4-hydrogen"),
+                    ModelInfo("gemini-3.5-flash-lite"),
+                    ModelInfo("gemini-3.8-flash")
                 ),
-                selectedModel = "gemini-2.5-flash"
+                selectedModel = "gemini-4-hydrogen"
             ),
             Provider(
                 id = "openrouter",
                 name = "OpenRouter",
                 baseUrl = "https://openrouter.ai/api/v1",
                 models = listOf(
-                    ModelInfo("qwen/qwen3.8-27b:free"),
+                    ModelInfo("nvidia/nemotron-3-ultra-550b-a55b:free"),
+                    ModelInfo("nvidia/nemotron-3.5-super-vl:free"),
                     ModelInfo("nvidia/nemotron-3.5-lightning:free"),
-                    ModelInfo("deepseek/deepseek-v4.1-flash")
+                    ModelInfo("deepseek/deepseek-v4.1-flash-1017")
                 ),
-                selectedModel = "qwen/qwen3.8-27b:free"
+                selectedModel = "nvidia/nemotron-3-ultra-550b-a55b:free"
             ),
             Provider(
                 id = "deepseek",
@@ -478,45 +621,48 @@ class ProviderStore(context: Context) {
                 name = "OpenAI",
                 baseUrl = "https://api.openai.com/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
+                    ModelInfo("gpt-5.6-luna"),
                     ModelInfo("gpt-6-luna"),
-                    ModelInfo("gpt-6-astra")
+                    ModelInfo("gpt-5.6-terra"),
+                    ModelInfo("gpt-6.1-sol")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-5.6-luna"
             ),
             Provider(
                 id = "tokenharbor",
                 name = "Token Harbor",
                 baseUrl = "https://tokenharbor.ai/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
-                    ModelInfo("claude-sonnet-4.5"),
-                    ModelInfo("gemini-2.5-flash"),
+                    ModelInfo("deepseek-v4.1-flash"),
+                    ModelInfo("claude-sonnet-5.5"),
+                    ModelInfo("gemini-4-hydrogen"),
+                    ModelInfo("gpt-5.6-luna"),
                     ModelInfo("deepseek-v4-pro")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "deepseek-v4.1-flash"
             ),
             Provider(
                 id = "cleanapi",
                 name = "Clean API",
                 baseUrl = "https://cleanapis.com/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
-                    ModelInfo("claude-sonnet-4.5"),
-                    ModelInfo("gemini-2.5-flash")
+                    ModelInfo("gpt-5.6-luna"),
+                    ModelInfo("claude-sonnet-5"),
+                    ModelInfo("gemini-3.6-flash"),
+                    ModelInfo("deepseek-v4-flash-0731")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-5.6-luna"
             ),
             Provider(
                 id = "abnibots",
                 name = "AbniBots",
                 baseUrl = "https://api.abnibots.ru/v1",
                 models = listOf(
-                    ModelInfo("gpt-5.4-nano"),
                     ModelInfo("gpt-6-luna"),
-                    ModelInfo("claude-sonnet-4.5")
+                    ModelInfo("gpt-5.6-luna"),
+                    ModelInfo("claude-sonnet-5-5")
                 ),
-                selectedModel = "gpt-5.4-nano"
+                selectedModel = "gpt-6-luna"
             )
         )
     }

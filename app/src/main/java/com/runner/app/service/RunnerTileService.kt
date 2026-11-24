@@ -31,6 +31,7 @@ class RunnerTileService : TileService() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(OverlayActivity.EXTRA_AUTO_SCREENSHOT, true)
         }
+        OverlayActivity.markInternalIntent(intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val pendingIntent = PendingIntent.getActivity(

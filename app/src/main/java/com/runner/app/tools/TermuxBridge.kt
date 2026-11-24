@@ -1,6 +1,5 @@
 package com.runner.app.tools
 
-import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -42,6 +41,16 @@ object TermuxBridge {
     const val RESULT_EXIT_CODE = "exitCode"
     const val RESULT_ERR = "err"
     const val RESULT_ERRMSG = "errmsg"
+
+    /**
+     * Коды внутренних ошибок Termux (`com.termux.shared.errors.Errno`):
+     * `-1` (`Activity.RESULT_OK`) означает отсутствие внутренней ошибки Termux,
+     * `0` (`ERRNO_CANCELLED`) и `>= 1` (`ERRNO_FAILED` и др.) — сбой выполнения.
+     */
+    const val ERRNO_SUCCESS = -1 // Activity.RESULT_OK
+    const val ERRNO_FAILED = 1
+
+    private val VERSION_PREFIX = Regex("""^\s*v?(\d+)(?:\.(\d+))?""")
 
     private const val TERMUX_PREFIX = "/data/data/com.termux/files/usr"
     private const val TERMUX_HOME = "/data/data/com.termux/files/home"
@@ -146,7 +155,14 @@ object TermuxBridge {
         }
 
         try {
-            context.startService(intent)
+            // На Android 8+ (API 26+) Termux RunCommandService запускается через
+            // startForegroundService: обычный startService падает с IllegalStateException,
+            // если Termux находится в фоне (RunCommandService сам сразу зовёт runStartForeground).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         } catch (e: Exception) {
             pending.remove(executionId)
             return "Не удалось запустить Termux: ${e.localizedMessage}. " +
@@ -173,11 +189,11 @@ object TermuxBridge {
         }
     }
 
-    private fun supportsResultCallback(version: String?): Boolean {
+    internal fun supportsResultCallback(version: String?): Boolean {
         if (version.isNullOrBlank()) return true
-        val parts = version.split('.').mapNotNull { it.toIntOrNull() }
-        val major = parts.getOrNull(0) ?: 0
-        val minor = parts.getOrNull(1) ?: 0
+        val match = VERSION_PREFIX.find(version) ?: return true
+        val major = match.groupValues[1].toIntOrNull() ?: return true
+        val minor = match.groupValues[2].toIntOrNull() ?: 0
         return major > 0 || minor >= 109
     }
 
@@ -185,12 +201,14 @@ object TermuxBridge {
         pending.remove(executionId)?.complete(result)
     }
 
-    private fun formatResult(result: TermuxResult, label: String): String {
+    internal fun formatResult(result: TermuxResult, label: String): String {
         val stdout = ANSI_ESCAPES.replace(result.stdout, "").trim()
         val stderr = ANSI_ESCAPES.replace(result.stderr, "").trim()
         val shownStdout = stdout.take(MAX_SHOWN_OUTPUT)
         val shownStderr = stderr.take(MAX_SHOWN_OUTPUT)
-        val internalError = result.err != 0 && result.err != Activity.RESULT_OK
+        // По контракту Termux RUN_COMMAND только err == -1 (Activity.RESULT_OK)
+        // означает отсутствие внутренней ошибки; err == 0 (ERRNO_CANCELLED) и > 0 — сбой.
+        val internalError = result.err != ERRNO_SUCCESS || result.errMsg.isNotBlank()
         return buildString {
             if (internalError) {
                 append("Ошибка Termux: ")

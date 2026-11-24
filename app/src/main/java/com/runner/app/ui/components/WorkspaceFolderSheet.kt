@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -161,7 +163,11 @@ fun WorkspaceFolderSheet(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onWorkingDirChange(resolved)
             } else {
-                Toast.makeText(context, "Выбрана папка: $uri", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    "Не удалось определить путь к папке. Выберите папку в основной памяти или введите путь вручную.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -184,6 +190,7 @@ fun WorkspaceFolderSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .navigationBarsPadding()
         ) {

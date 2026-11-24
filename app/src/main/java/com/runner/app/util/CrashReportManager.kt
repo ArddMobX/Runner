@@ -111,7 +111,7 @@ object CrashReportManager {
 
     fun getPendingCrashReport(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_LAST_CRASH, null)
+        return prefs.getString(KEY_LAST_CRASH, null)?.let { sanitize(it) }
     }
 
     fun clearPendingCrashReport(context: Context) {
@@ -169,10 +169,11 @@ object CrashReportManager {
         }
 
         val liveState = LiveAgentManager.stateFlow.value
+        val safeStepDescription = sanitize(liveState.stepDescription).ifEmpty { "нет" }
         val liveStatus = if (liveState.isExecuting) {
             "Выполняется (шаг ${liveState.stepIndex}/${liveState.totalSteps})"
         } else {
-            "Статус: ${liveState.status}, описание: ${liveState.stepDescription.ifEmpty { "нет" }}"
+            "Статус: ${liveState.status}, описание: $safeStepDescription"
         }
 
         val runtime = Runtime.getRuntime()
@@ -216,7 +217,7 @@ object CrashReportManager {
             }
         }
 
-        return sb.toString()
+        return sanitize(sb.toString())
     }
 
     fun copyReport(context: Context, customContext: String? = null, exception: Throwable? = null): Boolean {

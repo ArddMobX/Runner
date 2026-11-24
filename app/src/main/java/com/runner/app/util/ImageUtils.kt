@@ -119,10 +119,12 @@ object ImageUtils {
             val outputStream = ByteArrayOutputStream()
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
             val bytes = outputStream.toByteArray()
+            val finalW = finalBitmap.width
+            val finalH = finalBitmap.height
             finalBitmap.recycle()
 
             val base64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-            Log.i(TAG, "Изображение успешно закодировано в base64 (${bytes.size} байт, ${finalBitmap.width}x${finalBitmap.height}): $uriString")
+            Log.i(TAG, "Изображение успешно закодировано в base64 (${bytes.size} байт, ${finalW}x${finalH}): $uriString")
             base64
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка при обработке изображения $uriString", e)
@@ -176,17 +178,53 @@ object ImageUtils {
     }
 
     /**
-     * Убирает старые файлы из временных каталогов приложения. Камера и
-     * скриншоты остаются в кэше, даже если отправку отменили, а chat_images
-     * копятся, если чат удалили на старой версии.
+     * Убирает старые файлы из временных каталогов приложения.
+     *
+     * Камера и скриншоты чистятся всегда по возрасту. `chat_images` и `chat_files`
+     * чистятся только при наличии актуального списка [protectedPaths] из БД —
+     * файлы, на которые ссылается хотя бы одно сохранённое сообщение, не удаляются.
      */
-    fun purgeCacheOlderThan(context: Context, maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000) {
-        val cutoff = System.currentTimeMillis() - maxAgeMs
-        listOf("chat_images", "screenshots", "camera").forEach { dirName ->
-            val dir = File(context.cacheDir, dirName)
+    fun purgeCacheOlderThan(
+        context: Context,
+        maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000,
+        protectedPaths: Set<String>? = null
+    ) {
+        purgeCacheDirs(
+            cacheDir = context.cacheDir,
+            maxAgeMs = maxAgeMs,
+            protectedPaths = protectedPaths
+        )
+    }
+
+    internal fun purgeCacheDirs(
+        cacheDir: File,
+        maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000,
+        protectedPaths: Set<String>? = null,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
+        val cutoff = nowMs - maxAgeMs
+        listOf("screenshots", "camera").forEach { dirName ->
+            val dir = File(cacheDir, dirName)
             dir.listFiles()?.forEach { file ->
                 if (file.isFile && file.lastModified() < cutoff) {
                     runCatching { file.delete() }
+                }
+            }
+        }
+
+        if (protectedPaths == null) return
+
+        val protectedCanonical = protectedPaths.mapTo(HashSet(protectedPaths.size)) { path ->
+            runCatching { File(path).canonicalPath }.getOrDefault(path)
+        }
+        listOf("chat_images", "chat_files").forEach { dirName ->
+            val dir = File(cacheDir, dirName)
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile && file.lastModified() < cutoff) {
+                    val canonical = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+                    if (file.absolutePath !in protectedPaths && canonical !in protectedCanonical) {
+                        runCatching { file.delete() }
+                    }
                 }
             }
         }

@@ -2,14 +2,19 @@ package com.runner.app.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 enum class AppThemeMode {
     SYSTEM,
@@ -47,50 +52,69 @@ data class ThemeConfig(
     }
 }
 
-val Context.themeDataStore: DataStore<Preferences> by preferencesDataStore(name = "theme_preferences")
+val Context.themeDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "theme_preferences",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 class ThemeStore(context: Context) {
 
     private val dataStore = context.applicationContext.themeDataStore
 
-    val themeFlow: Flow<ThemeConfig> = dataStore.data.map { prefs ->
-        val modeStr = prefs[KEY_THEME_MODE] ?: AppThemeMode.SYSTEM.name
-        val sourceStr = prefs[KEY_COLOR_SOURCE] ?: ColorSource.DYNAMIC.name
-        val mode = runCatching { AppThemeMode.valueOf(modeStr) }.getOrDefault(AppThemeMode.SYSTEM)
-        val source = runCatching { ColorSource.valueOf(sourceStr) }.getOrDefault(ColorSource.DYNAMIC)
-        val seed = prefs[KEY_CUSTOM_SEED] ?: 0xFF90CAF9.toInt()
-        val amoled = prefs[KEY_AMOLED] ?: false
+    val themeFlow: Flow<ThemeConfig> = dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { prefs ->
+            val modeStr = prefs[KEY_THEME_MODE] ?: AppThemeMode.SYSTEM.name
+            val sourceStr = prefs[KEY_COLOR_SOURCE] ?: ColorSource.DYNAMIC.name
+            val mode = runCatching { AppThemeMode.valueOf(modeStr) }.getOrDefault(AppThemeMode.SYSTEM)
+            val source = runCatching { ColorSource.valueOf(sourceStr) }.getOrDefault(ColorSource.DYNAMIC)
+            val seed = prefs[KEY_CUSTOM_SEED] ?: 0xFF90CAF9.toInt()
+            val amoled = prefs[KEY_AMOLED] ?: false
 
-        ThemeConfig(
-            themeMode = mode,
-            colorSource = source,
-            customSeedColor = seed,
-            isAmoled = amoled
-        )
-    }
+            ThemeConfig(
+                themeMode = mode,
+                colorSource = source,
+                customSeedColor = seed,
+                isAmoled = amoled
+            )
+        }
 
     suspend fun updateThemeMode(mode: AppThemeMode) {
-        dataStore.edit { prefs ->
+        safeEdit { prefs ->
             prefs[KEY_THEME_MODE] = mode.name
         }
     }
 
     suspend fun updateColorSource(source: ColorSource) {
-        dataStore.edit { prefs ->
+        safeEdit { prefs ->
             prefs[KEY_COLOR_SOURCE] = source.name
         }
     }
 
     suspend fun updateCustomSeedColor(color: Int) {
-        dataStore.edit { prefs ->
+        safeEdit { prefs ->
             prefs[KEY_CUSTOM_SEED] = color
             prefs[KEY_COLOR_SOURCE] = ColorSource.CUSTOM.name
         }
     }
 
     suspend fun updateAmoled(isAmoled: Boolean) {
-        dataStore.edit { prefs ->
+        safeEdit { prefs ->
             prefs[KEY_AMOLED] = isAmoled
+        }
+    }
+
+    private suspend fun safeEdit(transform: suspend (MutablePreferences) -> Unit) {
+        try {
+            dataStore.edit(transform)
+        } catch (_: IOException) {
+            // Ошибка записи на диск (например, нет места) не должна ронять UI.
         }
     }
 

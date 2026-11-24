@@ -5,7 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
@@ -34,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +57,42 @@ import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.components.RunnerIcons
+import java.io.ByteArrayInputStream
+
+/**
+ * Сериализует строку в безопасный JSON/JS-литерал для вставки внутрь `<script>`:
+ * экранирует `</script>`, кавычки, обратные слэши, управляющие символы и
+ * юникодные разделители строк `\u2028`/`\u2029`.
+ */
+internal fun safeJsonStringForHtmlScript(value: String): String {
+    val sb = StringBuilder(value.length + 16)
+    sb.append('"')
+    for (ch in value) {
+        when (ch) {
+            '\\' -> sb.append("\\\\")
+            '"' -> sb.append("\\\"")
+            '\n' -> sb.append("\\n")
+            '\r' -> sb.append("\\r")
+            '\t' -> sb.append("\\t")
+            '\b' -> sb.append("\\b")
+            '\u000C' -> sb.append("\\f")
+            '<' -> sb.append("\\u003c")
+            '>' -> sb.append("\\u003e")
+            '&' -> sb.append("\\u0026")
+            '\u2028' -> sb.append("\\u2028")
+            '\u2029' -> sb.append("\\u2029")
+            else -> {
+                if (ch.code < 0x20) {
+                    sb.append(String.format(java.util.Locale.US, "\\u%04x", ch.code))
+                } else {
+                    sb.append(ch)
+                }
+            }
+        }
+    }
+    sb.append('"')
+    return sb.toString()
+}
 
 sealed class MarkdownElement {
     data class Header(val level: Int, val content: String) : MarkdownElement()
@@ -98,9 +138,9 @@ fun StreamingCursor(
     height: Dp = 15.dp,
     exitAlpha: () -> Float = { 1f }
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "streaming_cursor")
-    val alpha = if (MotionSettings.enabled) {
-        val value by infiniteTransition.animateFloat(
+    val alphaState: State<Float>? = if (MotionSettings.enabled) {
+        val infiniteTransition = rememberInfiniteTransition(label = "streaming_cursor")
+        infiniteTransition.animateFloat(
             initialValue = 0.2f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -112,9 +152,8 @@ fun StreamingCursor(
             ),
             label = "cursor_alpha"
         )
-        value
     } else {
-        1f
+        null
     }
 
     Box(
@@ -122,7 +161,7 @@ fun StreamingCursor(
             .padding(start = 2.dp, end = 1.dp)
             .width(width)
             .height(height)
-            .graphicsLayer { this.alpha = alpha * exitAlpha() }
+            .graphicsLayer { this.alpha = (alphaState?.value ?: 1f) * exitAlpha() }
             .clip(RoundedCornerShape(1.5.dp))
             .background(color)
     )
@@ -531,6 +570,20 @@ private fun MathBlockElement(
             Spacer(modifier = Modifier.height(6.dp))
 
             // KaTeX WebView Renderer
+            val textColorHex = String.format(
+                java.util.Locale.US,
+                "#%06X",
+                0xFFFFFF and MaterialTheme.colorScheme.onSurface.toArgb()
+            )
+            var mathWebView by remember { mutableStateOf<WebView?>(null) }
+            DisposableEffect(Unit) {
+                onDispose {
+                    mathWebView?.stopLoading()
+                    mathWebView?.loadUrl("about:blank")
+                    mathWebView?.destroy()
+                    mathWebView = null
+                }
+            }
             AndroidView(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -538,55 +591,89 @@ private fun MathBlockElement(
                 factory = { ctx ->
                     WebView(ctx).apply {
                         settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
+                        settings.domStorageEnabled = false
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        @Suppress("DEPRECATION")
+                        settings.allowFileAccessFromFileURLs = false
+                        @Suppress("DEPRECATION")
+                        settings.allowUniversalAccessFromFileURLs = false
                         setBackgroundColor(0) // Transparent
                         isVerticalScrollBarEnabled = false
                         isHorizontalScrollBarEnabled = false
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): Boolean = true
+
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): WebResourceResponse? {
+                                val url = request?.url?.toString().orEmpty()
+                                val allowed = url.startsWith("https://cdn.jsdelivr.net/npm/katex@0.16.9/")
+                                return if (allowed) {
+                                    null
+                                } else {
+                                    WebResourceResponse(
+                                        "text/plain",
+                                        "UTF-8",
+                                        ByteArrayInputStream(ByteArray(0))
+                                    )
+                                }
+                            }
+                        }
+                        mathWebView = this
                     }
                 },
                 update = { webView ->
-                    val cleanLatex = element.latex
-                        .replace("\\", "\\\\")
-                        .replace("\"", "\\\"")
-                        .replace("\n", " ")
+                    val renderKey = "$textColorHex|${element.latex}"
+                    if (webView.tag != renderKey) {
+                        webView.tag = renderKey
 
-                    val html = """
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-                        <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-                        <style>
-                          body {
-                            background-color: transparent;
-                            color: #EDEDEF;
-                            margin: 0;
-                            padding: 6px;
-                            display: flex;
-                            justify-content: center;
-                            font-size: 16px;
-                          }
-                          .katex { color: #EDEDEF; }
-                        </style>
-                        </head>
-                        <body>
-                        <div id="math"></div>
-                        <script>
-                          try {
-                            katex.render("$cleanLatex", document.getElementById("math"), {
-                              displayMode: true,
-                              throwOnError: false
-                            });
-                          } catch (e) {
-                            document.getElementById("math").innerText = "$cleanLatex";
-                          }
-                        </script>
-                        </body>
-                        </html>
-                    """.trimIndent()
+                        val safeLatexLiteral = safeJsonStringForHtmlScript(element.latex)
 
-                    webView.loadDataWithBaseURL("https://cdn.jsdelivr.net", html, "text/html", "UTF-8", null)
+                        val html = """
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+                            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+                            <style>
+                              body {
+                                background-color: transparent;
+                                color: $textColorHex;
+                                margin: 0;
+                                padding: 6px;
+                                display: flex;
+                                justify-content: center;
+                                font-size: 16px;
+                              }
+                              .katex { color: $textColorHex; }
+                            </style>
+                            </head>
+                            <body>
+                            <div id="math"></div>
+                            <script>
+                              const latex = $safeLatexLiteral;
+                              try {
+                                katex.render(latex, document.getElementById("math"), {
+                                  displayMode: true,
+                                  throwOnError: false,
+                                  trust: false
+                                });
+                              } catch (e) {
+                                document.getElementById("math").textContent = latex;
+                              }
+                            </script>
+                            </body>
+                            </html>
+                        """.trimIndent()
+
+                        webView.loadDataWithBaseURL("https://cdn.jsdelivr.net", html, "text/html", "UTF-8", null)
+                    }
                 }
             )
         }
@@ -743,17 +830,28 @@ private fun splitInline(text: String): List<InlineSegment> {
     return segments
 }
 
+private val PLAIN_MARKDOWN_OR_LINK = Regex(
+    """(\*\*|__|~~|\*[^*\s]|\[[^\]]+\]\(|https?://|\\text\{|\$)""",
+    RegexOption.IGNORE_CASE
+)
+
 /**
  * Чипсы уместны только в коротких строках-перечислениях вида
  * «`Download` `DCIM` `Pictures`». В обычном абзаце с одним словом в коде
- * разбивать поток на блоки нельзя — там остаётся цельный текст.
+ * либо если в текстовой части есть Markdown-разметка или ссылки,
+ * разбивать поток на чипсы нельзя — там остаётся цельный [LinkAwareText].
  */
 private fun shouldUseChips(segments: List<InlineSegment>): Boolean {
     if (segments.none { it is InlineSegment.Code }) return false
     if (segments.size > 9) return false
     return segments.filterIsInstance<InlineSegment.Plain>()
-        .all { it.value.trim().length <= 28 }
+        .all { plain ->
+            val trimmed = plain.value.trim()
+            trimmed.length <= 28 && !PLAIN_MARKDOWN_OR_LINK.containsMatchIn(trimmed)
+        }
 }
+
+internal fun shouldUseInlineChips(text: String): Boolean = shouldUseChips(splitInline(text))
 
 /**
  * Текст с инлайн-кодом. Если код есть и строка короткая — код рендерится
@@ -1267,10 +1365,12 @@ private fun TableElement(
                                             TableAlignment.START -> Alignment.CenterStart
                                         }
                                     ) {
-                                        Text(
+                                        LinkAwareText(
                                             text = annotated,
-                                            fontSize = TypeScale.label,
-                                            lineHeight = 17.sp,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontSize = TypeScale.label,
+                                                lineHeight = 17.sp
+                                            ),
                                             color = MaterialTheme.colorScheme.onSurface,
                                             inlineContent = if (showStreamingCursor) {
                                                 cursorInlineContent(primaryColor, cursorHeight = 14.dp, exitAlpha = exitAlpha)
@@ -1327,11 +1427,16 @@ private fun compareTableCells(v1: String, v2: String): Int {
     }
 }
 
-private fun parseCellSortKey(raw: String): Pair<Double?, String> {
+private val THOUSANDS_COMMA_NUMBER = Regex("""^[+-]?\d{1,3}(,\d{3})+$""")
+
+internal fun parseCellSortKey(raw: String): Pair<Double?, String> {
     val stripped = raw.replace(Regex("""[*_`$]"""), "").trim()
-    val sizeMatch = Regex("""^([+-]?\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|КБ|МБ|ГБ|ТБ|байт)$""", RegexOption.IGNORE_CASE).find(stripped)
+    val sizeMatch = Regex(
+        """^([+-]?\d+(?:[.,]\d+)?)\s*(B|KB|MB|GB|TB|КБ|МБ|ГБ|ТБ|байт)$""",
+        RegexOption.IGNORE_CASE
+    ).find(stripped)
     if (sizeMatch != null) {
-        val num = sizeMatch.groupValues[1].toDoubleOrNull() ?: 0.0
+        val num = sizeMatch.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0
         val unit = sizeMatch.groupValues[2].uppercase()
         val multiplier = when {
             unit.startsWith("K") || unit.startsWith("К") -> 1024.0
@@ -1342,8 +1447,32 @@ private fun parseCellSortKey(raw: String): Pair<Double?, String> {
         }
         return (num * multiplier) to stripped.lowercase()
     }
-    val cleanNum = stripped.replace(Regex("""[%\$€₽,\s]"""), "").replace(',', '.')
-    val numVal = cleanNum.toDoubleOrNull()
+    var numStr = stripped.replace(Regex("""[%\$€₽\s\u00A0]"""), "")
+    val hasComma = numStr.contains(',')
+    val hasDot = numStr.contains('.')
+    numStr = when {
+        hasComma && hasDot -> {
+            if (numStr.lastIndexOf(',') > numStr.lastIndexOf('.')) {
+                // Европейский формат: 1.234,56 -> 1234.56
+                numStr.replace(".", "").replace(',', '.')
+            } else {
+                // Английский формат: 1,234.56 -> 1234.56
+                numStr.replace(",", "")
+            }
+        }
+        hasComma -> {
+            if (THOUSANDS_COMMA_NUMBER.matches(numStr)) {
+                numStr.replace(",", "")
+            } else if (numStr.count { it == ',' } == 1) {
+                // Десятичная запятая: 3,14 -> 3.14
+                numStr.replace(',', '.')
+            } else {
+                numStr
+            }
+        }
+        else -> numStr
+    }
+    val numVal = numStr.toDoubleOrNull()
     if (numVal != null) {
         return numVal to stripped.lowercase()
     }
@@ -1398,25 +1527,100 @@ private fun parseAlignments(delimiterLine: String): List<TableAlignment> {
  * - \text{X} -> X
  * - \% -> %
  * - Strips $...$ around numbers, units, and percentages (e.g. $51.6 GB$ -> 51.6 GB, $89%$ -> 89%)
+ *
+ * Preserves verbatim regions untouched: fenced code blocks (```...```),
+ * inline code spans (`...`), and block LaTeX math ($$...$$ and \[...\]).
  */
 fun sanitizeMarkdown(text: String): String {
     if (text.isEmpty() || (!text.contains("\\text") && !text.contains("\\%") && !text.contains("$"))) {
         return text
     }
 
-    val parts = text.split("```")
-    if (parts.size > 1) {
-        return parts.mapIndexed { index, part ->
-            if (index % 2 == 1) {
-                // Inside code block: preserve exactly
-                part
-            } else {
-                sanitizeTextChunk(part)
-            }
-        }.joinToString("```")
+    val out = StringBuilder(text.length)
+    var i = 0
+    var plainStart = 0
+    val len = text.length
+
+    fun flushPlain(endExclusive: Int) {
+        if (endExclusive > plainStart) {
+            out.append(sanitizeTextChunk(text.substring(plainStart, endExclusive)))
+        }
     }
 
-    return sanitizeTextChunk(text)
+    while (i < len) {
+        // 1. Fenced code block: ```...```
+        if (text.startsWith("```", i)) {
+            flushPlain(i)
+            val closeIdx = text.indexOf("```", i + 3)
+            val end = if (closeIdx >= 0) closeIdx + 3 else len
+            out.append(text, i, end)
+            i = end
+            plainStart = end
+            continue
+        }
+
+        // 2. Inline code span: `...` (matched backtick run within paragraph)
+        if (text[i] == '`') {
+            var tickCount = 0
+            while (i + tickCount < len && text[i + tickCount] == '`') {
+                tickCount++
+            }
+            val delimiter = "`".repeat(tickCount)
+            var searchPos = i + tickCount
+            var matchedEnd = -1
+            while (searchPos < len) {
+                val candidate = text.indexOf(delimiter, searchPos)
+                if (candidate < 0) break
+                // Ensure exact backtick count (not a longer run)
+                val beforeOk = candidate == 0 || text[candidate - 1] != '`'
+                val afterOk = candidate + tickCount >= len || text[candidate + tickCount] != '`'
+                if (beforeOk && afterOk) {
+                    val inside = text.substring(i + tickCount, candidate)
+                    if (!inside.contains("\n\n")) {
+                        matchedEnd = candidate + tickCount
+                    }
+                    break
+                }
+                searchPos = candidate + 1
+            }
+            if (matchedEnd > 0) {
+                flushPlain(i)
+                out.append(text, i, matchedEnd)
+                i = matchedEnd
+                plainStart = matchedEnd
+                continue
+            }
+            i += tickCount
+            continue
+        }
+
+        // 3. Block LaTeX formula: $$...$$
+        if (text.startsWith("$$", i)) {
+            flushPlain(i)
+            val closeIdx = text.indexOf("$$", i + 2)
+            val end = if (closeIdx >= 0) closeIdx + 2 else len
+            out.append(text, i, end)
+            i = end
+            plainStart = end
+            continue
+        }
+
+        // 4. Block LaTeX formula: \[...\]
+        if (text.startsWith("\\[", i)) {
+            flushPlain(i)
+            val closeIdx = text.indexOf("\\]", i + 2)
+            val end = if (closeIdx >= 0) closeIdx + 2 else len
+            out.append(text, i, end)
+            i = end
+            plainStart = end
+            continue
+        }
+
+        i++
+    }
+
+    flushPlain(len)
+    return out.toString()
 }
 
 private fun sanitizeTextChunk(chunk: String): String {
@@ -1434,6 +1638,9 @@ private fun sanitizeTextChunk(chunk: String): String {
     }
     return result
 }
+
+private val ATX_HEADER_REGEX = Regex("""^(#{1,6})\s+(.+?)\s*$""")
+private val ATX_CLOSING_HASHES = Regex("""\s+#+$""")
 
 /**
  * Parses raw text into high-level Markdown elements.
@@ -1493,13 +1700,18 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             }
         }
 
-        // 3. Headers (# H1, ## H2, ### H3)
-        if (trimmed.startsWith("#")) {
-            val level = trimmed.takeWhile { it == '#' }.length.coerceIn(1, 4)
-            val text = trimmed.drop(level).trim()
-            elements.add(MarkdownElement.Header(level, text))
-            i++
-            continue
+        // 3. Headers (# H1 .. ###### H6, requiring whitespace after # so #hashtag stays text)
+        val headerMatch = ATX_HEADER_REGEX.find(trimmed)
+        if (headerMatch != null) {
+            val level = headerMatch.groupValues[1].length.coerceIn(1, 4)
+            val text = headerMatch.groupValues[2]
+                .replace(ATX_CLOSING_HASHES, "")
+                .trim()
+            if (text.isNotEmpty()) {
+                elements.add(MarkdownElement.Header(level, text))
+                i++
+                continue
+            }
         }
 
         // 4. Blockquotes (> quote)

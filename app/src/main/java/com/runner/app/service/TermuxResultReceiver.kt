@@ -14,6 +14,7 @@ import com.runner.app.tools.TermuxBridge
 class TermuxResultReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != TermuxBridge.ACTION_RESULT) return
         val executionId = intent.getIntExtra(TermuxBridge.EXTRA_EXECUTION_ID, -1)
         if (executionId < 0) return
 
@@ -25,8 +26,8 @@ class TermuxResultReceiver : BroadcastReceiver() {
                     stdout = "",
                     stderr = "Termux не вернул result bundle",
                     exitCode = -1,
-                    err = -1,
-                    errMsg = ""
+                    err = TermuxBridge.ERRNO_FAILED,
+                    errMsg = "Termux не вернул result bundle"
                 )
             )
             return
@@ -38,7 +39,7 @@ class TermuxResultReceiver : BroadcastReceiver() {
                 stdout = bundle.getString(TermuxBridge.RESULT_STDOUT).orEmpty(),
                 stderr = bundle.getString(TermuxBridge.RESULT_STDERR).orEmpty(),
                 exitCode = bundle.getInt(TermuxBridge.RESULT_EXIT_CODE, -1),
-                err = bundle.getInt(TermuxBridge.RESULT_ERR, -1),
+                err = bundle.getInt(TermuxBridge.RESULT_ERR, TermuxBridge.ERRNO_SUCCESS),
                 errMsg = bundle.getString(TermuxBridge.RESULT_ERRMSG).orEmpty()
             )
         )

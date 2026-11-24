@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Один ответ модели, по которому потом считается расход. */
 data class UsageEvent(
@@ -38,15 +40,37 @@ data class UsageTotals(
  * Локальный журнал расхода токенов.
  *
  * Хранит только факты использования модели, без текста сообщений и ключей.
- * Этого достаточно для сводки по дню, провайдеру и текущему чату.
+ * Единый синглтон на процесс (через [UsageStore.get]), чтобы MainActivity и
+ * OverlayActivity не затирали события друг друга; чтение и сериализация
+ * выполняются асинхронно в фоновом потоке.
  */
 class UsageStore(context: Context) {
 
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val lock = Any()
-    private val _events = MutableStateFlow(load())
+    private val pendingSave = AtomicBoolean(false)
+    private var loadedFromDisk = false
+
+    private val _events = MutableStateFlow<List<UsageEvent>>(emptyList())
     val events: StateFlow<List<UsageEvent>> = _events.asStateFlow()
+
+    init {
+        ioExecutor.execute {
+            val diskEvents = loadFromDisk()
+            var needsFlush = false
+            synchronized(lock) {
+                loadedFromDisk = true
+                val recordedBeforeLoad = _events.value
+                val merged = (diskEvents + recordedBeforeLoad).takeLast(MAX_EVENTS)
+                _events.value = merged
+                needsFlush = recordedBeforeLoad.isNotEmpty()
+            }
+            if (needsFlush) {
+                scheduleSave()
+            }
+        }
+    }
 
     fun record(
         provider: Provider,
@@ -65,14 +89,26 @@ class UsageStore(context: Context) {
             promptTokens = promptTokens.coerceAtLeast(0),
             completionTokens = completionTokens.coerceAtLeast(0)
         )
+        val shouldPersist: Boolean
         synchronized(lock) {
-            val updated = (_events.value + event).takeLast(MAX_EVENTS)
-            _events.value = updated
-            save(updated)
+            _events.value = (_events.value + event).takeLast(MAX_EVENTS)
+            shouldPersist = loadedFromDisk
+        }
+        if (shouldPersist) {
+            scheduleSave()
         }
     }
 
-    private fun load(): List<UsageEvent> {
+    private fun scheduleSave() {
+        if (!pendingSave.compareAndSet(false, true)) return
+        ioExecutor.execute {
+            pendingSave.set(false)
+            val snapshot = synchronized(lock) { _events.value }
+            saveToDisk(snapshot)
+        }
+    }
+
+    private fun loadFromDisk(): List<UsageEvent> {
         val raw = prefs.getString(KEY_EVENTS, null) ?: return emptyList()
         return try {
             val array = JSONArray(raw)
@@ -85,10 +121,10 @@ class UsageStore(context: Context) {
                     add(
                         UsageEvent(
                             timestamp = item.optLong("timestamp", 0L),
-                            providerId = item.optString("providerId"),
-                            providerName = item.optString("providerName"),
-                            model = item.optString("model"),
-                            sessionId = item.optString("sessionId").takeIf { it.isNotBlank() },
+                            providerId = item.optNullableString("providerId").orEmpty(),
+                            providerName = item.optNullableString("providerName").orEmpty(),
+                            model = item.optNullableString("model").orEmpty(),
+                            sessionId = item.optNullableString("sessionId")?.takeIf { it.isNotBlank() },
                             promptTokens = prompt,
                             completionTokens = completion
                         )
@@ -100,7 +136,7 @@ class UsageStore(context: Context) {
         }
     }
 
-    private fun save(events: List<UsageEvent>) {
+    private fun saveToDisk(events: List<UsageEvent>) {
         val array = JSONArray()
         events.forEach { event ->
             array.put(
@@ -118,10 +154,22 @@ class UsageStore(context: Context) {
         prefs.edit().putString(KEY_EVENTS, array.toString()).apply()
     }
 
-    private companion object {
-        const val PREFS_NAME = "runner_usage"
-        const val KEY_EVENTS = "usage_events"
-        const val MAX_EVENTS = 1200
+    companion object {
+        private const val PREFS_NAME = "runner_usage"
+        private const val KEY_EVENTS = "usage_events"
+        private const val MAX_EVENTS = 1200
+
+        @Volatile
+        private var instance: UsageStore? = null
+
+        private val ioExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "runner-usage-store").apply { isDaemon = true }
+        }
+
+        fun get(context: Context): UsageStore =
+            instance ?: synchronized(this) {
+                instance ?: UsageStore(context.applicationContext).also { instance = it }
+            }
     }
 }
 

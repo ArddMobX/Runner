@@ -28,8 +28,10 @@ import kotlin.coroutines.resume
 @Suppress("DEPRECATION")
 class RunnerAccessibilityService : AccessibilityService() {
 
+    private val cacheLock = Any()
     private val cachedNodes = mutableMapOf<Int, AccessibilityNodeInfo>()
     private val cachedBounds = mutableMapOf<Int, Rect>()
+    private val cachedLabels = mutableMapOf<Int, String>()
     private var lastExtractedPackage: String = ""
 
     /** Пакет и окно, для которых построен кэш #id. */
@@ -81,12 +83,58 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     fun clearNodeCache() {
-        cachedNodes.values.forEach { runCatching { it.recycle() } }
-        cachedNodes.clear()
-        cachedBounds.clear()
-        cachedPackage = ""
-        cachedWindowId = -1
-        cachedAtMs = 0L
+        synchronized(cacheLock) {
+            cachedNodes.values.forEach { runCatching { it.recycle() } }
+            cachedNodes.clear()
+            cachedBounds.clear()
+            cachedLabels.clear()
+            cachedPackage = ""
+            cachedWindowId = -1
+            cachedAtMs = 0L
+        }
+    }
+
+    /**
+     * Реальная подпись кэшированного элемента из дерева экрана (text, contentDescription
+     * и текст вложенных узлов контейнера). Нужна, чтобы модель не могла скрыть
+     * кнопку вроде «Оплатить» под безобидным аргументом `label`.
+     */
+    fun cachedElementLabel(elementId: Int): String = synchronized(cacheLock) {
+        val parts = linkedSetOf<String>()
+        cachedLabels[elementId]?.takeIf { it.isNotBlank() }?.let { parts += it }
+        val node = cachedNodes[elementId]
+        if (node != null) {
+            collectNodeLabels(node, parts, depth = 0, maxDepth = 3)
+        }
+        parts.joinToString(" ").trim()
+    }
+
+    private fun collectNodeLabels(
+        node: AccessibilityNodeInfo,
+        out: MutableSet<String>,
+        depth: Int,
+        maxDepth: Int
+    ) {
+        normalizeUiText(node.text?.toString()).takeIf { it.isNotBlank() }?.let { out += it }
+        normalizeUiText(node.contentDescription?.toString()).takeIf { it.isNotBlank() }?.let { out += it }
+        if (depth >= maxDepth) return
+        val count = try {
+            node.childCount
+        } catch (_: Exception) {
+            0
+        }
+        for (i in 0 until count) {
+            val child = try {
+                node.getChild(i)
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            try {
+                collectNodeLabels(child, out, depth + 1, maxDepth)
+            } finally {
+                runCatching { child.recycle() }
+            }
+        }
     }
 
     /**
@@ -127,9 +175,11 @@ class RunnerAccessibilityService : AccessibilityService() {
 
             // С этого момента кэш #id привязан к конкретному окну. Перед
             // кликом проверим, что экран не сменился и кэш не устарел.
-            cachedPackage = pkg
-            cachedWindowId = root.windowId
-            cachedAtMs = SystemClock.uptimeMillis()
+            synchronized(cacheLock) {
+                cachedPackage = pkg
+                cachedWindowId = root.windowId
+                cachedAtMs = SystemClock.uptimeMillis()
+            }
 
             val displayMetrics = resources.displayMetrics
             val screenWidth = displayMetrics.widthPixels
@@ -168,6 +218,7 @@ class RunnerAccessibilityService : AccessibilityService() {
                 // Одиночные неинтерактивные символы вроде «•» только
                 // раздувают дерево. Кнопки при этом остаются: у них есть флаг.
                 val isMeaningful = isActionable || text.length >= 2 || desc.length >= 2
+                var storedInCache = false
 
                 if (isMeaningful) {
                     val typeLabel = simplifyClassName(node.className?.toString())
@@ -181,8 +232,15 @@ class RunnerAccessibilityService : AccessibilityService() {
                     }
                     if (seenKeys.add(key)) {
                         val elementId = nextId++
-                        cachedNodes[elementId] = node
-                        cachedBounds[elementId] = bounds
+                        synchronized(cacheLock) {
+                            cachedNodes[elementId] = node
+                            cachedBounds[elementId] = bounds
+                            cachedLabels[elementId] = listOf(text, desc)
+                                .filter { it.isNotBlank() }
+                                .distinct()
+                                .joinToString(" ")
+                        }
+                        storedInCache = true
                         visibleNodes.add(
                             NodeEntry(
                                 id = elementId,
@@ -203,10 +261,9 @@ class RunnerAccessibilityService : AccessibilityService() {
                 for (i in 0 until childCount) {
                     traverse(node.getChild(i))
                 }
-                // Неинтерактивный узел после обхода детей больше не нужен.
-                // Кэшированные meaningful-узлы не трогаем: на них ссылаются
-                // clickElement/inputText до следующего ui_inspect.
-                if (!isMeaningful) {
+                // Все узлы, не попавшие в cachedNodes (неинтерактивные И дубликаты),
+                // освобождаем сразу после обхода детей, чтобы не течь AccessibilityNodeInfo.
+                if (!storedInCache) {
                     runCatching { node.recycle() }
                 }
             }
@@ -317,7 +374,8 @@ class RunnerAccessibilityService : AccessibilityService() {
             val isPasswordType = when (inputClass) {
                 InputType.TYPE_CLASS_TEXT -> {
                     variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
-                            variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+                            variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                            variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                 }
                 InputType.TYPE_CLASS_NUMBER -> {
                     variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
@@ -366,6 +424,40 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Проверяет, нет ли на текущем экране чувствительного приложения (включая
+     * соседние окна в split-screen) или видимого поля пароля. При срабатывании
+     * останавливает Live-режим и возвращает текст отказа.
+     */
+    fun activeScreenSecurityBlockReason(stopLiveOnBlock: Boolean = true): String? {
+        val sensitiveWindow = sensitiveWindowPackage()
+        if (sensitiveWindow != null) {
+            val reason = "Блокировка безопасности: обнаружено чувствительное приложение " +
+                    "($sensitiveWindow). В целях защиты данных Live-режим остановлен."
+            if (stopLiveOnBlock) LiveAgentManager.stop(reason, isError = true)
+            return reason
+        }
+        val root = rootInActiveWindow ?: return null
+        return try {
+            val pkg = root.packageName?.toString().orEmpty()
+            if (isSensitivePackage(pkg)) {
+                val reason = "Блокировка безопасности: обнаружено чувствительное приложение " +
+                        "($pkg). В целях защиты данных Live-режим остановлен."
+                if (stopLiveOnBlock) LiveAgentManager.stop(reason, isError = true)
+                return reason
+            }
+            if (hasPasswordFields(root)) {
+                val reason = "Блокировка безопасности: на экране обнаружено поле ввода пароля. " +
+                        "В целях защиты конфиденциальности Live-режим остановлен."
+                if (stopLiveOnBlock) LiveAgentManager.stop(reason, isError = true)
+                return reason
+            }
+            null
+        } finally {
+            runCatching { root.recycle() }
+        }
+    }
+
+    /**
      * Пакет относится к чувствительному приложению?
      *
      * Сверяем по сегментам имени пакета: `ru.vtb24.mobilebanking` состоит из
@@ -374,13 +466,8 @@ class RunnerAccessibilityService : AccessibilityService() {
      * всему имени находило «vtb» где угодно; заодно убран allowlist браузеров,
      * который мог скрыть банк, открытый под именем браузера.
      */
-    private fun isSensitivePackage(packageName: String): Boolean {
-        if (packageName.isBlank()) return false
-        val segments = packageName.lowercase().split('.')
-        return SENSITIVE_PACKAGES.any { entry ->
-            segments.any { segment -> segment == entry || segment.startsWith(entry) }
-        }
-    }
+    private fun isSensitivePackage(packageName: String): Boolean =
+        isSensitivePackageName(packageName)
 
     /** Пакет активного окна. */
     fun currentPackageName(): String {
@@ -413,19 +500,23 @@ class RunnerAccessibilityService : AccessibilityService() {
                 "вызови ui_target('$current')."
     }
 
-    private fun isTargetLockExempt(packageName: String): Boolean {
-        val pkg = packageName.lowercase()
-        return TARGET_LOCK_EXEMPT_PREFIXES.any { pkg.startsWith(it) } ||
-                pkg.contains("inputmethod") ||
-                pkg.contains("keyboard")
-    }
+    private fun isTargetLockExempt(packageName: String): Boolean =
+        isTargetLockExemptPackage(packageName)
 
     /**
      * Проверяет, что кэш #id построен для текущего окна и не устарел.
      * Иначе старый номер может указывать на другой элемент.
      */
     private fun cacheFreshnessError(): String? {
-        if (cachedAtMs == 0L) {
+        val snapshotAtMs: Long
+        val snapshotPkg: String
+        val snapshotWindowId: Int
+        synchronized(cacheLock) {
+            snapshotAtMs = cachedAtMs
+            snapshotPkg = cachedPackage
+            snapshotWindowId = cachedWindowId
+        }
+        if (snapshotAtMs == 0L) {
             return "Сначала вызови ui_inspect: список элементов ещё не построен."
         }
         val root = rootInActiveWindow ?: return "Экран недоступен. Повтори ui_inspect."
@@ -433,9 +524,9 @@ class RunnerAccessibilityService : AccessibilityService() {
             val pkg = root.packageName?.toString().orEmpty()
             val windowId = root.windowId
             when {
-                pkg != cachedPackage || windowId != cachedWindowId ->
+                pkg != snapshotPkg || windowId != snapshotWindowId ->
                     "Экран изменился после ui_inspect. Вызови ui_inspect заново: старые #id могли устареть."
-                SystemClock.uptimeMillis() - cachedAtMs > CACHE_TTL_MS ->
+                SystemClock.uptimeMillis() - snapshotAtMs > CACHE_TTL_MS ->
                     "Список элементов устарел. Вызови ui_inspect заново."
                 else -> null
             }
@@ -448,6 +539,7 @@ class RunnerAccessibilityService : AccessibilityService() {
     fun screenContainsText(query: String): Boolean {
         val needle = query.trim().lowercase()
         if (needle.isEmpty()) return false
+        if (activeScreenSecurityBlockReason(stopLiveOnBlock = true) != null) return false
         val root = rootInActiveWindow ?: return false
         return try {
             nodeContainsText(root, needle)
@@ -477,32 +569,39 @@ class RunnerAccessibilityService : AccessibilityService() {
      * Выполняет клик по элементу с заданным ID.
      */
     suspend fun clickElement(elementId: Int): ActionResult {
+        activeScreenSecurityBlockReason()?.let { return ActionResult.Error(it) }
         cacheFreshnessError()?.let { return ActionResult.Error(it) }
         targetMismatchReason()?.let { return ActionResult.Error(it) }
 
-        val bounds = cachedBounds[elementId]
-        val node = cachedNodes[elementId]
+        val (targetBounds, immediateResult) = synchronized(cacheLock) {
+            val bounds = cachedBounds[elementId]
+            val node = cachedNodes[elementId]
+            if (bounds == null && node == null) {
+                null to ActionResult.Error("Элемент с ID #$elementId не найден на экране. Вызовите ui_inspect для обновления дерева.")
+            } else {
+                val rect = bounds?.let { Rect(it) } ?: Rect().also { node?.getBoundsInScreen(it) }
+                val cx = rect.centerX().toFloat()
+                val cy = rect.centerY().toFloat()
+                TouchVisualizerOverlay.showTouchRipple(cx, cy, rect)
 
-        if (bounds == null && node == null) {
-            return ActionResult.Error("Элемент с ID #$elementId не найден на экране. Вызовите ui_inspect для обновления дерева.")
+                // Сначала ACTION_CLICK: он не зависит от того, перекрыт ли центр
+                // элемента другим view. Жест оставляем как резерв.
+                val result = when {
+                    node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true ->
+                        ActionResult.Success("Клик по элементу #$elementId выполнен через Accessibility ACTION_CLICK")
+                    clickClickableParent(node) ->
+                        ActionResult.Success("Клик по элементу #$elementId выполнен через родительский кликабельный элемент")
+                    else -> null
+                }
+                rect to result
+            }
         }
+        if (immediateResult != null) return immediateResult
+        val rect = targetBounds
+            ?: return ActionResult.Error("Элемент с ID #$elementId не найден на экране. Вызовите ui_inspect для обновления дерева.")
 
-        val targetBounds = bounds ?: Rect().also { node?.getBoundsInScreen(it) }
-        val cx = targetBounds.centerX().toFloat()
-        val cy = targetBounds.centerY().toFloat()
-
-        // Визуализируем тач и подсветку элемента
-        TouchVisualizerOverlay.showTouchRipple(cx, cy, targetBounds)
-
-        // Сначала ACTION_CLICK: он не зависит от того, перекрыт ли центр
-        // элемента другим view. Жест оставляем как резерв.
-        if (node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
-            return ActionResult.Success("Клик по элементу #$elementId выполнен через Accessibility ACTION_CLICK")
-        }
-        if (clickClickableParent(node)) {
-            return ActionResult.Success("Клик по элементу #$elementId выполнен через родительский кликабельный элемент")
-        }
-
+        val cx = rect.centerX().toFloat()
+        val cy = rect.centerY().toFloat()
         val gestureSuccess = tapAtCoordinates(cx, cy)
         return if (gestureSuccess) {
             ActionResult.Success("Успешный клик по элементу #$elementId в точке ($cx, $cy)")
@@ -534,6 +633,7 @@ class RunnerAccessibilityService : AccessibilityService() {
      * Выполняет клик по прямым координатам на экране.
      */
     suspend fun clickCoordinates(x: Float, y: Float): ActionResult {
+        activeScreenSecurityBlockReason()?.let { return ActionResult.Error(it) }
         targetMismatchReason()?.let { return ActionResult.Error(it) }
         TouchVisualizerOverlay.showTouchRipple(x, y, null)
         val success = tapAtCoordinates(x, y)
@@ -549,27 +649,37 @@ class RunnerAccessibilityService : AccessibilityService() {
      * и перетаскивания, где обычный тап бесполезен.
      */
     suspend fun longClickElement(elementId: Int): ActionResult {
+        activeScreenSecurityBlockReason()?.let { return ActionResult.Error(it) }
         cacheFreshnessError()?.let { return ActionResult.Error(it) }
         targetMismatchReason()?.let { return ActionResult.Error(it) }
 
-        val bounds = cachedBounds[elementId]
-        val node = cachedNodes[elementId]
-        if (bounds == null && node == null) {
-            return ActionResult.Error("Элемент с ID #$elementId не найден. Вызови ui_inspect.")
-        }
+        val (targetBounds, immediateResult) = synchronized(cacheLock) {
+            val bounds = cachedBounds[elementId]
+            val node = cachedNodes[elementId]
+            if (bounds == null && node == null) {
+                null to ActionResult.Error("Элемент с ID #$elementId не найден. Вызови ui_inspect.")
+            } else {
+                val rect = bounds?.let { Rect(it) } ?: Rect().also { node?.getBoundsInScreen(it) }
+                val cx = rect.centerX().toFloat()
+                val cy = rect.centerY().toFloat()
+                TouchVisualizerOverlay.showTouchRipple(cx, cy, rect)
 
-        val targetBounds = bounds ?: Rect().also { node?.getBoundsInScreen(it) }
-        val cx = targetBounds.centerX().toFloat()
-        val cy = targetBounds.centerY().toFloat()
-        TouchVisualizerOverlay.showTouchRipple(cx, cy, targetBounds)
-
-        if (node?.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) == true) {
-            return ActionResult.Success("Долгое нажатие на элемент #$elementId выполнено через Accessibility")
+                val result = when {
+                    node?.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) == true ->
+                        ActionResult.Success("Долгое нажатие на элемент #$elementId выполнено через Accessibility")
+                    longClickClickableParent(node) ->
+                        ActionResult.Success("Долгое нажатие на элемент #$elementId выполнено через родителя")
+                    else -> null
+                }
+                rect to result
+            }
         }
-        if (longClickClickableParent(node)) {
-            return ActionResult.Success("Долгое нажатие на элемент #$elementId выполнено через родителя")
-        }
+        if (immediateResult != null) return immediateResult
+        val rect = targetBounds
+            ?: return ActionResult.Error("Элемент с ID #$elementId не найден. Вызови ui_inspect.")
 
+        val cx = rect.centerX().toFloat()
+        val cy = rect.centerY().toFloat()
         return if (longPressAtCoordinates(cx, cy)) {
             ActionResult.Success("Долгое нажатие на элемент #$elementId выполнено в точке ($cx, $cy)")
         } else {
@@ -597,6 +707,7 @@ class RunnerAccessibilityService : AccessibilityService() {
     }
 
     suspend fun longClickCoordinates(x: Float, y: Float): ActionResult {
+        activeScreenSecurityBlockReason()?.let { return ActionResult.Error(it) }
         targetMismatchReason()?.let { return ActionResult.Error(it) }
         TouchVisualizerOverlay.showTouchRipple(x, y, null)
         return if (longPressAtCoordinates(x, y)) {
@@ -615,86 +726,98 @@ class RunnerAccessibilityService : AccessibilityService() {
         clearFirst: Boolean = false,
         submit: Boolean = false
     ): ActionResult {
+        activeScreenSecurityBlockReason()?.let { return ActionResult.Error(it) }
         targetMismatchReason()?.let { return ActionResult.Error(it) }
         if (elementId != null) {
             cacheFreshnessError()?.let { return ActionResult.Error(it) }
         }
 
-        val rawNode = if (elementId != null) {
-            cachedNodes[elementId]
-        } else {
-            findFocusedEditText(rootInActiveWindow)
-        }
-        if (rawNode == null) {
-            return ActionResult.Error("Поле ввода не найдено. Укажи element_id или сфокусируй поле.")
-        }
-
-        // Иногда текст лежит не на самом EditText, а на контейнере или
-        // вложенном узле. Ищем редактируемый узел вниз и вверх по дереву.
-        val node = findEditableNode(rawNode)
-        if (node == null) {
-            return ActionResult.Error("Указанный элемент не является полем ввода.")
-        }
-
-        val bounds = Rect().also { node.getBoundsInScreen(it) }
-        TouchVisualizerOverlay.highlightTarget(bounds)
-
-        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-
-        if (clearFirst) {
-            val emptyBundle = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+        return synchronized(cacheLock) {
+            val cachedRef = if (elementId != null) cachedNodes[elementId] else null
+            val rootNode = if (elementId == null) rootInActiveWindow else null
+            val rawNode = if (elementId != null) {
+                cachedRef
+            } else {
+                findFocusedEditText(rootNode)
             }
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, emptyBundle)
-        }
+            if (rootNode != null && rootNode !== rawNode) {
+                runCatching { rootNode.recycle() }
+            }
+            if (rawNode == null) {
+                return@synchronized ActionResult.Error("Поле ввода не найдено. Укажи element_id или сфокусируй поле.")
+            }
 
-        val textBundle = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-        }
-        val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textBundle)
-        if (!success) {
-            return ActionResult.Error("Не удалось установить текст в поле через Accessibility")
-        }
+            // Иногда текст лежит не на самом EditText, а на контейнере или
+            // вложенном узле. Ищем редактируемый узел вниз и вверх по дереву.
+            val node = findEditableNode(rawNode)
+            try {
+                if (node == null) {
+                    return@synchronized ActionResult.Error("Указанный элемент не является полем ввода.")
+                }
 
-        runCatching { node.refresh() }
-        val applied = node.text?.toString().orEmpty()
-        if (applied.isNotEmpty() && applied != text && !applied.contains(text)) {
-            return ActionResult.Error(
-                "Текст отправлен, но поле показывает другое значение " +
-                        "('${applied.take(60)}'). Проверь, то ли это поле."
-            )
-        }
+                val bounds = Rect().also { node.getBoundsInScreen(it) }
+                TouchVisualizerOverlay.highlightTarget(bounds)
 
-        if (submit) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val pressed = node.performAction(
-                    AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
-                )
-                return if (pressed) {
-                    ActionResult.Success("Текст \"$text\" введён, Enter/Search отправлен")
-                } else {
-                    ActionResult.Success("Текст \"$text\" введён. Enter отправить не удалось, нажми кнопку поиска вручную")
+                node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+
+                if (clearFirst) {
+                    val emptyBundle = Bundle().apply {
+                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+                    }
+                    node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, emptyBundle)
+                }
+
+                val textBundle = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                }
+                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textBundle)
+                if (!success) {
+                    return@synchronized ActionResult.Error("Не удалось установить текст в поле через Accessibility")
+                }
+
+                runCatching { node.refresh() }
+                val applied = node.text?.toString().orEmpty()
+                if (applied.isNotEmpty() && applied != text && !applied.contains(text)) {
+                    return@synchronized ActionResult.Error(
+                        "Текст отправлен, но поле показывает другое значение " +
+                                "('${applied.take(60)}'). Проверь, то ли это поле."
+                    )
+                }
+
+                if (submit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val pressed = node.performAction(
+                            AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+                        )
+                        return@synchronized if (pressed) {
+                            ActionResult.Success("Текст \"$text\" введён, Enter/Search отправлен")
+                        } else {
+                            ActionResult.Success("Текст \"$text\" введён. Enter отправить не удалось, нажми кнопку поиска вручную")
+                        }
+                    }
+                    return@synchronized ActionResult.Success("Текст \"$text\" введён. Enter не отправлен: нужен Android 11+")
+                }
+
+                ActionResult.Success("Текст \"$text\" успешно введен в поле")
+            } finally {
+                if (node != null && node !== rawNode && node !== cachedRef) {
+                    runCatching { node.recycle() }
+                }
+                if (rawNode !== cachedRef) {
+                    runCatching { rawNode.recycle() }
                 }
             }
-            return ActionResult.Success("Текст \"$text\" введён. Enter не отправлен: нужен Android 11+")
         }
-
-        return ActionResult.Success("Текст \"$text\" успешно введен в поле")
     }
 
     /**
-     * Ищет редактируемый узел: сам элемент, его потомка или родителя.
+     * Ищет редактируемый узел: сам элемент, его потомка (строго вниз) или родителя (строго вверх).
      */
     private fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         if (node.isEditable) return node
 
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val found = findEditableNode(child)
-            if (found != null) return found
-            runCatching { child.recycle() }
-        }
+        findEditableDescendant(node)?.let { return it }
 
         var parent = node.parent
         var depth = 0
@@ -709,6 +832,17 @@ class RunnerAccessibilityService : AccessibilityService() {
         return null
     }
 
+    private fun findEditableDescendant(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (child.isEditable) return child
+            val found = findEditableDescendant(child)
+            runCatching { child.recycle() }
+            if (found != null) return found
+        }
+        return null
+    }
+
     private fun findFocusedEditText(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (root == null) return null
         if (root.isFocused && (root.isEditable || root.className?.contains("EditText") == true)) {
@@ -718,7 +852,11 @@ class RunnerAccessibilityService : AccessibilityService() {
         for (i in 0 until count) {
             val child = root.getChild(i) ?: continue
             val found = findFocusedEditText(child)
-            if (found != null) return found
+            if (found != null) {
+                if (found !== child) runCatching { child.recycle() }
+                return found
+            }
+            runCatching { child.recycle() }
         }
         return null
     }
@@ -729,6 +867,7 @@ class RunnerAccessibilityService : AccessibilityService() {
      * иначе жест внутри его bounds или по центру экрана.
      */
     suspend fun scrollScreen(direction: String, elementId: Int? = null): ActionResult {
+        activeScreenSecurityBlockReason()?.let { return ActionResult.Error(it) }
         targetMismatchReason()?.let { return ActionResult.Error(it) }
         if (elementId != null) {
             cacheFreshnessError()?.let { return ActionResult.Error(it) }
@@ -741,33 +880,47 @@ class RunnerAccessibilityService : AccessibilityService() {
             return ActionResult.Error("Неизвестное направление скролла: $direction")
         }
 
-        val scrollNode = if (elementId != null) {
-            findScrollableNode(cachedNodes[elementId])
-        } else {
-            findFirstScrollable(rootInActiveWindow)
-        }
-        if (scrollNode != null) {
-            val owned = scrollNode !== cachedNodes[elementId]
-            if (isVertical) {
-                val action = if (dir == "down" || dir == "вниз") {
-                    AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-                } else {
-                    AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-                }
-                val scrolled = scrollNode.performAction(action)
-                if (owned) runCatching { scrollNode.recycle() }
-                if (scrolled) {
-                    return ActionResult.Success("Скролл $direction выполнен через Accessibility")
-                }
-            } else if (owned) {
-                runCatching { scrollNode.recycle() }
+        val (boundsSnapshot, scrolledViaA11y) = synchronized(cacheLock) {
+            val cachedRef = if (elementId != null) cachedNodes[elementId] else null
+            val rectSnapshot = if (elementId != null) cachedBounds[elementId]?.let { Rect(it) } else null
+            val rootNode = if (elementId == null) rootInActiveWindow else null
+            val scrollNode = if (elementId != null) {
+                findScrollableNode(cachedRef)
+            } else {
+                findFirstScrollable(rootNode)
             }
+            if (rootNode != null && rootNode !== scrollNode) {
+                runCatching { rootNode.recycle() }
+            }
+            val scrolled = if (scrollNode != null) {
+                val owned = scrollNode !== cachedRef
+                try {
+                    if (isVertical) {
+                        val action = if (dir == "down" || dir == "вниз") {
+                            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                        } else {
+                            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                        }
+                        scrollNode.performAction(action)
+                    } else {
+                        false
+                    }
+                } finally {
+                    if (owned) runCatching { scrollNode.recycle() }
+                }
+            } else {
+                false
+            }
+            rectSnapshot to scrolled
+        }
+        if (scrolledViaA11y) {
+            return ActionResult.Success("Скролл $direction выполнен через Accessibility")
         }
 
         val displayMetrics = resources.displayMetrics
         val width = displayMetrics.widthPixels.toFloat()
         val height = displayMetrics.heightPixels.toFloat()
-        val bounds = if (elementId != null) cachedBounds[elementId] else null
+        val bounds = boundsSnapshot
 
         val startX: Float
         val startY: Float
@@ -844,12 +997,7 @@ class RunnerAccessibilityService : AccessibilityService() {
         if (node == null) return null
         if (node.isScrollable) return node
 
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val found = findScrollableNode(child)
-            if (found != null) return found
-            runCatching { child.recycle() }
-        }
+        findScrollableDescendant(node)?.let { return it }
 
         var parent = node.parent
         var depth = 0
@@ -864,13 +1012,27 @@ class RunnerAccessibilityService : AccessibilityService() {
         return null
     }
 
+    private fun findScrollableDescendant(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (child.isScrollable) return child
+            val found = findScrollableDescendant(child)
+            runCatching { child.recycle() }
+            if (found != null) return found
+        }
+        return null
+    }
+
     private fun findFirstScrollable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         if (node.isScrollable) return node
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val found = findFirstScrollable(child)
-            if (found != null) return found
+            if (found != null) {
+                if (found !== child) runCatching { child.recycle() }
+                return found
+            }
             runCatching { child.recycle() }
         }
         return null
@@ -896,10 +1058,19 @@ class RunnerAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun screenDimensions(): Pair<Float, Float> {
+        val dm = resources.displayMetrics
+        return (dm.widthPixels - 1).coerceAtLeast(1).toFloat() to
+                (dm.heightPixels - 1).coerceAtLeast(1).toFloat()
+    }
+
     private suspend fun tapAtCoordinates(x: Float, y: Float): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val (maxX, maxY) = screenDimensions()
+        val safeX = clampGestureCoordinate(x, maxX)
+        val safeY = clampGestureCoordinate(y, maxY)
         val path = Path().apply {
-            moveTo(x, y)
+            moveTo(safeX, safeY)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, 60)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
@@ -909,8 +1080,11 @@ class RunnerAccessibilityService : AccessibilityService() {
     /** Долгое нажатие: тот же жест, но с удержанием 600 мс. */
     private suspend fun longPressAtCoordinates(x: Float, y: Float): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val (maxX, maxY) = screenDimensions()
+        val safeX = clampGestureCoordinate(x, maxX)
+        val safeY = clampGestureCoordinate(y, maxY)
         val path = Path().apply {
-            moveTo(x, y)
+            moveTo(safeX, safeY)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, 600)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
@@ -925,11 +1099,12 @@ class RunnerAccessibilityService : AccessibilityService() {
         durationMs: Long
     ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val (maxX, maxY) = screenDimensions()
         val path = Path().apply {
-            moveTo(startX, startY)
-            lineTo(endX, endY)
+            moveTo(clampGestureCoordinate(startX, maxX), clampGestureCoordinate(startY, maxY))
+            lineTo(clampGestureCoordinate(endX, maxX), clampGestureCoordinate(endY, maxY))
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
+        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs.coerceAtLeast(1L))
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         return dispatchGestureSafely(gesture)
     }
@@ -992,6 +1167,12 @@ class RunnerAccessibilityService : AccessibilityService() {
          * Окна, которые не считаются «чужим приложением»: системные диалоги,
          * клавиатура, permission-контроллер. Их можно нажимать без ui_target.
          */
+        // `"android"` проверяется только точным совпадением выше, а
+        // `com.google.android.gms` убран: под ним работают экраны Google Pay и аккаунтов.
+        private val TARGET_LOCK_EXEMPT_EXACT = setOf(
+            "android"
+        )
+
         private val TARGET_LOCK_EXEMPT_PREFIXES = listOf(
             "com.android.systemui",
             "com.android.permissioncontroller",
@@ -999,10 +1180,42 @@ class RunnerAccessibilityService : AccessibilityService() {
             "com.android.intentresolver",
             "com.google.android.intentresolver",
             "com.android.inputmethod",
-            "com.google.android.inputmethod",
-            "com.google.android.gms",
-            "android"
+            "com.google.android.inputmethod"
         )
+
+        internal fun isTargetLockExemptPackage(packageName: String): Boolean {
+            val pkg = packageName.trim().lowercase()
+            if (pkg.isEmpty()) return false
+            if (isSensitivePackageName(pkg)) return false
+            if (pkg in TARGET_LOCK_EXEMPT_EXACT) return true
+            if (TARGET_LOCK_EXEMPT_PREFIXES.any { prefix ->
+                    pkg == prefix || pkg.startsWith("$prefix.")
+                }
+            ) {
+                return true
+            }
+            val segments = pkg.split('.')
+            return segments.any { it.contains("inputmethod") || it.contains("keyboard") }
+        }
+
+        fun isSensitivePackageName(packageName: String): Boolean {
+            if (packageName.isBlank()) return false
+            val segments = packageName.lowercase().split('.')
+            return SENSITIVE_PACKAGES.any { entry ->
+                segments.any { segment -> segment == entry || segment.startsWith(entry) }
+            }
+        }
+
+        /**
+         * Ограничивает координату жеста допустимым диапазоном экрана:
+         * `GestureDescription.StrokeDescription` бросает IllegalArgumentException
+         * на отрицательных или не-конечных (NaN/Infinity) координатах.
+         */
+        internal fun clampGestureCoordinate(value: Float, maxExtent: Float): Float {
+            if (!value.isFinite()) return 0f
+            val upper = maxExtent.coerceAtLeast(1f)
+            return value.coerceIn(0f, upper)
+        }
 
         fun isEnabled(context: Context): Boolean {
             if (instance != null) return true

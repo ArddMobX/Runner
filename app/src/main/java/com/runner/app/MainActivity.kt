@@ -24,10 +24,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +63,8 @@ import com.runner.app.ui.theme.ApplyAccessibilitySetting
 import com.runner.app.ui.theme.ApplyMotionSetting
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerTheme
+import com.runner.app.ui.theme.closeRespectingMotion
+import com.runner.app.ui.theme.openRespectingMotion
 import kotlinx.coroutines.launch
 
 private enum class Screen {
@@ -77,11 +75,14 @@ private enum class Screen {
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
+    private var showingCrashDialog: Boolean = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
-        viewModel.checkAllPermissions()
+        if (!showingCrashDialog) {
+            viewModel.checkAllPermissions()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,10 +90,11 @@ class MainActivity : ComponentActivity() {
         CrashReportManager.init(applicationContext)
 
         // Если прошлый запуск упал, показываем стек нативным диалогом,
-        // а не запускаем Compose: иначе приложение упадёт на том же месте
-        // и пользователь не успеет скопировать отчёт.
+        // а не запускаем Compose и не трогаем ленивую MainViewModel: иначе
+        // приложение повторно упадёт в onStart/onResume при сбое в init ViewModel.
         val pendingCrash = CrashReportManager.getPendingCrashReport(this)
         if (pendingCrash != null) {
+            showingCrashDialog = true
             showCrashReportDialog(pendingCrash)
             return
         }
@@ -138,17 +140,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (showingCrashDialog) return
         viewModel.setAppInForeground(true)
     }
 
     override fun onStop() {
         super.onStop()
+        if (showingCrashDialog) return
         viewModel.setAppInForeground(false)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (showingCrashDialog) return
         handleIntent(intent)
     }
 
@@ -161,13 +166,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (showingCrashDialog) return
         // Пользователь мог вернуться с системного экрана выдачи прав
         viewModel.checkAllPermissions()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        LiveFloatingOverlay.dismiss()
+        // Не гасим плавающий оверлей Live-режима при повороте экрана или
+        // выгрузке Activity системой, пока Live-задача ещё выполняется.
+        if (isFinishing && !isChangingConfigurations && !LiveAgentManager.isExecuting) {
+            LiveFloatingOverlay.dismiss()
+        }
     }
 
     /**
@@ -333,15 +343,14 @@ fun AppNavigation(viewModel: MainViewModel) {
         return
     }
 
-    // Плавная смена экранов. Только прозрачность: слайд вместе с ящиком
-    // и шторками даёт дёргание, а на плотном контенте кроссфейд незаметен
+    // Переход экранов по Material Shared Axis X на тягучей пружине.
+    // При выключенных анимациях (или системном флаге) срабатывает мгновенно.
     AnimatedContent(
         targetState = currentScreen,
         transitionSpec = {
-            fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)) togetherWith
-                    fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro))
+            MotionTokens.sharedAxisXTransition(forward = targetState == Screen.SETTINGS)
         },
-        label = "screen_fade"
+        label = "screen_shared_axis"
     ) { screen ->
         when (screen) {
             Screen.CHAT -> ModalNavigationDrawer(
@@ -369,14 +378,18 @@ fun AppNavigation(viewModel: MainViewModel) {
                         snippets = searchSnippets,
                         onQueryChange = { viewModel.setSessionsQuery(it) },
                         onNewChat = {
-                            LiveAgentManager.reset()
+                            if (!isRunning) {
+                                LiveAgentManager.reset()
+                            }
                             viewModel.startNewChat()
-                            scope.launch { drawerState.close() }
+                            scope.launch { drawerState.closeRespectingMotion() }
                         },
                         onOpenSession = { sessionId ->
-                            LiveAgentManager.reset()
+                            if (!isRunning) {
+                                LiveAgentManager.reset()
+                            }
                             viewModel.openSession(sessionId)
-                            scope.launch { drawerState.close() }
+                            scope.launch { drawerState.closeRespectingMotion() }
                         },
                         onRenameSession = { sessionId, title ->
                             viewModel.renameSession(sessionId, title)
@@ -388,11 +401,11 @@ fun AppNavigation(viewModel: MainViewModel) {
                         appVersion = viewModel.appVersion,
                         footerLabel = drawerFooter,
                         onOpenSupport = {
-                            scope.launch { drawerState.close() }
+                            scope.launch { drawerState.closeRespectingMotion() }
                             showSupportSheet = true
                         },
                         onOpenSettings = {
-                            scope.launch { drawerState.close() }
+                            scope.launch { drawerState.closeRespectingMotion() }
                             currentScreen = Screen.SETTINGS
                         }
                     )
@@ -401,7 +414,7 @@ fun AppNavigation(viewModel: MainViewModel) {
         ) {
             ChatScreen(
                 viewModel = viewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } },
+                onOpenDrawer = { scope.launch { drawerState.openRespectingMotion() } },
                 onOpenSettings = { currentScreen = Screen.SETTINGS },
                 onOpenStorageSettings = { openStorageSettings(context) }
             )

@@ -3,6 +3,7 @@ package com.runner.app.ui
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,6 +68,7 @@ import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
 import com.runner.app.ui.theme.GoogleSansDisplay
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.Spacing
@@ -162,11 +164,26 @@ fun OnboardingWizard(
     var selectedModel by remember { mutableStateOf("") }
     var isTestingModel by remember { mutableStateOf(false) }
     var modelError by remember { mutableStateOf<String?>(null) }
+    var requestGeneration by remember { mutableStateOf(0) }
 
     val currentOption = providerOptions.firstOrNull { it.id == providerId }
     val currentProvider = providers.firstOrNull { it.id == providerId }
 
+    fun cancelPendingRequests() {
+        requestGeneration++
+        isChecking = false
+        isTestingModel = false
+    }
+
+    fun finishWizard() {
+        cancelPendingRequests()
+        onDone()
+    }
+
     fun goBack() {
+        cancelPendingRequests()
+        error = null
+        modelError = null
         if (step == OnboardingStep.WELCOME) {
             onDone()
         } else {
@@ -175,6 +192,7 @@ fun OnboardingWizard(
     }
 
     fun chooseProvider(option: OnboardingProviderOption) {
+        cancelPendingRequests()
         providerId = option.id
         providerName = option.title
         isCustom = option.custom
@@ -204,10 +222,20 @@ fun OnboardingWizard(
             WizardHeader(
                 step = step,
                 onBack = ::goBack,
-                onSkip = onDone
+                onSkip = ::finishWizard
             )
 
-            when (step) {
+            AnimatedContent(
+                targetState = step,
+                transitionSpec = {
+                    MotionTokens.sharedAxisXTransition(
+                        forward = targetState.ordinal >= initialState.ordinal
+                    )
+                },
+                modifier = Modifier.weight(1f),
+                label = "onboarding_step"
+            ) { currentStep ->
+            when (currentStep) {
                 OnboardingStep.WELCOME -> WizardWelcome(
                     onNext = { step = OnboardingStep.PROVIDER }
                 )
@@ -236,12 +264,14 @@ fun OnboardingWizard(
                         }
                     },
                     onCheck = {
+                        if (isChecking) return@WizardKeyStep
                         val id = providerId ?: return@WizardKeyStep
                         val provider = currentProvider ?: Provider(
                             id = id,
                             name = providerName.ifBlank { "Провайдер" },
                             baseUrl = baseUrl.trim()
                         )
+                        val reqGen = ++requestGeneration
                         isChecking = true
                         error = null
                         viewModel.connectProviderForOnboarding(
@@ -249,6 +279,9 @@ fun OnboardingWizard(
                             baseUrl = baseUrl,
                             apiKey = apiKey
                         ) { ok, message ->
+                            if (reqGen != requestGeneration || step != OnboardingStep.KEY) {
+                                return@connectProviderForOnboarding
+                            }
                             isChecking = false
                             if (!ok) {
                                 error = message
@@ -277,6 +310,7 @@ fun OnboardingWizard(
                     isChecking = isTestingModel,
                     error = modelError,
                     onOpenChat = {
+                        if (isTestingModel) return@WizardModelStep
                         val id = providerId
                         val provider = currentProvider
                         val model = selectedModel.ifBlank {
@@ -285,9 +319,13 @@ fun OnboardingWizard(
                                 .orEmpty()
                         }
                         if (id != null && provider != null && model.isNotBlank()) {
+                            val reqGen = ++requestGeneration
                             isTestingModel = true
                             modelError = null
                             viewModel.testOnboardingModel(provider, model) { ok, message ->
+                                if (reqGen != requestGeneration || step != OnboardingStep.MODEL) {
+                                    return@testOnboardingModel
+                                }
                                 isTestingModel = false
                                 if (ok) {
                                     viewModel.selectModel(id, model)
@@ -299,6 +337,7 @@ fun OnboardingWizard(
                         }
                     }
                 )
+            }
             }
         }
     }

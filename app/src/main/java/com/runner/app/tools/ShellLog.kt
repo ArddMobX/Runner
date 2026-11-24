@@ -1,6 +1,7 @@
 package com.runner.app.tools
 
 import android.content.Context
+import com.runner.app.util.SecretRedactor
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -32,14 +33,20 @@ object ShellLog {
     /**
      * Добавляет запись. Журнал диагностический: его сбой не должен ломать
      * выполнение команды, поэтому ошибки записи молча игнорируются.
+     * Секреты (ключи, токены, пароли) маскируются до записи на диск.
      */
     fun append(context: Context, status: String, command: String) {
+        val redactedCommand = SecretRedactor.redact(command)
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .trim()
+            .take(MAX_COMMAND_CHARS)
         val line = buildString {
             append(LocalDateTime.now().format(timeFormat))
             append(" · ")
-            append(status)
+            append(SecretRedactor.redact(status))
             append(" · ")
-            append(command.replace('\n', ' ').replace('\r', ' ').trim().take(MAX_COMMAND_CHARS))
+            append(redactedCommand)
         }
         synchronized(lock) {
             try {
@@ -59,7 +66,10 @@ object ShellLog {
             if (!file.exists()) {
                 emptyList()
             } else {
-                file.readLines().filter { it.isNotBlank() }.reversed()
+                file.readLines()
+                    .filter { it.isNotBlank() }
+                    .map { SecretRedactor.redact(it) }
+                    .reversed()
             }
         } catch (_: Exception) {
             emptyList()

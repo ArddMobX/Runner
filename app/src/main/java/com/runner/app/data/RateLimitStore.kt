@@ -3,6 +3,7 @@ package com.runner.app.data
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Остатки лимитов, которые провайдер прислал в заголовках последнего ответа.
@@ -29,16 +30,22 @@ object RateLimitStore {
     val byHost: StateFlow<Map<String, RateLimitInfo>> = _byHost.asStateFlow()
 
     fun update(host: String, info: RateLimitInfo) {
-        if (host.isBlank() || !info.hasAny) return
-        _byHost.value = _byHost.value + (host.lowercase() to info.copy(updatedAt = System.currentTimeMillis()))
+        val normalized = extractHost(host)
+        if (normalized.isBlank() || !info.hasAny) return
+        val stamped = info.copy(updatedAt = System.currentTimeMillis())
+        _byHost.update { current -> current + (normalized to stamped) }
     }
 
-    fun forBaseUrl(baseUrl: String): RateLimitInfo? {
-        val host = try {
-            java.net.URI(baseUrl.trim()).host?.lowercase()
-        } catch (_: Exception) {
-            null
-        } ?: return null
-        return _byHost.value[host]
+    fun forBaseUrl(baseUrl: String, reverseProxyUrl: String = ""): RateLimitInfo? {
+        val map = _byHost.value
+        val baseHost = extractHost(baseUrl)
+        if (baseHost.isNotEmpty()) {
+            map[baseHost]?.let { return it }
+        }
+        val proxyHost = extractHost(reverseProxyUrl)
+        if (proxyHost.isNotEmpty()) {
+            map[proxyHost]?.let { return it }
+        }
+        return null
     }
 }

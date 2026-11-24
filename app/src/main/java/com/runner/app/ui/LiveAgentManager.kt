@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -54,8 +55,16 @@ object LiveAgentManager {
     val isExecuting: Boolean
         get() = _stateFlow.value.isExecuting
 
+    private val confirmLock = Any()
     private var pendingContinuation: CancellableContinuation<Boolean>? = null
     private var sessionStopHandler: (() -> Unit)? = null
+
+    /** Хуки оверлея, позволяющие проверять логику LiveAgentManager в pure-JVM тестах. */
+    internal var overlayAvailableCheck: () -> Boolean = {
+        LiveFloatingOverlay.isAvailableForConfirmation()
+    }
+    internal var showOverlayHook: (Context) -> Unit = { ctx -> LiveFloatingOverlay.show(ctx) }
+    internal var dismissOverlayHook: () -> Unit = { LiveFloatingOverlay.dismiss() }
 
     /**
      * Приложение, с которым должна работать Live-задача. Пока на экране
@@ -67,8 +76,9 @@ object LiveAgentManager {
         private set
 
     fun setTargetPackage(packageName: String) {
-        targetPackage = packageName.trim()
-        _stateFlow.value = _stateFlow.value.copy(expectedPackage = targetPackage)
+        val clean = packageName.trim()
+        targetPackage = clean
+        _stateFlow.update { it.copy(expectedPackage = clean) }
     }
 
     @Volatile
@@ -80,6 +90,8 @@ object LiveAgentManager {
         onStop: (() -> Unit)? = null,
         sessionId: String = ""
     ) {
+        confirmPendingAction(false)
+        targetPackage = ""
         sessionStopHandler = onStop
         CrashReportManager.log("LiveAgent", "Старт задачи, всего шагов: $totalSteps")
         _stateFlow.value = State(
@@ -89,33 +101,57 @@ object LiveAgentManager {
             stepDescription = "Подготовка к выполнению…",
             stepIndex = 1,
             totalSteps = totalSteps,
-            sessionId = sessionId
+            sessionId = sessionId,
+            expectedPackage = ""
         )
-        LiveFloatingOverlay.show(context)
+        showOverlayHook(context)
+    }
+
+    /** Внутренний старт для JVM-тестов без Android Context. */
+    internal fun startForTest(totalSteps: Int = 0, sessionId: String = "") {
+        confirmPendingAction(false)
+        targetPackage = ""
+        sessionStopHandler = null
+        _stateFlow.value = State(
+            isExecuting = true,
+            status = StepStatus.RUNNING,
+            isFinished = false,
+            stepDescription = "Подготовка к выполнению…",
+            stepIndex = 1,
+            totalSteps = totalSteps,
+            sessionId = sessionId,
+            expectedPackage = ""
+        )
     }
 
     fun updateStep(description: String, index: Int, total: Int = 0) {
-        val current = _stateFlow.value
+        // Не «воскрешаем» уже остановленную или упавшую задачу: иначе статус
+        // ERROR/STOPPED переписывался бы обратно на RUNNING запоздалым вызовом.
+        if (!_stateFlow.value.isExecuting) return
         CrashReportManager.log("LiveAgent", "Шаг $index: $description")
-        _stateFlow.value = current.copy(
-            isExecuting = true,
-            status = StepStatus.RUNNING,
-            stepDescription = description,
-            stepIndex = index,
-            totalSteps = if (total > 0) total else current.totalSteps,
-            confirmationPrompt = null,
-            recentSteps = (current.recentSteps + description).takeLast(3)
-        )
+        _stateFlow.update { current ->
+            if (!current.isExecuting) return@update current
+            current.copy(
+                status = StepStatus.RUNNING,
+                stepDescription = description,
+                stepIndex = index,
+                totalSteps = if (total > 0) total else current.totalSteps,
+                confirmationPrompt = null,
+                recentSteps = (current.recentSteps + description).takeLast(3)
+            )
+        }
     }
 
     fun pause() {
-        if (!isExecuting || _stateFlow.value.isPaused) return
-        _stateFlow.value = _stateFlow.value.copy(isPaused = true)
+        _stateFlow.update { current ->
+            if (!current.isExecuting || current.isPaused) current else current.copy(isPaused = true)
+        }
     }
 
     fun resumeExecution() {
-        if (!_stateFlow.value.isPaused) return
-        _stateFlow.value = _stateFlow.value.copy(isPaused = false)
+        _stateFlow.update { current ->
+            if (!current.isPaused) current else current.copy(isPaused = false)
+        }
     }
 
     /**
@@ -135,33 +171,61 @@ object LiveAgentManager {
      * на карточке плавающего оверлея.
      */
     suspend fun requestConfirmation(prompt: String): Boolean {
-        _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = prompt)
+        // Если задача уже остановлена или оверлей недоступен (нет SYSTEM_ALERT_WINDOW /
+        // карточка закрыта), не зависаем на 120 секунд — сразу отклоняем действие.
+        if (!isExecuting || !overlayAvailableCheck()) {
+            return false
+        }
+        confirmPendingAction(false)
+        _stateFlow.update { it.copy(confirmationPrompt = prompt) }
         val approved = withTimeoutOrNull(CONFIRM_TIMEOUT_MS) {
-            suspendCancellableCoroutine { continuation ->
-                pendingContinuation = continuation
+            suspendCancellableCoroutine<Boolean> { continuation ->
+                var rejectImmediately = false
+                synchronized(confirmLock) {
+                    if (!isExecuting || !overlayAvailableCheck()) {
+                        rejectImmediately = true
+                    } else {
+                        pendingContinuation = continuation
+                    }
+                }
+                if (rejectImmediately) {
+                    _stateFlow.update { it.copy(confirmationPrompt = null) }
+                    if (continuation.isActive) continuation.resume(false)
+                    return@suspendCancellableCoroutine
+                }
                 continuation.invokeOnCancellation {
-                    if (pendingContinuation === continuation) pendingContinuation = null
-                    _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
+                    synchronized(confirmLock) {
+                        if (pendingContinuation === continuation) {
+                            pendingContinuation = null
+                        }
+                    }
+                    _stateFlow.update { it.copy(confirmationPrompt = null) }
                 }
             }
         }
         if (approved == null) {
-            // Оверлея нет, разрешение на наложение отозвали или пользователь
-            // закрыл карточку. Ждать вечно нельзя: задача залипла бы на «Стоп»
-            // до перезапуска, а finally не выполнился бы. Безопасное
-            // направление — считать действие отклонённым.
-            pendingContinuation = null
-            _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
+            synchronized(confirmLock) {
+                pendingContinuation = null
+            }
+            _stateFlow.update { it.copy(confirmationPrompt = null) }
             return false
         }
         return approved
     }
 
+    internal fun hasPendingConfirmationForTest(): Boolean =
+        synchronized(confirmLock) { pendingContinuation != null }
+
     fun confirmPendingAction(approved: Boolean) {
-        val continuation = pendingContinuation
-        pendingContinuation = null
-        _stateFlow.value = _stateFlow.value.copy(confirmationPrompt = null)
-        if (continuation != null && continuation.isActive) continuation.resume(approved)
+        val continuation = synchronized(confirmLock) {
+            val current = pendingContinuation
+            pendingContinuation = null
+            current
+        }
+        _stateFlow.update { it.copy(confirmationPrompt = null) }
+        if (continuation != null && continuation.isActive) {
+            continuation.resume(approved)
+        }
     }
 
     fun stop(reason: String = "Остановлено пользователем", isError: Boolean = false) {
@@ -183,16 +247,19 @@ object LiveAgentManager {
             CrashReportManager.log("LiveAgent", "Остановлено: $reason")
         }
 
-        _stateFlow.value = _stateFlow.value.copy(
-            isExecuting = false,
-            status = if (isErr) StepStatus.ERROR else StepStatus.STOPPED,
-            isFinished = false,
-            isPaused = false,
-            stepDescription = reason,
-            confirmationPrompt = null
-        )
-        sessionStopHandler?.invoke()
+        _stateFlow.update {
+            it.copy(
+                isExecuting = false,
+                status = if (isErr) StepStatus.ERROR else StepStatus.STOPPED,
+                isFinished = false,
+                isPaused = false,
+                stepDescription = reason,
+                confirmationPrompt = null
+            )
+        }
+        val handler = sessionStopHandler
         sessionStopHandler = null
+        handler?.invoke()
         onStopRequested?.invoke(reason)
         // Оверлей не закрываем: пользователь должен видеть причину остановки или ошибки,
         // с возможностью закрыть окно или перейти в Runner.
@@ -201,14 +268,16 @@ object LiveAgentManager {
     fun finish(summary: String) {
         confirmPendingAction(false)
         CrashReportManager.log("LiveAgent", "Успешно завершено: $summary")
-        _stateFlow.value = _stateFlow.value.copy(
-            isExecuting = false,
-            status = StepStatus.SUCCESS,
-            isFinished = true,
-            isPaused = false,
-            stepDescription = summary,
-            confirmationPrompt = null
-        )
+        _stateFlow.update {
+            it.copy(
+                isExecuting = false,
+                status = StepStatus.SUCCESS,
+                isFinished = true,
+                isPaused = false,
+                stepDescription = summary,
+                confirmationPrompt = null
+            )
+        }
         sessionStopHandler = null
         // Не убираем оверлей автоматически: пользователь видит статус "Готово",
         // карточку результата и может перейти в Runner или закрыть оверлей.
@@ -232,6 +301,6 @@ object LiveAgentManager {
         sessionStopHandler = null
         targetPackage = ""
         _stateFlow.value = State()
-        LiveFloatingOverlay.dismiss()
+        dismissOverlayHook()
     }
 }

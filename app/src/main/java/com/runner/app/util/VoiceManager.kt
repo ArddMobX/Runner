@@ -14,6 +14,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import android.util.Log
+import com.runner.app.service.RunnerRecognitionService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +37,9 @@ class VoiceManager(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    @Volatile
+    private var isDestroyed = false
+
     // --- Speech To Text (STT) ---
 
     private var speechRecognizer: SpeechRecognizer? = null
@@ -46,7 +50,9 @@ class VoiceManager(private val context: Context) {
     private val _rmsLevel = MutableStateFlow(0f)
     val rmsLevel: StateFlow<Float> = _rmsLevel.asStateFlow()
 
-    fun isRecognitionAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
+    fun isRecognitionAvailable(): Boolean =
+        RunnerRecognitionService.findExternalRecognitionService(context) != null ||
+                SpeechRecognizer.isRecognitionAvailable(context)
 
     fun startListening(
         onPartialResult: (String) -> Unit = {},
@@ -54,6 +60,7 @@ class VoiceManager(private val context: Context) {
         onError: (String) -> Unit
     ) {
         mainHandler.post {
+            if (isDestroyed) return@post
             if (!isRecognitionAvailable()) {
                 onError("Голосовой ввод недоступен на этом устройстве")
                 return@post
@@ -62,26 +69,40 @@ class VoiceManager(private val context: Context) {
             stopListeningInternal()
 
             try {
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                setRecognitionListener(object : RecognitionListener {
+                // Явно выбираем внешнюю системную службу распознавания, чтобы
+                // при назначении Runner ассистентом по умолчанию не привязываться
+                // к собственному RunnerRecognitionService.
+                val externalService = RunnerRecognitionService.findExternalRecognitionService(context)
+                val recognizer = if (externalService != null) {
+                    SpeechRecognizer.createSpeechRecognizer(context, externalService)
+                } else {
+                    SpeechRecognizer.createSpeechRecognizer(context)
+                }
+
+                recognizer.setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
+                        if (speechRecognizer !== recognizer) return
                         _isListening.value = true
                     }
 
                     override fun onBeginningOfSpeech() {}
 
                     override fun onRmsChanged(rmsdB: Float) {
+                        if (speechRecognizer !== recognizer) return
                         _rmsLevel.value = rmsdB.coerceIn(0f, 10f)
                     }
 
                     override fun onBufferReceived(buffer: ByteArray?) {}
 
                     override fun onEndOfSpeech() {
+                        if (speechRecognizer !== recognizer) return
                         _isListening.value = false
+                        _rmsLevel.value = 0f
                     }
 
                     override fun onError(error: Int) {
-                        _isListening.value = false
+                        if (speechRecognizer !== recognizer) return
+                        cleanupRecognizer(recognizer)
                         val message = when (error) {
                             SpeechRecognizer.ERROR_AUDIO -> "Ошибка аудио"
                             SpeechRecognizer.ERROR_CLIENT -> "Ошибка клиента"
@@ -100,7 +121,8 @@ class VoiceManager(private val context: Context) {
                     }
 
                     override fun onResults(results: Bundle?) {
-                        _isListening.value = false
+                        if (speechRecognizer !== recognizer) return
+                        cleanupRecognizer(recognizer)
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val text = matches?.firstOrNull()?.trim().orEmpty()
                         if (text.isNotBlank()) {
@@ -109,6 +131,7 @@ class VoiceManager(private val context: Context) {
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
+                        if (speechRecognizer !== recognizer) return
                         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         val text = matches?.firstOrNull()?.trim().orEmpty()
                         if (text.isNotBlank()) {
@@ -118,24 +141,23 @@ class VoiceManager(private val context: Context) {
 
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
-            }
 
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            }
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                }
 
-            speechRecognizer = recognizer
-            recognizer.startListening(intent)
-            _isListening.value = true
-        } catch (e: Exception) {
-            _isListening.value = false
-            onError("Не удалось запустить распознавание: ${e.message}")
+                speechRecognizer = recognizer
+                recognizer.startListening(intent)
+                _isListening.value = true
+            } catch (e: Exception) {
+                stopListeningInternal()
+                onError("Не удалось запустить распознавание: ${e.message}")
+            }
         }
     }
-}
 
     fun stopListening() {
         mainHandler.post {
@@ -143,12 +165,22 @@ class VoiceManager(private val context: Context) {
         }
     }
 
+    private fun cleanupRecognizer(target: SpeechRecognizer) {
+        if (speechRecognizer === target) {
+            speechRecognizer = null
+        }
+        runCatching { target.destroy() }
+        _isListening.value = false
+        _rmsLevel.value = 0f
+    }
+
     private fun stopListeningInternal() {
-        try {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.destroy()
-        } catch (_: Exception) {}
+        val current = speechRecognizer
         speechRecognizer = null
+        if (current != null) {
+            runCatching { current.stopListening() }
+            runCatching { current.destroy() }
+        }
         _isListening.value = false
         _rmsLevel.value = 0f
     }
@@ -172,6 +204,9 @@ class VoiceManager(private val context: Context) {
     private var currentVoiceName: String = ""
 
     private var onSpeechDoneCallback: (() -> Unit)? = null
+    private var activeSessionLogicalId: String? = null
+    private var activeSessionChunkIds: Set<String> = emptySet()
+    private var activeSessionLastChunkId: String? = null
 
     /**
      * Фраза, которую попросили произнести до готовности движка.
@@ -192,7 +227,9 @@ class VoiceManager(private val context: Context) {
 
     init {
         mainHandler.post {
-            initTts()
+            if (!isDestroyed) {
+                initTts()
+            }
         }
     }
 
@@ -201,7 +238,9 @@ class VoiceManager(private val context: Context) {
         currentPitch = pitch
         currentVoiceName = voiceName
         mainHandler.post {
-            applyTtsParameters()
+            if (!isDestroyed) {
+                applyTtsParameters()
+            }
         }
     }
 
@@ -336,7 +375,7 @@ class VoiceManager(private val context: Context) {
     private fun initTts() {
         // Повторный вход запрещён: инициализация асинхронная, а каждый новый
         // TextToSpeech — это ещё одна привязка к службе синтеза.
-        if (isTtsInitializing) return
+        if (isDestroyed || isTtsInitializing) return
         isTtsInitializing = true
 
         // Старый движок гасим обязательно. Без shutdown объекты копились при
@@ -347,66 +386,106 @@ class VoiceManager(private val context: Context) {
         tts = null
         isTtsReady = false
 
+        var createdEngine: TextToSpeech? = null
         val onInit = TextToSpeech.OnInitListener { status ->
-            isTtsInitializing = false
-            if (status == TextToSpeech.SUCCESS) {
-                isTtsReady = true
-                val result = tts?.setLanguage(Locale.getDefault())
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.language = Locale.US
+            mainHandler.post {
+                val engine = createdEngine
+                // Если destroy() уже вызван или запущен другой экземпляр TTS —
+                // гасим устаревший движок, чтобы не оставлять висящую привязку.
+                if (isDestroyed || engine == null || engine !== tts) {
+                    runCatching { engine?.shutdown() }
+                    return@post
                 }
-                applyTtsParameters()
-                setupUtteranceListener()
-                loadAvailableVoices()
-                // Текст, который просили озвучить до готовности движка,
-                // произносим сейчас — с уже применёнными скоростью и голосом.
-                flushPendingSpeech()
-            } else {
-                isTtsReady = false
-                // Движка нет: держать текст незачем, иначе он всплывёт
-                // неожиданно позже, поверх другого ответа.
-                pendingSpeech = null
+                isTtsInitializing = false
+                if (status == TextToSpeech.SUCCESS) {
+                    isTtsReady = true
+                    val result = engine.setLanguage(Locale.getDefault())
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        engine.language = Locale.US
+                    }
+                    applyTtsParameters()
+                    setupUtteranceListener(engine)
+                    loadAvailableVoices()
+                    // Текст, который просили озвучить до готовности движка,
+                    // произносим сейчас — с уже применёнными скоростью и голосом.
+                    flushPendingSpeech()
+                } else {
+                    isTtsReady = false
+                    // Движка нет: держать текст незачем, иначе он всплывёт
+                    // неожиданно позже, поверх другого ответа.
+                    pendingSpeech = null
+                }
             }
         }
 
-        tts = if (isGoogleTtsInstalled()) {
+        createdEngine = if (isGoogleTtsInstalled()) {
             TextToSpeech(context.applicationContext, onInit, GOOGLE_TTS_PACKAGE)
         } else {
             TextToSpeech(context.applicationContext, onInit)
         }
+        tts = createdEngine
     }
 
-    private fun setupUtteranceListener() {
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+    private fun setupUtteranceListener(engine: TextToSpeech) {
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                _isSpeaking.value = true
-                _activeUtteranceId.value = utteranceId
+                // Колбэки TTS приходят на Binder-потоке: синхронизируемся на Main
+                // и отбрасываем события устаревших фраз.
+                mainHandler.post {
+                    if (isDestroyed || utteranceId == null || utteranceId !in activeSessionChunkIds) return@post
+                    _isSpeaking.value = true
+                    _activeUtteranceId.value = activeSessionLogicalId
+                }
             }
 
             override fun onDone(utteranceId: String?) {
-                _isSpeaking.value = false
-                _activeUtteranceId.value = null
-                onSpeechDoneCallback?.invoke()
-                onSpeechDoneCallback = null
+                mainHandler.post {
+                    if (isDestroyed || utteranceId == null || utteranceId !in activeSessionChunkIds) return@post
+                    if (utteranceId == activeSessionLastChunkId) {
+                        val callback = onSpeechDoneCallback
+                        clearActiveSpeechState()
+                        callback?.invoke()
+                    }
+                }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                _isSpeaking.value = false
-                _activeUtteranceId.value = null
-                onSpeechDoneCallback = null
+                mainHandler.post {
+                    if (isDestroyed || utteranceId == null || utteranceId !in activeSessionChunkIds) return@post
+                    clearActiveSpeechState()
+                }
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
-                _isSpeaking.value = false
-                _activeUtteranceId.value = null
-                onSpeechDoneCallback = null
+                mainHandler.post {
+                    if (isDestroyed || utteranceId == null || utteranceId !in activeSessionChunkIds) return@post
+                    Log.w(TAG, "ошибка синтеза речи: code=$errorCode")
+                    clearActiveSpeechState()
+                }
+            }
+
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                mainHandler.post {
+                    if (isDestroyed || utteranceId == null || utteranceId !in activeSessionChunkIds) return@post
+                    clearActiveSpeechState()
+                }
             }
         })
     }
 
+    private fun clearActiveSpeechState() {
+        _isSpeaking.value = false
+        _activeUtteranceId.value = null
+        activeSessionLogicalId = null
+        activeSessionChunkIds = emptySet()
+        activeSessionLastChunkId = null
+        onSpeechDoneCallback = null
+    }
+
     fun speak(text: String, utteranceId: String, onDone: () -> Unit = {}) {
         mainHandler.post {
+            if (isDestroyed) return@post
             if (!isTtsReady || tts == null) {
                 // Движок ещё поднимается: запоминаем фразу и произнесём её
                 // сразу после OnInit. Выбрасывать нельзя — это первый ответ.
@@ -419,6 +498,7 @@ class VoiceManager(private val context: Context) {
     }
 
     private fun speakInternal(text: String, utteranceId: String, onDone: () -> Unit) {
+        val engine = tts ?: return
         // stopSpeakingInternal сбрасывает onSpeechDoneCallback, поэтому порядок
         // важен: сначала останавливаем прошлую фразу, потом ставим новый колбэк.
         stopSpeakingInternal()
@@ -426,11 +506,53 @@ class VoiceManager(private val context: Context) {
         val clean = cleanTextForSpeech(text)
         if (clean.isBlank()) return
 
+        // TextToSpeech.speak отклоняет строки длиннее getMaxSpeechInputLength() (~4000),
+        // возвращая ERROR без вызова UtteranceProgressListener — без разбивки на куски
+        // _isSpeaking навсегда залипал в true.
+        val maxLen = try {
+            TextToSpeech.getMaxSpeechInputLength().coerceIn(500, DEFAULT_TTS_CHUNK_LIMIT)
+        } catch (_: Exception) {
+            DEFAULT_TTS_CHUNK_LIMIT
+        }
+        val chunks = splitTextForTts(clean, maxLen)
+        if (chunks.isEmpty()) return
+
+        val chunkIds = chunks.indices.map { idx ->
+            if (chunks.size == 1) utteranceId else "$utteranceId#chunk$idx"
+        }
+
         onSpeechDoneCallback = onDone
+        activeSessionLogicalId = utteranceId
+        activeSessionChunkIds = chunkIds.toSet()
+        activeSessionLastChunkId = chunkIds.last()
         _activeUtteranceId.value = utteranceId
         _isSpeaking.value = true
 
-        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val queuedIds = mutableSetOf<String>()
+        var lastQueuedId: String? = null
+        for (i in chunks.indices) {
+            val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            val cid = chunkIds[i]
+            val result = try {
+                engine.speak(chunks[i], mode, null, cid)
+            } catch (e: Exception) {
+                Log.w(TAG, "исключение в TextToSpeech.speak", e)
+                TextToSpeech.ERROR
+            }
+            if (result == TextToSpeech.ERROR) {
+                Log.w(TAG, "TextToSpeech.speak вернул ERROR на фрагменте $i/${chunks.size}")
+                break
+            }
+            queuedIds += cid
+            lastQueuedId = cid
+        }
+
+        if (lastQueuedId == null) {
+            clearActiveSpeechState()
+        } else {
+            activeSessionChunkIds = queuedIds
+            activeSessionLastChunkId = lastQueuedId
+        }
     }
 
     /** Произносит фразу, отложенную до готовности движка. */
@@ -457,12 +579,11 @@ class VoiceManager(private val context: Context) {
         try {
             tts?.stop()
         } catch (_: Exception) {}
-        _isSpeaking.value = false
-        _activeUtteranceId.value = null
-        onSpeechDoneCallback = null
+        clearActiveSpeechState()
     }
 
     fun destroy() {
+        isDestroyed = true
         mainHandler.post {
             stopListeningInternal()
             stopSpeakingInternal()
@@ -481,6 +602,70 @@ class VoiceManager(private val context: Context) {
 
         /** Метка для logcat: без неё молчаливые отказы движка не найти. */
         const val TAG = "RunnerVoice"
+
+        private const val DEFAULT_TTS_CHUNK_LIMIT = 3_800
+
+        /**
+         * Разбивает длинный текст на фрагменты не длиннее [maxChunkLength],
+         * стараясь резать по границе предложения или слова.
+         */
+        internal fun splitTextForTts(
+            text: String,
+            maxChunkLength: Int = DEFAULT_TTS_CHUNK_LIMIT
+        ): List<String> {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return emptyList()
+            val limit = maxChunkLength.coerceAtLeast(1)
+            if (trimmed.length <= limit) return listOf(trimmed)
+
+            val chunks = mutableListOf<String>()
+            var start = 0
+            while (start < trimmed.length) {
+                while (start < trimmed.length && trimmed[start].isWhitespace()) start++
+                if (start >= trimmed.length) break
+                val remaining = trimmed.length - start
+                if (remaining <= limit) {
+                    chunks += trimmed.substring(start).trim()
+                    break
+                }
+                val hardEnd = start + limit
+                val minPreferred = start + (limit / 2)
+                var splitAt = -1
+                // 1. Сначала граница предложения (. ! ?)
+                for (i in hardEnd - 1 downTo minPreferred) {
+                    val ch = trimmed[i]
+                    if (ch == '.' || ch == '!' || ch == '?' || ch == '…') {
+                        splitAt = i + 1
+                        break
+                    }
+                }
+                // 2. Затем запятая/точка с запятой/пробел
+                if (splitAt == -1) {
+                    for (i in hardEnd - 1 downTo minPreferred) {
+                        val ch = trimmed[i]
+                        if (ch == ';' || ch == ',' || ch == ':') {
+                            splitAt = i + 1
+                            break
+                        }
+                    }
+                }
+                if (splitAt == -1) {
+                    for (i in hardEnd - 1 downTo start + 1) {
+                        if (trimmed[i].isWhitespace()) {
+                            splitAt = i
+                            break
+                        }
+                    }
+                }
+                if (splitAt <= start) {
+                    splitAt = hardEnd
+                }
+                val piece = trimmed.substring(start, splitAt).trim()
+                if (piece.isNotEmpty()) chunks += piece
+                start = splitAt
+            }
+            return chunks
+        }
 
         /**
          * Очищает текст от Markdown-разметки, блоков кода и LaTeX формул,

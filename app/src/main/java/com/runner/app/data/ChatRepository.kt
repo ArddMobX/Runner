@@ -5,7 +5,10 @@ import com.runner.app.data.db.CustomCommandEntity
 import com.runner.app.data.db.MessageEntity
 import com.runner.app.data.db.MessageMatch
 import com.runner.app.data.db.SessionEntity
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import java.io.File
 import java.util.UUID
 
@@ -44,8 +47,7 @@ class ChatRepository(private val dao: ChatDao) {
     }
 
     suspend fun saveMessage(message: MessageEntity) {
-        dao.insertMessage(message)
-        dao.touchSession(message.sessionId, System.currentTimeMillis())
+        dao.saveMessageAndTouch(message, System.currentTimeMillis())
     }
 
     suspend fun renameSession(sessionId: String, title: String) {
@@ -65,25 +67,39 @@ class ChatRepository(private val dao: ChatDao) {
     }
 
     suspend fun deleteSession(sessionId: String) {
-        // Вместе с чатом убираем его картинки из кэша: иначе они остаются
-        // навсегда, хотя в истории на них уже никто не ссылается. Удаляем
-        // только файлы из собственного каталога chat_images.
-        dao.loadMessages(sessionId).forEach { message ->
-            message.imageUris
-                ?.split(',')
-                ?.map { it.trim() }
-                ?.filter { it.contains("/chat_images/") }
-                ?.forEach { path -> runCatching { File(path).delete() } }
-            attachmentPaths(message.attachmentsJson)
-                .filter { it.contains("/chat_files/") }
-                .forEach { path -> runCatching { File(path).delete() } }
+        // Сначала атомарно удаляем сессию и сообщения в БД, потом чистим файлы кэша:
+        // если транзакция не прошла, живые файлы не пострадают.
+        val removed = dao.deleteSessionReturningMessages(sessionId)
+        if (removed.isNotEmpty()) {
+            cleanupMessageFiles(removed)
         }
-        dao.deleteSessionCascade(sessionId)
     }
 
-    /** Убирает всё, что появилось в сессии после указанного момента. */
+    /** Убирает всё, что появилось в сессии после указанного момента, и чистит кэш удалённых вложений. */
     suspend fun deleteMessagesAfter(sessionId: String, timestamp: Long) {
-        dao.deleteMessagesAfter(sessionId, timestamp)
+        val removed = dao.deleteMessagesAfterReturning(sessionId, timestamp)
+        if (removed.isNotEmpty()) {
+            cleanupMessageFiles(removed)
+        }
+    }
+
+    /**
+     * Все пути в `chat_images` и `chat_files`, на которые ссылается хотя бы одно
+     * сохранённое сообщение в БД. Используется при автоочистке кэша.
+     */
+    suspend fun loadReferencedCachePaths(): Set<String> {
+        val paths = LinkedHashSet<String>()
+        dao.loadAllImageUris().forEach { raw ->
+            decodeImageUris(raw)
+                .filter { it.contains("/chat_images/") }
+                .forEach { paths.add(it) }
+        }
+        dao.loadAllAttachmentsJson().forEach { raw ->
+            parseAttachmentPaths(raw)
+                .filter { it.contains("/chat_files/") }
+                .forEach { paths.add(it) }
+        }
+        return paths
     }
 
     // --- Свои команды ---
@@ -108,11 +124,14 @@ class ChatRepository(private val dao: ChatDao) {
     /**
      * Копия чата для /fork: сообщения, контекст и модель.
      *
-     * Картинки из chat_images копируются на диск: иначе удаление одной ветки
-     * снесло бы файлы, на которые ссылается вторая.
+     * Картинки из chat_images и вложения из chat_files копируются на диск:
+     * иначе удаление одной ветки снесло бы файлы, на которые ссылается вторая.
+     * Запись в БД выполняется одной транзакцией; при ошибке или отмене корутины
+     * уже скопированные файлы гарантированно удаляются под [NonCancellable].
      */
     suspend fun forkSession(sessionId: String): SessionEntity? {
         val original = dao.getSession(sessionId) ?: return null
+        val originalMessages = dao.loadMessages(sessionId)
         val now = System.currentTimeMillis()
         val prefix = "Ветка: "
         val originalTitle = original.title.ifBlank { NEW_CHAT_TITLE }
@@ -129,52 +148,82 @@ class ChatRepository(private val dao: ChatDao) {
             lastModel = original.lastModel,
             compactSummary = original.compactSummary
         )
-        dao.insertSession(forked)
+        val copiedFiles = mutableListOf<File>()
         try {
-            dao.loadMessages(sessionId).forEach { message ->
-                dao.insertMessage(
-                    message.copy(
-                        id = UUID.randomUUID().toString(),
-                        sessionId = forked.id,
-                        imageUris = forkImageUris(message.imageUris),
-                        attachmentsJson = forkAttachmentsJson(message.attachmentsJson)
-                    )
+            val forkedMessages = originalMessages.map { message ->
+                message.copy(
+                    id = UUID.randomUUID().toString(),
+                    sessionId = forked.id,
+                    imageUris = forkImageUris(message.imageUris, copiedFiles),
+                    attachmentsJson = forkAttachmentsJson(message.attachmentsJson, copiedFiles)
                 )
             }
-        } catch (e: Exception) {
-            // Не оставляем в списке чатов пустую или наполовину скопированную ветку.
-            dao.deleteSessionCascade(forked.id)
+            dao.insertSessionWithMessages(forked, forkedMessages)
+        } catch (e: Throwable) {
+            withContext(NonCancellable) {
+                copiedFiles.forEach { file -> runCatching { file.delete() } }
+            }
             throw e
         }
         return forked
     }
 
-    private fun forkImageUris(raw: String?): String? {
-        if (raw.isNullOrBlank()) return null
-        val paths = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-        if (paths.isEmpty()) return null
-        return paths.map { path -> forkFile(path, "/chat_images/") ?: path }.joinToString(",")
-    }
-
-    /**
-     * Вложения лежат JSON-массивом. Копируем сами файлы и подменяем пути,
-     * иначе удаление одной ветки снесло бы файлы второй.
-     */
-    private fun forkAttachmentsJson(raw: String?): String? {
-        if (raw.isNullOrBlank()) return null
-        return ATTACHMENT_PATH_REGEX.replace(raw) { match ->
-            val path = match.groupValues[1]
-            val copied = forkFile(path, "/chat_files/") ?: return@replace match.value
-            "\"path\":\"$copied\""
+    private suspend fun cleanupMessageFiles(messages: List<MessageEntity>) {
+        withContext(NonCancellable) {
+            val candidatePaths = LinkedHashSet<String>()
+            messages.forEach { message ->
+                decodeImageUris(message.imageUris)
+                    .filter { it.contains("/chat_images/") }
+                    .forEach { candidatePaths.add(it) }
+                parseAttachmentPaths(message.attachmentsJson)
+                    .filter { it.contains("/chat_files/") }
+                    .forEach { candidatePaths.add(it) }
+            }
+            if (candidatePaths.isEmpty()) return@withContext
+            val stillReferenced = runCatching { loadReferencedCachePaths() }.getOrNull() ?: return@withContext
+            val referencedCanonical = stillReferenced.mapTo(HashSet(stillReferenced.size)) { canonicalOrSelf(it) }
+            candidatePaths.forEach { path ->
+                if (path !in stillReferenced && canonicalOrSelf(path) !in referencedCanonical) {
+                    runCatching { File(path).delete() }
+                }
+            }
         }
     }
 
-    private fun attachmentPaths(raw: String?): List<String> {
-        if (raw.isNullOrBlank()) return emptyList()
-        return ATTACHMENT_PATH_REGEX.findAll(raw).map { it.groupValues[1] }.toList()
+    private fun forkImageUris(raw: String?, copiedFiles: MutableList<File>): String? {
+        val paths = decodeImageUris(raw)
+        if (paths.isEmpty()) return null
+        val forked = paths.map { path -> forkFile(path, "/chat_images/", copiedFiles) ?: path }
+        return encodeImageUris(forked)
     }
 
-    private fun forkFile(path: String, marker: String): String? {
+    /**
+     * Вложения лежат JSON-массивом. Разбираем через [JSONArray] (а не regex),
+     * чтобы корректно декодировать экранированные `\/` из Android org.json и
+     * безопасно сериализовать обновлённые пути обратно в JSON.
+     */
+    private fun forkAttachmentsJson(raw: String?, copiedFiles: MutableList<File>): String? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            val array = JSONArray(raw)
+            var changed = false
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val path = (item.opt("path") as? String)?.trim().orEmpty()
+                if (path.isEmpty()) continue
+                val copied = forkFile(path, "/chat_files/", copiedFiles)
+                if (copied != null) {
+                    item.put("path", copied)
+                    changed = true
+                }
+            }
+            if (changed) array.toString() else raw
+        } catch (_: Exception) {
+            raw
+        }
+    }
+
+    private fun forkFile(path: String, marker: String, copiedFiles: MutableList<File>): String? {
         if (!path.contains(marker)) return null
         val source = File(path)
         if (!source.isFile) return null
@@ -188,19 +237,167 @@ class ChatRepository(private val dao: ChatDao) {
                 parent,
                 "${source.nameWithoutExtension}_fork_${UUID.randomUUID().toString().take(8)}$extension"
             )
-            source.copyTo(copy, overwrite = false)
+            try {
+                source.copyTo(copy, overwrite = false)
+            } catch (e: Exception) {
+                runCatching { copy.delete() }
+                throw e
+            }
+            copiedFiles.add(copy)
             copy.absolutePath
         } catch (_: Exception) {
             null
         }
     }
 
+    private fun canonicalOrSelf(path: String): String =
+        runCatching { File(path).canonicalPath }.getOrDefault(path)
+
     companion object {
         const val NEW_CHAT_TITLE = "Новый чат"
         const val MAX_TITLE_LENGTH = 60
 
-        /** Путь внутри JSON-вложения. Формат контролируем сами. */
-        private val ATTACHMENT_PATH_REGEX = Regex("\"path\"\\s*:\\s*\"([^\"]+)\"")
+        /**
+         * Извлекает пути из JSON-массива вложений.
+         * Использует [JSONArray], чтобы корректно снимать экранирование `\/` и `\"`.
+         */
+        fun parseAttachmentPaths(raw: String?): List<String> {
+            if (raw.isNullOrBlank()) return emptyList()
+            return try {
+                val array = JSONArray(raw)
+                buildList {
+                    for (index in 0 until array.length()) {
+                        val item = array.optJSONObject(index) ?: continue
+                        val path = (item.opt("path") as? String)?.trim().orEmpty()
+                        if (path.isNotEmpty()) add(path)
+                    }
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        /**
+         * Кодирует список путей изображений в JSON-массив строк (например `["/a,b.jpg"]`).
+         * Сохраняет пути с запятыми и спецсимволами без порчи разделителем.
+         */
+        fun encodeImageUris(paths: List<String>): String? {
+            val clean = paths.map { it.trim() }.filter { it.isNotEmpty() }
+            if (clean.isEmpty()) return null
+            return buildString {
+                append('[')
+                clean.forEachIndexed { index, path ->
+                    if (index > 0) append(',')
+                    append('"')
+                    appendJsonEscaped(path)
+                    append('"')
+                }
+                append(']')
+            }
+        }
+
+        /**
+         * Декодирует список путей изображений из БД.
+         * Поддерживает JSON-массив строк и обратную совместимость с legacy-форматом через запятую.
+         */
+        fun decodeImageUris(raw: String?): List<String> {
+            if (raw.isNullOrBlank()) return emptyList()
+            val trimmed = raw.trim()
+            if (trimmed.startsWith('[')) {
+                val parsed = parseJsonStringArray(trimmed)
+                if (parsed != null) return parsed
+            }
+            return trimmed.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        }
+
+        private fun StringBuilder.appendJsonEscaped(value: String) {
+            for (ch in value) {
+                when (ch) {
+                    '"' -> append("\\\"")
+                    '\\' -> append("\\\\")
+                    '\b' -> append("\\b")
+                    '\u000C' -> append("\\f")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> if (ch.code < 0x20) {
+                        append("\\u")
+                        append(ch.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(ch)
+                    }
+                }
+            }
+        }
+
+        private fun parseJsonStringArray(json: String): List<String>? {
+            var pos = 0
+            val len = json.length
+            fun skipWs() {
+                while (pos < len && json[pos].isWhitespace()) pos++
+            }
+            skipWs()
+            if (pos >= len || json[pos] != '[') return null
+            pos++
+            skipWs()
+            if (pos < len && json[pos] == ']') {
+                pos++
+                skipWs()
+                return if (pos == len) emptyList() else null
+            }
+            val result = mutableListOf<String>()
+            while (pos < len) {
+                skipWs()
+                if (pos >= len || json[pos] != '"') return null
+                pos++
+                val sb = StringBuilder()
+                var closed = false
+                while (pos < len) {
+                    val ch = json[pos++]
+                    when (ch) {
+                        '"' -> {
+                            closed = true
+                            break
+                        }
+                        '\\' -> {
+                            if (pos >= len) return null
+                            when (val esc = json[pos++]) {
+                                '"', '\\', '/' -> sb.append(esc)
+                                'b' -> sb.append('\b')
+                                'f' -> sb.append('\u000C')
+                                'n' -> sb.append('\n')
+                                'r' -> sb.append('\r')
+                                't' -> sb.append('\t')
+                                'u' -> {
+                                    if (pos + 4 > len) return null
+                                    val hex = json.substring(pos, pos + 4)
+                                    val code = hex.toIntOrNull(16) ?: return null
+                                    sb.append(Char(code))
+                                    pos += 4
+                                }
+                                else -> return null
+                            }
+                        }
+                        else -> sb.append(ch)
+                    }
+                }
+                if (!closed) return null
+                val value = sb.toString().trim()
+                if (value.isNotEmpty()) result.add(value)
+                skipWs()
+                if (pos >= len) return null
+                when (json[pos]) {
+                    ',' -> pos++
+                    ']' -> {
+                        pos++
+                        skipWs()
+                        return if (pos == len) result else null
+                    }
+                    else -> return null
+                }
+            }
+            return null
+        }
 
         /**
          * Экранирует спецсимволы LIKE. Запросы в ChatDao объявлены с

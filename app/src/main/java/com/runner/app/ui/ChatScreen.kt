@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -21,10 +22,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.Image
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -37,9 +34,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -156,8 +156,6 @@ import com.runner.app.ui.components.MarkdownView
 import com.runner.app.service.RunnerAccessibilityService
 import com.runner.app.ui.components.LiveModeTopButton
 import com.runner.app.ui.components.LivePermissionSheet
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
 import com.runner.app.ui.components.ProviderLogos
@@ -189,10 +187,12 @@ import com.runner.app.ui.theme.accessibleTouchSize
 import com.runner.app.util.DocumentExtractor
 import com.runner.app.util.PrefatoryText
 import com.runner.app.ui.theme.bounceClick
+import com.runner.app.ui.theme.bounceOnPress
+import com.runner.app.ui.theme.scrollToItemRespectingMotion
 import com.runner.app.util.PluralUtils
 import com.runner.app.ui.components.RunnerIcons
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
     viewModel: MainViewModel,
@@ -643,22 +643,26 @@ fun ChatScreen(
             previousIndex = index
             previousOffset = offset
             val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val atBottom = info.totalItemsCount > 0 &&
-                    lastVisible >= info.totalItemsCount - 2
+            val lastVisibleInfo = info.visibleItemsInfo.lastOrNull()
+            val atBottom = info.totalItemsCount > 0 && lastVisibleInfo != null && (
+                lastVisibleInfo.index >= info.totalItemsCount - 1 ||
+                    (lastVisibleInfo.index == info.totalItemsCount - 2 &&
+                        lastVisibleInfo.offset + lastVisibleInfo.size <= info.viewportEndOffset + 48)
+            )
             if (!scrolling && atBottom) stickToBottom = true
         }
     }
+    val bottomAnchorIndex = chatItems.size + (if (hasStreaming) 1 else 0)
     LaunchedEffect(chatItems.size, hasStreaming) {
-        if (stickToBottom && chatItems.isNotEmpty()) {
-            listState.scrollToItem(if (hasStreaming) chatItems.size else chatItems.lastIndex)
+        if (stickToBottom && (chatItems.isNotEmpty() || hasStreaming)) {
+            listState.scrollToItem(bottomAnchorIndex)
         }
     }
-    // Стрим растёт каждые 50 мс. Просто держим низ, без анимации и без
-    // пересчёта «на каждые 40 символов».
+    // Стрим растёт каждые 50 мс. Скроллим к нижнему якорю, чтобы длинный
+    // ответ держался у нижней границы экрана, а не прыгал к своему началу.
     LaunchedEffect(streamingText.length) {
-        if (stickToBottom && streamingText.isNotEmpty() && chatItems.isNotEmpty()) {
-            listState.scrollToItem(chatItems.size)
+        if (stickToBottom && streamingText.isNotEmpty() && (chatItems.isNotEmpty() || hasStreaming)) {
+            listState.scrollToItem(bottomAnchorIndex)
         }
     }
 
@@ -742,9 +746,15 @@ fun ChatScreen(
             onOpenSource = { source ->
                 sourcesSheet = null
                 try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(source.url))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
+                    val uri = Uri.parse(source.url.trim())
+                    val scheme = uri.scheme?.lowercase()
+                    if ((scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()) {
+                        val intent = Intent(Intent.ACTION_VIEW, uri)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                    } else {
+                        Toast.makeText(context, "Недопустимая ссылка", Toast.LENGTH_SHORT).show()
+                    }
                 } catch (_: Exception) {
                     Toast.makeText(context, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show()
                 }
@@ -852,7 +862,12 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onOpenDrawer, modifier = Modifier.bounceClick { onOpenDrawer() }) {
+                    val drawerInteractionSource = remember { MutableInteractionSource() }
+                    IconButton(
+                        onClick = onOpenDrawer,
+                        interactionSource = drawerInteractionSource,
+                        modifier = Modifier.bounceOnPress(drawerInteractionSource)
+                    ) {
                         Icon(
                             imageVector = RunnerIcons.Menu,
                             contentDescription = "Чаты",
@@ -908,9 +923,11 @@ fun ChatScreen(
                     // подтверждена один раз, поэтому кнопка одна и без лишних тапов —
                     // но диалог нужен: одна запись может вернуть десятки файлов.
                     lastUndoable?.let { entry ->
+                        val undoInteractionSource = remember { MutableInteractionSource() }
                         IconButton(
                             onClick = { undoCandidate = entry },
-                            modifier = Modifier.bounceClick { undoCandidate = entry }
+                            interactionSource = undoInteractionSource,
+                            modifier = Modifier.bounceOnPress(undoInteractionSource)
                         ) {
                             Icon(
                                 imageVector = RunnerIcons.Undo,
@@ -941,21 +958,13 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .navigationBarsPadding()
+                    .consumeWindowInsets(paddingValues)
                     .imePadding()
             ) {
                 AnimatedVisibility(
                     visible = appSettings.liveModeEnabled,
-                    enter = expandVertically(
-                        animationSpec = MotionTokens.fluidSpring()
-                    ) + fadeIn(
-                        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
-                    ),
-                    exit = shrinkVertically(
-                        animationSpec = MotionTokens.fluidSpring()
-                    ) + fadeOut(
-                        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
-                    )
+                    enter = MotionTokens.expandSectionEnter(),
+                    exit = MotionTokens.expandSectionExit()
                 ) {
                     Surface(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
@@ -986,23 +995,29 @@ fun ChatScreen(
                         }
                     }
                 }
-                if (isEmptyChat) {
+                AnimatedContent(
+                    targetState = isEmptyChat,
+                    transitionSpec = { MotionTokens.contentSwapTransition() },
+                    modifier = Modifier.weight(1f),
+                    label = "chat_empty_vs_feed"
+                ) { empty ->
+                if (empty) {
                     if (appSettings.chatClassicLook) {
                         ClassicEmptyChatState(
                             settings = appSettings,
                             sessionId = currentSessionId,
                             onSuggestion = { inputState.setText(it) },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         EmptyChatState(
                             settings = appSettings,
                             onSuggestion = { inputState.setText(it) },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 } else {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.fillMaxSize()) {
                     CompositionLocalProvider(
                         LocalDensity provides Density(
                             LocalDensity.current.density,
@@ -1101,6 +1116,7 @@ fun ChatScreen(
                                                     item.turnId == lastUserMessageId ||
                                                             (lastUserMessageId == null && item === chatItems.lastOrNull())
                                                     ),
+                                            isStreamingAnswer = hasStreaming,
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
                                             onOpenPreview = { previewSource = it },
                                             onOpenSources = { sourcesSheet = it },
@@ -1120,28 +1136,40 @@ fun ChatScreen(
                                     )
                                 }
                             }
+
+                            item(key = "bottom_anchor") {
+                                Spacer(modifier = Modifier.height(1.dp))
+                            }
                         }
-                        if (!stickToBottom && chatItems.isNotEmpty() && !appSettings.chatClassicLook) {
+                        AnimatedVisibility(
+                            visible = !stickToBottom && chatItems.isNotEmpty() && !appSettings.chatClassicLook,
+                            enter = MotionTokens.floatingRevealEnter(),
+                            exit = MotionTokens.floatingRevealExit(),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 8.dp, bottom = 8.dp)
+                        ) {
                             ScrollToBottomButton(
                                 onClick = {
                                     stickToBottom = true
                                     scope.launch {
-                                        val target = if (hasStreaming) chatItems.size else chatItems.lastIndex
-                                        if (target >= 0) listState.animateScrollToItem(target)
+                                        listState.scrollToItemRespectingMotion(bottomAnchorIndex)
                                     }
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(end = 8.dp, bottom = 8.dp)
+                                }
                             )
                         }
                         }
                     }
                 }
+                }
             }
 
             var pendingCrashReport by remember { mutableStateOf(CrashReportManager.hasPendingCrashReport(context)) }
-            if (pendingCrashReport) {
+            AnimatedVisibility(
+                visible = pendingCrashReport,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
                 CrashReportBanner(
                     onCopy = {
                         val report = CrashReportManager.getPendingCrashReport(context)
@@ -1160,14 +1188,31 @@ fun ChatScreen(
                 )
             }
 
-            if (!hasStoragePermission) {
+            AnimatedVisibility(
+                visible = !hasStoragePermission,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
                 PermissionBanner(onOpenSettings = onOpenStorageSettings)
             }
 
+            val hasActiveToolInFeed = !appSettings.chatClassicLook &&
+                (chatItems.lastOrNull { it is ChatListItem.TaskActivity } as? ChatListItem.TaskActivity)
+                    ?.messages
+                    ?.any { it.role == MessageRole.TOOL_EXECUTION && it.isRunning } == true
+            val showBottomStatus = if (appSettings.chatClassicLook) {
+                isRunning
+            } else {
+                shouldShowBottomStatusIndicator(
+                    isRunning = isRunning,
+                    hasActiveToolInFeed = hasActiveToolInFeed,
+                    streamingText = streamingText
+                )
+            }
             AnimatedVisibility(
-                visible = isRunning,
-                enter = expandVertically(animationSpec = MotionTokens.fluidSpring()) + fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)),
-                exit = shrinkVertically(animationSpec = MotionTokens.fluidSpring()) + fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast))
+                visible = showBottomStatus,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
             ) {
                 Column {
                     AgentStatusIndicator(
@@ -1183,14 +1228,18 @@ fun ChatScreen(
                 }
             }
 
-            if (liveState.isExecuting) {
+            AnimatedVisibility(
+                visible = liveState.isExecuting,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
                 LiveTaskStrip(
                     state = liveState,
                     startedAt = streamStartedAt,
                     onOpenActivity = {
                         if (chatItems.isNotEmpty()) {
                             scope.launch {
-                                listState.animateScrollToItem(chatItems.lastIndex)
+                                listState.scrollToItemRespectingMotion(chatItems.lastIndex)
                             }
                         }
                     },
@@ -1198,7 +1247,11 @@ fun ChatScreen(
                 )
             }
 
-            if (!appSettings.liveModeEnabled) {
+            AnimatedVisibility(
+                visible = !appSettings.liveModeEnabled,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
                 WorkspaceFolderBar(
                     workingDir = appSettings.defaultWorkingDir,
                     autoApprove = appSettings.autoApproveInWorkingDir,
@@ -1206,8 +1259,16 @@ fun ChatScreen(
                 )
             }
 
-            if (confirmationCollapsed) {
-                pendingConfirmation?.let { request ->
+            var lastPendingConfirmation by remember { mutableStateOf(pendingConfirmation) }
+            if (pendingConfirmation != null) {
+                lastPendingConfirmation = pendingConfirmation
+            }
+            AnimatedVisibility(
+                visible = confirmationCollapsed && pendingConfirmation != null,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
+                lastPendingConfirmation?.let { request ->
                     PendingConfirmationBar(
                         request = request,
                         onExpand = { confirmationCollapsed = false },
@@ -1452,21 +1513,23 @@ private fun EmptyChatState(
     val allSuggestions: List<EmptyStateSuggestion> = if (isLive) {
         liveSuggestions
     } else {
-        val custom = settings.customPromptSuggestions
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .map { promptText ->
-                EmptyStateSuggestion(
-                    icon = RunnerIcons.ChatBubble,
-                    title = if (promptText.length > 24) {
-                        promptText.take(24).trimEnd() + "…"
-                    } else {
-                        promptText
-                    },
-                    prompt = promptText
-                )
-            }
-        defaultSuggestions + custom
+        val custom = deduplicateCustomPrompts(
+            defaultPrompts = defaultSuggestions.map { it.prompt },
+            customPrompts = settings.customPromptSuggestions
+        ).map { promptText ->
+            EmptyStateSuggestion(
+                icon = RunnerIcons.ChatBubble,
+                title = if (promptText.length > 24) {
+                    promptText.take(24).trimEnd() + "…"
+                } else {
+                    promptText
+                },
+                prompt = promptText
+            )
+        }
+        (defaultSuggestions + custom).distinctBy {
+            it.title.lowercase() + "_" + it.prompt.lowercase()
+        }
     }
 
     Column(
@@ -1727,7 +1790,10 @@ private fun ClassicEmptyChatState(
     val allSuggestions: List<EmptyStateSuggestion> = if (isLive) {
         liveSuggestions
     } else {
-        val custom = settings.customPromptSuggestions.mapIndexed { index, promptText ->
+        val custom = deduplicateCustomPrompts(
+            defaultPrompts = defaultSuggestions.map { it.prompt },
+            customPrompts = settings.customPromptSuggestions
+        ).mapIndexed { index, promptText ->
             EmptyStateSuggestion(
                 icon = RunnerIcons.ChatBubble,
                 title = promptText.take(24),
@@ -1735,7 +1801,9 @@ private fun ClassicEmptyChatState(
                 isMint = index % 2 == 1
             )
         }
-        defaultSuggestions + custom
+        (defaultSuggestions + custom).distinctBy {
+            it.title.lowercase() + "_" + it.prompt.lowercase()
+        }
     }
 
     Column(
@@ -1887,6 +1955,25 @@ private fun ClassicEmptyChatState(
             Spacer(modifier = Modifier.height(10.dp))
         }
     }
+}
+
+internal fun deduplicateCustomPrompts(
+    defaultPrompts: List<String>,
+    customPrompts: List<String>
+): List<String> {
+    val seen = defaultPrompts
+        .map { it.trim().lowercase() }
+        .filter { it.isNotEmpty() }
+        .toMutableSet()
+    val result = mutableListOf<String>()
+    for (raw in customPrompts) {
+        val clean = raw.trim()
+        if (clean.isEmpty()) continue
+        if (seen.add(clean.lowercase())) {
+            result += clean
+        }
+    }
+    return result
 }
 
 private data class EmptyStateSuggestion(
@@ -2336,47 +2423,82 @@ private fun MessageImageGrid(imagePaths: List<String>) {
 
 @Composable
 private fun MessageImageItem(path: String) {
-    val bitmapState = produceState<ImageBitmap?>(initialValue = null, key1 = path) {
+    val imageState = produceState<ChatImageLoadState>(
+        initialValue = ChatImageLoadState.Loading,
+        key1 = path
+    ) {
         value = withContext(Dispatchers.IO) {
             try {
                 val file = File(path)
-                if (!file.exists()) return@withContext null
+                if (!file.exists()) return@withContext ChatImageLoadState.Failed
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(file.absolutePath, options)
+                if (options.outWidth <= 0 || options.outHeight <= 0) {
+                    return@withContext ChatImageLoadState.Failed
+                }
                 var sampleSize = 1
                 while (options.outWidth / sampleSize > 400 || options.outHeight / sampleSize > 400) {
                     sampleSize *= 2
                 }
                 options.inJustDecodeBounds = false
                 options.inSampleSize = sampleSize
-                BitmapFactory.decodeFile(file.absolutePath, options)?.asImageBitmap()
-            } catch (e: Exception) {
-                null
+                val decoded = BitmapFactory.decodeFile(file.absolutePath, options)?.asImageBitmap()
+                if (decoded != null) {
+                    ChatImageLoadState.Ready(decoded)
+                } else {
+                    ChatImageLoadState.Failed
+                }
+            } catch (_: Exception) {
+                ChatImageLoadState.Failed
             }
         }
     }
 
-    val bitmap = bitmapState.value
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = "Прикрепленное фото",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(100.dp)
-                .clip(RunnerShapes.small)
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .size(100.dp)
-                .clip(RunnerShapes.small)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+    when (val state = imageState.value) {
+        is ChatImageLoadState.Ready -> {
+            Image(
+                bitmap = state.bitmap,
+                contentDescription = "Прикрепленное фото",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(RunnerShapes.small)
+            )
+        }
+        ChatImageLoadState.Loading -> {
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(RunnerShapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            }
+        }
+        ChatImageLoadState.Failed -> {
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(RunnerShapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = RunnerIcons.BrokenImage,
+                    contentDescription = "Изображение недоступно",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
+}
+
+private sealed interface ChatImageLoadState {
+    data object Loading : ChatImageLoadState
+    data class Ready(val bitmap: ImageBitmap) : ChatImageLoadState
+    data object Failed : ChatImageLoadState
 }
 
 /**
@@ -2611,14 +2733,36 @@ private fun LiveTaskStrip(
 private fun LiveReasoningBlock(reasoning: String, classicLook: Boolean = false) {
     val tail = remember(reasoning) { reasoning.takeLast(700).trim() }
     if (tail.isEmpty()) return
+    if (!classicLook) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+                .padding(horizontal = 24.dp, vertical = 4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = tail,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                fontSize = TypeScale.caption,
+                lineHeight = 16.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        return
+    }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         shape = RunnerShapes.medium,
-        border = if (classicLook) {
-            BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-        } else {
-            null
-        },
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 2.dp)
@@ -2660,11 +2804,19 @@ private fun ReasoningBlock(
     classicLook: Boolean = false
 ) {
     if (reasoning.isNullOrBlank()) return
+    if (!classicLook) {
+        InlineThoughtDisclosure(
+            reasoning = reasoning,
+            reasoningMs = reasoningMs,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        return
+    }
 
     var expanded by remember { mutableStateOf(false) }
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = MotionTokens.fluidSpring(),
+        animationSpec = MotionTokens.spatialFast(),
         label = "reasoning_chevron"
     )
 
@@ -2735,7 +2887,7 @@ private fun ReasoningBlock(
 }
 
 /** Компактная длительность: 480 мс, 2.4 с, 1 мин 12 с. */
-private fun formatDuration(millis: Long): String = when {
+internal fun formatDuration(millis: Long): String = when {
     millis < 1000L -> "$millis мс"
     millis < 60_000L -> "%.1f с".format(millis / 1000.0)
     else -> {
@@ -2769,7 +2921,7 @@ private fun StreamingBubble(text: String, classicLook: Boolean = false) {
  * После решения кнопки гаснут (awaitingDecision=false), карточка остаётся историей.
  */
 @Composable
-private fun PlanCard(
+internal fun PlanCard(
     message: ChatMessage,
     awaitingDecision: Boolean,
     stepStates: List<PlanStepState> = emptyList(),
@@ -2792,7 +2944,7 @@ private fun PlanCard(
     var expanded by remember(message.id) { mutableStateOf(awaitingDecision) }
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = MotionTokens.fluidSpring(),
+        animationSpec = MotionTokens.spatialFast(),
         label = "plan_chevron"
     )
     LaunchedEffect(awaitingDecision) {
@@ -2803,9 +2955,7 @@ private fun PlanCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
         shape = RunnerShapes.medium,
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = MotionTokens.fluidSpring())
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(
@@ -2849,7 +2999,12 @@ private fun PlanCard(
                 )
             }
 
-            if (expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -2913,9 +3068,15 @@ private fun PlanCard(
                         lineHeight = 17.sp
                     )
                 }
+                }
             }
 
-            if (awaitingDecision) {
+            AnimatedVisibility(
+                visible = awaitingDecision,
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -2943,13 +3104,14 @@ private fun PlanCard(
                         Text("Отклонить", fontSize = TypeScale.label)
                     }
                 }
+                }
             }
         }
     }
 }
 
 /** Те же правила, что у парсера модели: строки "N. ..." / "N) ...". */
-private fun parsePlanStepsUi(text: String): List<String> {
+internal fun parsePlanStepsUi(text: String): List<String> {
     val stepRegex = Regex("""^\s*\d+[.)]\s*(.+?)\s*$""")
     return text.lines()
         .mapNotNull { line -> stepRegex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } }
@@ -2998,8 +3160,33 @@ internal fun computePlanStepStates(
     }
 }
 
+internal fun formatPlanHeaderSubtitle(
+    planStepsCount: Int,
+    stepStates: List<PlanStepState>,
+    planAwaiting: Boolean,
+    isActiveTurn: Boolean
+): String? {
+    if (planStepsCount <= 0) return null
+    if (planAwaiting) {
+        return "Ожидает утверждения · ${PluralUtils.steps(planStepsCount)}"
+    }
+    if (stepStates.isEmpty()) {
+        return if (isActiveTurn) {
+            "Выполняется план · ${PluralUtils.steps(planStepsCount)}"
+        } else {
+            "План · ${PluralUtils.steps(planStepsCount)}"
+        }
+    }
+    val current = stepStates.indexOfFirst { it != PlanStepState.DONE }
+    return if (current < 0) {
+        "План выполнен"
+    } else {
+        "Шаг ${current + 1} из $planStepsCount"
+    }
+}
+
 /** Ниже этого порога «Думал N мс» считаем шумом и не показываем. */
-private const val MIN_VISIBLE_REASONING_MS = 1_000L
+internal const val MIN_VISIBLE_REASONING_MS = 1_000L
 
 /**
  * Элемент ленты чата: одиночное сообщение либо лента хода задачи
@@ -3133,7 +3320,7 @@ private fun appendSegment(
     out: MutableList<ChatListItem>
 ) {
     val meaningful = segment.filterNot {
-        it.role == MessageRole.ASSISTANT && it.content.isBlank()
+        it.role == MessageRole.ASSISTANT && it.content.isBlank() && it.reasoningText.isNullOrBlank()
     }
     if (meaningful.isEmpty()) return
 
@@ -3193,6 +3380,7 @@ private fun TaskActivityCard(
     planAwaitingId: String?,
     isRunning: Boolean,
     isActiveTurn: Boolean,
+    isStreamingAnswer: Boolean = false,
     onUndoTrash: (String) -> Unit,
     onOpenPreview: (WebPreviewSource) -> Unit,
     onOpenSources: (List<WebSource>) -> Unit,
@@ -3200,6 +3388,24 @@ private fun TaskActivityCard(
     onApprovePlan: () -> Unit,
     onRejectPlan: () -> Unit
 ) {
+    if (!classicLook) {
+        AgentTurnView(
+            messages = messages,
+            showDetails = showDetails,
+            showStats = showStats,
+            planAwaitingId = planAwaitingId,
+            isRunning = isRunning,
+            isActiveTurn = isActiveTurn,
+            isStreamingAnswer = isStreamingAnswer,
+            onUndoTrash = onUndoTrash,
+            onOpenPreview = onOpenPreview,
+            onOpenSources = onOpenSources,
+            onOpenChanges = onOpenChanges,
+            onApprovePlan = onApprovePlan,
+            onRejectPlan = onRejectPlan
+        )
+        return
+    }
     val toolMessages = remember(messages) { messages.filter { it.role == MessageRole.TOOL_EXECUTION } }
     val planMessage = remember(messages) { messages.firstOrNull { it.role == MessageRole.PLAN } }
     val planSteps = remember(planMessage?.content) {
@@ -3211,7 +3417,6 @@ private fun TaskActivityCard(
     val stepStates = remember(planTools, toolMessages) {
         computePlanStepStates(planTools, toolMessages)
     }
-    val currentPlanStep = stepStates.indexOfFirst { it != PlanStepState.DONE }
     val allChanges = remember(messages) { messages.flatMap { it.fileChanges } }
     val distinctSources = remember(toolMessages) {
         toolMessages.flatMap { it.sources }.distinctBy { it.url }.size
@@ -3322,13 +3527,15 @@ private fun TaskActivityCard(
                         fontSize = TypeScale.label,
                         fontWeight = FontWeight.Medium
                     )
-                    if (planSteps.isNotEmpty()) {
+                    val planSubtitle = formatPlanHeaderSubtitle(
+                        planStepsCount = planSteps.size,
+                        stepStates = stepStates,
+                        planAwaiting = planAwaiting,
+                        isActiveTurn = isActiveTurn
+                    )
+                    if (planSubtitle != null) {
                         Text(
-                            text = if (currentPlanStep < 0) {
-                                "План выполнен"
-                            } else {
-                                "Шаг ${currentPlanStep + 1} из ${planSteps.size}"
-                            },
+                            text = planSubtitle,
                             color = MaterialTheme.colorScheme.outline,
                             fontSize = TypeScale.micro
                         )
@@ -3344,13 +3551,18 @@ private fun TaskActivityCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                 }
+                val classicChevronRotation by animateFloatAsState(
+                    targetValue = if (expanded) 180f else 0f,
+                    animationSpec = MotionTokens.spatialFast(),
+                    label = "classic_activity_chevron"
+                )
                 Icon(
                     imageVector = RunnerIcons.KeyboardArrowDown,
                     contentDescription = if (expanded) "Свернуть" else "Развернуть",
                     tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
                     modifier = Modifier
                         .size(14.dp)
-                        .graphicsLayer { rotationZ = if (expanded) 180f else 0f }
+                        .graphicsLayer { rotationZ = classicChevronRotation }
                 )
             }
 
@@ -3442,7 +3654,7 @@ private fun currentActivityElapsed(
     return (end - startedAt).coerceAtLeast(0L)
 }
 
-private fun formatTimelineElapsed(millis: Long): String {
+internal fun formatTimelineElapsed(millis: Long): String {
     val totalSeconds = (millis / 1000).coerceAtLeast(0)
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
@@ -3761,7 +3973,7 @@ private fun ToolCard(
     val context = LocalContext.current
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = MotionTokens.fluidSpring(),
+        animationSpec = MotionTokens.spatialFast(),
         label = "chevron_rotation"
     )
     val hasDetails = showDetails && (
@@ -4238,7 +4450,7 @@ private fun changeTotals(changes: List<FileChange>): ChangeTotals {
 }
 
 @Composable
-private fun changeIcon(kind: FileChangeKind): ImageVector = when (kind) {
+internal fun changeIcon(kind: FileChangeKind): ImageVector = when (kind) {
     FileChangeKind.CREATED -> RunnerIcons.Add
     FileChangeKind.MODIFIED -> RunnerIcons.Edit
     FileChangeKind.DELETED -> RunnerIcons.Delete
@@ -4248,7 +4460,7 @@ private fun changeIcon(kind: FileChangeKind): ImageVector = when (kind) {
 }
 
 @Composable
-private fun changeColor(kind: FileChangeKind): Color = when (kind) {
+internal fun changeColor(kind: FileChangeKind): Color = when (kind) {
     FileChangeKind.CREATED, FileChangeKind.DIR_CREATED -> StatusSuccess
     FileChangeKind.MODIFIED -> MaterialTheme.colorScheme.primary
     FileChangeKind.DELETED -> StatusWarning
@@ -4475,7 +4687,7 @@ private fun diffAnnotated(diff: String): AnnotatedString {
  * Тап открывает шторку. Домены важнее номеров: человек узнаёт сайт до клика.
  */
 @Composable
-private fun WebSourcesRow(
+internal fun WebSourcesRow(
     sources: List<WebSource>,
     onClick: () -> Unit
 ) {
@@ -4721,7 +4933,7 @@ private fun ReadOnlyBadge() {
  * чтобы исправление ошибки было в один тап, а не в три.
  */
 @Composable
-private fun UndoTrashButton(label: String, onClick: () -> Unit) {
+internal fun UndoTrashButton(label: String, onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
     val shape = RunnerShapes.small
     Box(
@@ -4760,7 +4972,7 @@ private fun UndoTrashButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ToolStatusIcon(message: ChatMessage) {
+internal fun ToolStatusIcon(message: ChatMessage) {
     // Компактный статус: маленькая точка вместо иконки 15dp.
     // Зелёная — успех, красная — ошибка, серая — отклонено/ожидание.
     when {
@@ -5245,6 +5457,13 @@ private fun ConfirmationBottomSheet(
                 }
             }
 
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             if (classicLook) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerLowest,
@@ -5358,11 +5577,7 @@ private fun ConfirmationBottomSheet(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .heightIn(max = 260.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         request.items.forEach { item ->
                             val checked = item.id in selectedIds
                             Row(
@@ -5454,6 +5669,7 @@ private fun ConfirmationBottomSheet(
                         )
                     }
                 }
+            }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

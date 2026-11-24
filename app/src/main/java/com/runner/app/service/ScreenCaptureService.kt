@@ -9,33 +9,35 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Фоновая служба переднего плана (Foreground Service) с типом mediaProjection,
- * обязательная в Android 14+ (API 34+) для использования MediaProjection API.
+ * обязательная в Android 10+ (API 29+) и особенно строго проверяемая в Android 14–15
+ * для использования MediaProjection API.
  */
 class ScreenCaptureService : Service() {
 
     companion object {
+        private const val TAG = "RunnerScreenCapSvc"
         const val CHANNEL_ID = "runner_screen_capture"
         const val NOTIFICATION_ID = 1001
 
         /**
-         * Сигнал «служба уже в foreground».
+         * Сигнал «служба успешно вошла в foreground (true) или запуск сорвался (false)».
          *
-         * Начиная с Android 14 проекцию нельзя запрашивать, пока foreground-служба
-         * нужного типа не работает. Раньше здесь стояла пауза 150 мс «на глазок»:
-         * на медленном старте проекция не создавалась, и захват молча возвращал
-         * null. Теперь ждём настоящего события.
+         * Начиная с Android 10–14 проекцию нельзя запрашивать, пока foreground-служба
+         * типа mediaProjection не активна. Раньше здесь стояла пауза 150 мс «на глазок»,
+         * а затем сигнал завершался успехом даже в ветке catch.
          */
         @Volatile
-        private var readySignal = CompletableDeferred<Unit>()
+        private var readySignal = CompletableDeferred<Boolean>()
 
-        fun start(context: Context): CompletableDeferred<Unit> {
-            val signal = CompletableDeferred<Unit>()
+        fun start(context: Context): CompletableDeferred<Boolean> {
+            val signal = CompletableDeferred<Boolean>()
             readySignal = signal
             try {
                 val intent = Intent(context, ScreenCaptureService::class.java)
@@ -44,23 +46,23 @@ class ScreenCaptureService : Service() {
                 } else {
                     context.startService(intent)
                 }
-            } catch (_: Exception) {
-                // Служба не поднялась: не держим вызывающего в ожидании,
-                // проекция всё равно не создастся.
-                signal.complete(Unit)
+            } catch (e: Exception) {
+                Log.w(TAG, "не удалось запустить foreground-службу захвата экрана", e)
+                signal.complete(false)
             }
             return signal
         }
 
-        /** Ждёт, пока служба войдёт в foreground. false — не успела. */
+        /** Ждёт, пока служба войдёт в foreground. false — запуск сорвался или не успел. */
         suspend fun awaitForeground(timeoutMs: Long = 3_000L): Boolean =
             withTimeoutOrNull(timeoutMs) {
                 readySignal.await()
-                true
             } ?: false
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, ScreenCaptureService::class.java))
+            try {
+                context.stopService(Intent(context, ScreenCaptureService::class.java))
+            } catch (_: Exception) {}
         }
     }
 
@@ -69,20 +71,48 @@ class ScreenCaptureService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        val notification = createNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            } else {
-                0
-            }
-            startForeground(NOTIFICATION_ID, notification, type)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        if (!promoteToForeground()) {
+            stopSelf()
         }
-        // Только после startForeground: до этого система ещё не считает
-        // службу foreground, и проекция не создастся.
-        readySignal.complete(Unit)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Повторный запуск уже созданной службы не вызывает onCreate():
+        // подтверждаем foreground-статус и здесь, чтобы readySignal не зависал.
+        if (!promoteToForeground()) {
+            stopSelf()
+        }
+        // START_NOT_STICKY обязателен: перезапуск mediaProjection-службы системой
+        // после убийства процесса без нового согласия пользователя роняет API 34+.
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        readySignal.complete(false)
+        super.onDestroy()
+    }
+
+    private fun promoteToForeground(): Boolean {
+        val notification = createNotification()
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // На всех Android 10–15 (API 29–35) обязателен тип FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION:
+                // передача 0 на API 29–33 вызывает SecurityException при getMediaProjection().
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            readySignal.complete(true)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "startForeground для захвата экрана отклонён системой", e)
+            readySignal.complete(false)
+            false
+        }
     }
 
     private fun createNotificationChannel() {

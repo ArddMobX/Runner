@@ -365,7 +365,7 @@ private val PLAN_ACTION_HINTS = listOf(
  * Шаг утверждённого плана: имя инструмента и исходный текст шага.
  * Текст нужен, чтобы привязать одобрение к аргументам, а не только к имени тула.
  */
-private data class PlanStep(
+internal data class PlanStep(
     val tool: String,
     val rawText: String
 )
@@ -413,7 +413,7 @@ private val EXTRA_CRITICAL_ARGS: Map<String, List<String>> = mapOf(
     // список значений, а `values.all { ... }` на пустом списке истинно:
     // шаг плана, назвавший инструмент, заранее одобрял бы ЛЮБОЙ номер
     // и любое нажатие. Именно так уже было с clipboard_write.
-    "call_phone" to listOf("phone_number", "contact_name", "target"),
+    "call_phone" to listOf("phone_number", "number", "phone", "contact_name", "target"),
     "ui_click" to listOf("label"),
     "ui_long_click" to listOf("label"),
     "ui_type" to listOf("text"),
@@ -445,6 +445,7 @@ private val KNOWN_PLAN_TOOLS: Set<String> = setOf(
     "extract_archive", "organize_downloads", "get_storage_summary",
     "find_largest_files", "find_junk_files", "clipboard_read", "clipboard_write",
     "run_shell_command", "termux_run", "shizuku_run", "open_app", "open_url",
+    "call_phone", "search_contacts", "web_search", "web_fetch",
     // Live-инструменты: план Live-задачи тоже состоит из именованных шагов.
     "ui_inspect", "ui_click", "ui_long_click", "ui_type", "ui_scroll",
     "ui_global_action", "ui_wait", "ui_wait_for", "ui_target", "ui_finish"
@@ -477,7 +478,7 @@ private fun normalizeForMatch(value: String): String = value
  * Возвращает пустой список, если план не распознан: пустой список означает
  * «ничего не предодобрено», то есть все опасные вызовы пойдут на подтверждение.
  */
-private fun parsePlanSteps(steps: List<String>): List<PlanStep> =
+internal fun parsePlanSteps(steps: List<String>): List<PlanStep> =
     steps.mapNotNull { line ->
         val match = PLAN_STEP_LINE.find(line.trim()) ?: return@mapNotNull null
         val tool = match.groupValues[1]
@@ -521,6 +522,100 @@ private val PATH_REQUIRED_TOOLS: Set<String> = setOf(
     "extract_archive", "create_archive"
 )
 
+private val PLAN_LEFT_BOUNDARY_CHARS = setOf(
+    '"', '\'', '`', '(', '[', '{', '<', ',', ';', ':', '«', '„', '“', '—', '–', '='
+)
+private val PLAN_RIGHT_BOUNDARY_CHARS = setOf(
+    '"', '\'', '`', ')', ']', '}', '>', ',', ';', ':', '»', '”', '!', '?'
+)
+private val SHELL_CHAIN_SUFFIXES = listOf("&&", "||", "|", ";", ">", "<")
+private val SHELL_CONTINUATION_PREFIXES = listOf("&&", "||", "|", ";", ">", "<", "/", ".", "~")
+
+/**
+ * Проверяет, что [value] присутствует в тексте шага плана [stepRawText] как
+ * цельное значение, а не случайная подстрока более длинного пути или команды.
+ * Например, `/storage/emulated/0/Documents` НЕ совпадёт с шагом, где указан
+ * `/storage/emulated/0/Documents/temp.txt`.
+ */
+internal fun planStepContainsValue(
+    stepRawText: String,
+    value: String,
+    isShellCommand: Boolean = false
+): Boolean {
+    val haystack = normalizeForMatch(stepRawText)
+    val needle = normalizeForMatch(value)
+    // Короткие значения не предодобряем: совпадение подстроки длиной
+    // 1–3 символа - почти наверняка случайность, а не совпадение шага.
+    if (needle.length < PREAPPROVE_MIN_VALUE_LEN) return false
+
+    var searchFrom = 0
+    while (searchFrom <= haystack.length - needle.length) {
+        val idx = haystack.indexOf(needle, startIndex = searchFrom)
+        if (idx < 0) return false
+        val end = idx + needle.length
+        val before = if (idx > 0) haystack[idx - 1] else null
+        val after = if (end < haystack.length) haystack[end] else null
+
+        val leftOk = before == null || before.isWhitespace() || before in PLAN_LEFT_BOUNDARY_CHARS
+        val rightOk = when {
+            after == null -> true
+            after.isWhitespace() -> true
+            after in PLAN_RIGHT_BOUNDARY_CHARS -> true
+            // Точка в конце предложения допустима, но `.txt` — это продолжение имени файла.
+            after == '.' -> end + 1 >= haystack.length || haystack[end + 1].isWhitespace()
+            else -> false
+        }
+
+        if (leftOk && rightOk) {
+            if (!isShellCommand) return true
+            val prefixTrimmed = haystack.substring(0, idx).trimEnd()
+            val suffixTrimmed = haystack.substring(end).trimStart()
+            val precededByChain = SHELL_CHAIN_SUFFIXES.any { prefixTrimmed.endsWith(it) }
+            val followedByFlag = suffixTrimmed.startsWith("-") &&
+                    suffixTrimmed.length >= 2 && !suffixTrimmed[1].isWhitespace()
+            val followedByShellContinuation = after != null && after.isWhitespace() &&
+                    (followedByFlag || SHELL_CONTINUATION_PREFIXES.any { suffixTrimmed.startsWith(it) })
+            if (!precededByChain && !followedByShellContinuation) {
+                return true
+            }
+        }
+        searchFrom = idx + 1
+    }
+    return false
+}
+
+internal fun isPreApprovedValues(
+    planSteps: List<PlanStep>?,
+    cleanTool: String,
+    paths: List<String>,
+    values: List<String>
+): Boolean {
+    if (planSteps.isNullOrEmpty()) return false
+
+    val candidates = planSteps.filter { it.tool == cleanTool }
+    if (candidates.isEmpty()) return false
+
+    // Файловая операция без абсолютного пути во ВСЕХ путевых аргументах не
+    // покрывается планом: иначе модель могла бы назвать в плане один файл,
+    // а вторым относительным аргументом тронуть другой.
+    if (cleanTool in PATH_REQUIRED_TOOLS) {
+        if (paths.isEmpty() || paths.any { val p = it.trim(); !p.startsWith("/") || p.contains("..") }) {
+            return false
+        }
+    }
+
+    // У инструмента есть критичные аргументы, но разобрать их не удалось - не рискуем.
+    val expectedKeys = CRITICAL_ARGS_BY_TOOL[cleanTool]
+    if (!expectedKeys.isNullOrEmpty() && values.isEmpty()) return false
+
+    val isShellTool = cleanTool in ToolDispatcher.SHELL_LIKE_TOOL_NAMES
+    return candidates.any { step ->
+        values.all { value ->
+            planStepContainsValue(step.rawText, value, isShellCommand = isShellTool)
+        }
+    }
+}
+
 /**
  * Вызов покрыт утверждённым планом?
  *
@@ -529,33 +624,58 @@ private val PATH_REQUIRED_TOOLS: Set<String> = setOf(
  * показать невинный шаг и выполнить совсем другое действие молча.
  * При любом сомнении возвращаем false - это отправит вызов на подтверждение.
  */
-private fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson: String): Boolean {
-    if (planSteps.isNullOrEmpty()) return false
-
+internal fun isPreApproved(planSteps: List<PlanStep>?, toolName: String, argsJson: String): Boolean {
     val cleanTool = toolName.substringAfterLast(":")
-    val candidates = planSteps.filter { it.tool == cleanTool }
-    if (candidates.isEmpty()) return false
+    return isPreApprovedValues(
+        planSteps = planSteps,
+        cleanTool = cleanTool,
+        paths = pathArgValues(cleanTool, argsJson),
+        values = criticalArgValues(cleanTool, argsJson)
+    )
+}
 
-    // Файловая операция без абсолютного пути в аргументах не покрывается планом:
-    // иначе модель могла бы назвать в плане один файл, а тронуть другой.
-    if (cleanTool in PATH_REQUIRED_TOOLS) {
-        val paths = pathArgValues(cleanTool, argsJson)
-        if (paths.isEmpty() || paths.none { it.contains('/') }) return false
+private val WORKING_DIR_DISALLOWED_SHELL_CMDS = Regex(
+    """(?i)(?:^|\s)(?:[^\s]*/)?(?:sh|bash|ash|mksh|zsh|env|exec|eval|source|xargs|find|su|sudo|pm|am|cmd|settings|svc|dumpsys|getprop|setprop|input|screencap|screenrecord|reboot|mount|chmod|chown|ln|dd|curl|wget|nc|netcat|toybox|busybox)(?=\s|$)"""
+)
+
+private val WORKING_DIR_UNSAFE_SHELL_CHARS = setOf(
+    '~', '$', '`', ';', '|', '&', '>', '<', '(', ')', '{', '}', '\\', '\n', '\r'
+)
+
+/**
+ * Строгая проверка того, что простая shell-команда (`run_shell_command`)
+ * целиком ограничена рабочей папкой и не может выйти за её пределы через
+ * цепочки, перенаправления, подстановки, вложенный shell или пустой список путей.
+ */
+internal fun isShellCommandStrictlyInsideWorkingDir(
+    commandLine: String,
+    workingDirCanonicalPath: String
+): Boolean {
+    val normalizedRoot = workingDirCanonicalPath.replace('\\', '/').trimEnd('/')
+    if (commandLine.isBlank() || normalizedRoot.isBlank() || normalizedRoot == "/") {
+        return false
     }
-
-    val values = criticalArgValues(cleanTool, argsJson)
-
-    // У инструмента есть критичные аргументы, но разобрать их не удалось - не рискуем.
-    val expectedKeys = CRITICAL_ARGS_BY_TOOL[cleanTool]
-    if (!expectedKeys.isNullOrEmpty() && values.isEmpty()) return false
-
-    return candidates.any { step ->
-        val haystack = normalizeForMatch(step.rawText)
-        values.all { value ->
-            val needle = normalizeForMatch(value)
-            // Короткие значения не предодобряем: совпадение подстроки длиной
-            // 1–3 символа - почти наверняка случайность, а не совпадение шага.
-            needle.length >= PREAPPROVE_MIN_VALUE_LEN && haystack.contains(needle)
+    if (commandLine.contains("..") || commandLine.any { it in WORKING_DIR_UNSAFE_SHELL_CHARS }) {
+        return false
+    }
+    val normalized = ToolDispatcher.normalizeShellForInspection(commandLine)
+    if (normalized.contains("..") ||
+        WORKING_DIR_DISALLOWED_SHELL_CMDS.containsMatchIn(commandLine) ||
+        WORKING_DIR_DISALLOWED_SHELL_CMDS.containsMatchIn(normalized)
+    ) {
+        return false
+    }
+    // ShellPathParser сам склеивает соседние кавычки (/et""c/hosts -> /etc/hosts),
+    // не ломая пути с пробелами вроде "/storage/emulated/0/AI Motion/script.sh".
+    val pathTokens = ShellPathParser.pathTokens(commandLine)
+    // Команда без явных абсолютных путей не должна автоматически считаться «внутри папки».
+    if (pathTokens.isEmpty()) return false
+    return pathTokens.all { token ->
+        try {
+            val canonical = java.io.File(token).canonicalPath.replace('\\', '/').trimEnd('/')
+            canonical == normalizedRoot || canonical.startsWith("$normalizedRoot/")
+        } catch (_: Exception) {
+            false
         }
     }
 }
@@ -630,25 +750,48 @@ private fun sha256Hex(value: String): String = try {
 /** Признаки ошибки в выводе инструмента, проверяются по началу любой строки. */
 private val TOOL_ERROR_PREFIXES = listOf("Ошибка", "Не удалось", "Не могу", "Запрещено")
 
+/** Признак строки с неперехваченным Java/Kotlin-исключением в выводе инструмента. */
+private val UNCAUGHT_EXCEPTION_LINE =
+    Regex("""^(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*Exception(?::|\s*$)""")
+
 /**
  * Ошибка ли это в выводе инструмента.
  *
  * Раньше проверялось начало всего текста, а большинство инструментов
  * предваряют результат строкой `resolved_path:` - из-за этого ошибка
  * («Ошибка: родительской папки нет») не распознавалась и карточка выглядела
- * успешной. Теперь смотрим начало каждой строки.
+ * успешной. Теперь смотрим начало каждой служебной строки, игнорируя
+ * содержимое конвертов недоверенных данных и блоков кода (иначе чтение
+ * файла `MyException.kt` или текста со словом «Ошибка» помечалось сбоем).
  */
-private fun looksLikeToolError(output: String): Boolean {
+internal fun looksLikeToolError(output: String): Boolean {
     // Shell не бросает исключение на ненулевой код: он возвращает
     // «Выполнено (код 127)». Такую строку тоже считаем ошибкой, иначе
     // упавшая команда выглядит зелёной.
     if (SHELL_NONZERO_EXIT.containsMatchIn(output.trimStart())) return true
-    val lines = output.lineSequence()
-    for (raw in lines) {
+    var inUntrusted = false
+    var inFencedCode = false
+    for (raw in output.lineSequence()) {
         val line = raw.trimStart()
         if (line.isEmpty()) continue
+        if (line.startsWith(ToolDispatcher.UNTRUSTED_OPEN)) {
+            inUntrusted = true
+            continue
+        }
+        if (inUntrusted) {
+            if (line.startsWith(ToolDispatcher.UNTRUSTED_CLOSE)) {
+                inUntrusted = false
+            }
+            continue
+        }
+        if (line.startsWith("```")) {
+            inFencedCode = !inFencedCode
+            continue
+        }
+        if (inFencedCode) continue
+
         if (TOOL_ERROR_PREFIXES.any { line.startsWith(it) }) return true
-        if (line.contains("Exception", ignoreCase = true)) return true
+        if (UNCAUGHT_EXCEPTION_LINE.containsMatchIn(line)) return true
     }
     return false
 }
@@ -802,7 +945,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val providerStore = ProviderStore(application)
     private val settingsStore = SettingsStore(application)
-    private val usageStore = UsageStore(application)
+    private val usageStore = UsageStore.get(application)
     private val repository = ChatRepository(ChatDatabase.get(application).chatDao())
     val usageEvents = usageStore.events
     private val apiClient = OpenAIClient()
@@ -1308,7 +1451,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         purgeTrashOnStart()
         // Старые скриншоты, фото камеры и картинки удалённых чатов.
         viewModelScope.launch(Dispatchers.IO) {
-            ImageUtils.purgeCacheOlderThan(getApplication())
+            val referencedPaths = runCatching { repository.loadReferencedCachePaths() }.getOrNull()
+            ImageUtils.purgeCacheOlderThan(getApplication(), protectedPaths = referencedPaths)
         }
         // Кнопка «Стоп» в уведомлении должна останавливать ЖИВУЮ ViewModel.
         // Обработчик регистрируется под своим идентификатором: у плавающего
@@ -1409,13 +1553,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startNewChat() {
         if (_isRunning.value) return
         viewModelScope.launch {
-            // Если в текущем чате ещё нет пользовательских сообщений - не создаём дубликат
-            if (_messages.value.none { it.role != MessageRole.SYSTEM_INFO }) {
-                return@launch
+            sessionSwitchLock.withLock {
+                if (_isRunning.value) return@withLock
+                // Если в текущем чате ещё нет пользовательских сообщений - не создаём дубликат
+                if (_messages.value.none { it.role != MessageRole.SYSTEM_INFO }) {
+                    return@withLock
+                }
+                val emptySession = repository.getRecentEmptySession()
+                val session = emptySession ?: repository.createSession()
+                loadSession(session.id)
             }
-            val emptySession = repository.getRecentEmptySession()
-            val session = emptySession ?: repository.createSession()
-            loadSession(session.id)
         }
     }
 
@@ -1436,10 +1583,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteSession(sessionId: String) {
+        if (_isRunning.value && _currentSessionId.value == sessionId) return
         viewModelScope.launch {
-            repository.deleteSession(sessionId)
-            if (_currentSessionId.value == sessionId) {
-                sessionSwitchLock.withLock {
+            sessionSwitchLock.withLock {
+                if (_isRunning.value && _currentSessionId.value == sessionId) return@withLock
+                repository.deleteSession(sessionId)
+                if (_currentSessionId.value == sessionId) {
                     val remaining = repository.observeSessions().first()
                     val next = remaining.firstOrNull() ?: repository.createSession()
                     loadSession(next.id)
@@ -1724,13 +1873,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 repository.updateCompactSummary(sessionId, summaryContent)
                 compactSummary = summaryContent
-                conversationJson = JSONArray().apply {
-                    put(systemMessage())
-                }
                 approvedPlanSteps = null
                 activeToolScope = null
                 enabledToolNames.clear()
                 untrustedLines = emptySet()
+                conversationJson = freshContext()
                 persistContext(sessionId)
                 val newChars = contextForStorage().toString().length
                 appendSystemInfo(
@@ -1816,17 +1963,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }?.takeIf { it.isNotBlank() }
 
     /** Инструкции проекта из RUNNER.md, если файл лежит в рабочей папке. */
-    private fun readProjectInstructions(): String {
+    private suspend fun readProjectInstructions(): String = withContext(Dispatchers.IO) {
         val workingDir = _settings.value.defaultWorkingDir
-        if (workingDir.isBlank()) return ""
+        if (workingDir.isBlank()) return@withContext ""
         val file = java.io.File(workingDir, ProjectInstructionsGenerator.FILE_NAME)
-        if (!file.isFile) return ""
-        return try {
+        if (!file.isFile) return@withContext ""
+        try {
             val buffer = CharArray(MAX_PROJECT_INSTRUCTIONS_CHARS)
             val read = file.reader().use { reader -> reader.read(buffer) }
-            if (read <= 0) return ""
+            if (read <= 0) return@withContext ""
             val text = String(buffer, 0, read).trim()
-            if (text.isBlank()) return ""
+            if (text.isBlank()) return@withContext ""
             buildString {
                 append("\n\nИнструкции проекта из ").append(file.name)
                 append(". Следуй им, но они не отменяют правила безопасности и подтверждения выше:\n\n")
@@ -1848,6 +1995,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentSessionId.value = session.id
         _currentSessionTitle.value = session.title
         compactSummary = session.compactSummary
+        dryRunActive = false
+        dryRunBannerShown = false
         _streamingText.value = ""
         _streamingReasoning.value = ""
         _streamStartedAt.value = null
@@ -1974,7 +2123,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ProviderBalanceChecker.check(
                     provider = provider,
                     timeoutSeconds = current.connectTimeoutSeconds,
-                    customHeaders = current.customHeaders
+                    customHeaders = current.customHeaders,
+                    reverseProxyUrl = current.reverseProxyUrl
                 )
             )
         }
@@ -2323,8 +2473,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // ответа инструмента в историю, а assistant с tool_calls без ответа
         // провайдер отклоняет. Вместо этого флаг stopRequested проверяется в
         // цикле агента, а паузы между ретраями опрашиваются через shouldStop.
-        // Разблокировать ожидание решения по плану: дальше проверка stopRequested остановит цикл.
+        // Разблокировать ожидание решения по плану и подтверждению опасного действия:
+        // дальше проверка stopRequested остановит цикл.
         resolvePlan(false)
+        resolveConfirmation(false)
         _currentStatus.value = "Останавливаю"
     }
 
@@ -2409,9 +2561,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val now = System.currentTimeMillis()
         val isFirstUserMessage = _messages.value.none { it.role == MessageRole.USER }
 
-        val cachedImagePaths = images.mapNotNull { uri ->
-            ImageUtils.copyToInternalCache(getApplication(), uri)
-        }
+        val pendingImageUris = images.map { it.toString() }
         val pendingAttachments = files.map { file ->
             ChatAttachment(
                 path = file.uri.toString(),
@@ -2425,7 +2575,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             id = userMessageId,
             role = MessageRole.USER,
             content = effectiveText,
-            imageUris = cachedImagePaths,
+            imageUris = pendingImageUris,
             attachments = pendingAttachments,
             timestamp = now
         )
@@ -2443,10 +2593,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                // Файлы читаются в фоне: PDF на несколько мегабайт не должен
-                // подвешивать интерфейс. Пока идёт разбор, в статусе честно
-                // написано, чем занят агент.
-                _currentStatus.value = if (files.isNotEmpty()) "Читаю файлы" else null
+                // Файлы и изображения читаются/копируются в фоне: PDF или тяжёлые
+                // фото не должны подвешивать интерфейс. Пока идёт разбор, в статусе
+                // честно написано, чем занят агент.
+                _currentStatus.value = when {
+                    files.isNotEmpty() -> "Читаю файлы"
+                    images.isNotEmpty() -> "Обрабатываю изображения"
+                    else -> null
+                }
+                val cachedImagePaths = if (images.isEmpty()) {
+                    emptyList()
+                } else {
+                    withContext(Dispatchers.IO) {
+                        images.mapNotNull { uri ->
+                            ImageUtils.copyToInternalCache(getApplication(), uri)
+                        }
+                    }
+                }
                 val preparedFiles = if (files.isEmpty()) {
                     emptyList()
                 } else {
@@ -2456,10 +2619,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _currentStatus.value = null
                 val finalAttachments = preparedFiles.map { it.attachment }
-                if (preparedFiles.isNotEmpty()) {
+                if (preparedFiles.isNotEmpty() || images.isNotEmpty()) {
                     _messages.value = _messages.value.map { message ->
                         if (message.id == userMessageId) {
-                            message.copy(attachments = finalAttachments)
+                            message.copy(
+                                imageUris = cachedImagePaths,
+                                attachments = finalAttachments
+                            )
                         } else {
                             message
                         }
@@ -2474,7 +2640,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         sessionId = sessionId,
                         role = MessageRole.USER.name,
                         content = effectiveText,
-                        imageUris = if (cachedImagePaths.isEmpty()) null else cachedImagePaths.joinToString(","),
+                        imageUris = ChatRepository.encodeImageUris(cachedImagePaths),
                         attachmentsJson = attachmentsToJson(finalAttachments),
                         createdAt = now
                     )
@@ -2493,21 +2659,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val pdfPageImages = preparedFiles.flatMap { it.pageImages }
                 if (cachedImagePaths.isNotEmpty() || pdfPageImages.isNotEmpty()) {
+                    val encodedUserImages = if (cachedImagePaths.isEmpty()) {
+                        emptyList()
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            cachedImagePaths.mapNotNull { path ->
+                                ImageUtils.compressAndEncodeImage(getApplication(), path)
+                            }
+                        }
+                    }
                     val contentArray = JSONArray().apply {
                         put(JSONObject().apply {
                             put("type", "text")
                             put("text", modelText)
                         })
-                        for (path in cachedImagePaths) {
-                            val base64Data = ImageUtils.compressAndEncodeImage(getApplication(), path)
-                            if (base64Data != null) {
-                                put(JSONObject().apply {
-                                    put("type", "image_url")
-                                    put("image_url", JSONObject().apply {
-                                        put("url", base64Data)
-                                    })
+                        for (base64Data in encodedUserImages) {
+                            put(JSONObject().apply {
+                                put("type", "image_url")
+                                put("image_url", JSONObject().apply {
+                                    put("url", base64Data)
                                 })
-                            }
+                            })
                         }
                         // Сканы PDF без текстового слоя отправляем как страницы.
                         for (image in pdfPageImages) {
@@ -2578,6 +2750,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Состав инструментов известен только после утверждения плана.
                 updateToolScope()
+                if (activeToolScope != null) {
+                    refreshSystemPrompt(if (forceThinking) THINKING_TURN_NOTE else "")
+                }
 
                 runAgentLoop(
                     sessionId,
@@ -2592,15 +2767,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Незакрытое исключение в корутине viewModelScope роняет всё
                 // приложение. Превращаем его в понятное сообщение, а стек
                 // оставляем в отчёте о сбое для разбора.
+                val errMsg = "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}."
+                lastRunError = errMsg
                 CrashReportManager.setLastError("Сбой выполнения: ${e.stackTraceToString()}")
                 hapticManager.onError(_settings.value)
                 appendSystemInfo(
-                    "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
-                            "Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
+                    "$errMsg Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
                     MessageAction.TEST_CONNECTION
                 )
             } finally {
                 finishDryRunIfNeeded()
+                dryRunActive = false
                 _isRunning.value = false
                 _currentStatus.value = null
                 _streamingText.value = ""
@@ -2610,13 +2787,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Задача завершилась: служба гасится только если других задач
                 // не осталось (в оверлее ассистента может идти своя).
                 AgentExecutionService.release(getApplication())
-                // Live-карточку завершаем только если задача действительно
-                // ещё идёт: stop() и ui_finish() уже выставили собственный
-                // статус (ошибка, остановка, итоговый отчёт), и перезаписывать
-                // его зелёным «Готово» нельзя. Без Live-режима менеджер вообще
-                // не стартовал.
+                // Если ход завершился ошибкой или остановкой — переводим Live-карточку
+                // в ERROR/STOPPED, а не перезаписываем её зелёным «Завершено».
                 if (_settings.value.liveModeEnabled) {
-                    LiveAgentManager.finishIfRunning("Завершено")
+                    val err = lastRunError
+                    when {
+                        !err.isNullOrBlank() -> LiveAgentManager.stop(err, isError = true)
+                        stopRequested -> LiveAgentManager.stop("Остановлено пользователем")
+                        else -> LiveAgentManager.finishIfRunning("Завершено")
+                    }
                 }
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
@@ -2679,6 +2858,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // запрашивается, значит сужать набор нечем и незачем.
         enabledToolNames.clear()
         activeToolScope = null
+        dryRunActive = false
         dryRunBannerShown = false
         _streamingText.value = ""
         _isRunning.value = true
@@ -2726,15 +2906,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                val errMsg = "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}."
+                lastRunError = errMsg
                 CrashReportManager.setLastError("Сбой выполнения: ${e.stackTraceToString()}")
                 hapticManager.onError(_settings.value)
                 appendSystemInfo(
-                    "Задача прервалась из-за ошибки: ${e.message ?: e.javaClass.simpleName}. " +
-                            "Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
+                    "$errMsg Подробности сохранены в отчёте о сбое (Настройки → Диагностика).",
                     MessageAction.TEST_CONNECTION
                 )
             } finally {
                 finishDryRunIfNeeded()
+                dryRunActive = false
                 _isRunning.value = false
                 _currentStatus.value = null
                 _streamingText.value = ""
@@ -2744,13 +2926,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Задача завершилась: служба гасится только если других задач
                 // не осталось (в оверлее ассистента может идти своя).
                 AgentExecutionService.release(getApplication())
-                // Live-карточку завершаем только если задача действительно
-                // ещё идёт: stop() и ui_finish() уже выставили собственный
-                // статус (ошибка, остановка, итоговый отчёт), и перезаписывать
-                // его зелёным «Готово» нельзя. Без Live-режима менеджер вообще
-                // не стартовал.
                 if (_settings.value.liveModeEnabled) {
-                    LiveAgentManager.finishIfRunning("Завершено")
+                    val err = lastRunError
+                    when {
+                        !err.isNullOrBlank() -> LiveAgentManager.stop(err, isError = true)
+                        stopRequested -> LiveAgentManager.stop("Остановлено пользователем")
+                        else -> LiveAgentManager.finishIfRunning("Завершено")
+                    }
                 }
                 if (!stopRequested) {
                     hapticManager.onTaskComplete(_settings.value)
@@ -3115,18 +3297,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val currentTaskTokens = totalPromptTokens + totalCompletionTokens
             if (currentSettings.maxTaskTokens > 0 && currentTaskTokens >= currentSettings.maxTaskTokens) {
                 if (result is AIResponseResult.TextResult) {
-                    val reply = result.text.ifBlank { "Готово." }
-                    if (PrefatoryText.isPrefatory(reply)) {
-                        saveNarrationMessage(sessionId, reply)
+                    val cleanedReply = stripLeakedSystemPrompt(result.text)
+                    val reply = if (cleanedReply.isBlank() && result.text.isNotBlank()) {
+                        null
                     } else {
-                        turnAssistantId = saveAssistantMessage(
-                            sessionId = sessionId,
-                            text = reply,
-                            reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
-                            reasoningMs = metrics.reasoningMillis.takeIf { it > 0L },
-                            completionTokens = metrics.completionTokens,
-                            tokensPerSecond = metrics.tokensPerSecond
+                        cleanedReply.ifBlank { "Готово." }
+                    }
+                    if (reply != null) {
+                        if (PrefatoryText.isPrefatory(reply)) {
+                            saveNarrationMessage(sessionId, reply)
+                        } else {
+                            turnAssistantId = saveAssistantMessage(
+                                sessionId = sessionId,
+                                text = reply,
+                                reasoningText = metrics.reasoningText.takeIf { it.isNotBlank() },
+                                reasoningMs = metrics.reasoningMillis.takeIf { it > 0L },
+                                completionTokens = metrics.completionTokens,
+                                tokensPerSecond = metrics.tokensPerSecond
+                            )
+                            if (_settings.value.autoSpeakResponses) {
+                                voiceManager.speak(reply, turnAssistantId)
+                            }
+                        }
+                        conversationJson.put(
+                            JSONObject().apply {
+                                put("role", "assistant")
+                                put("content", reply)
+                            }
                         )
+                        persistContext(sessionId)
                     }
                     _streamingText.value = ""
                 }
@@ -3623,67 +3822,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // updateSettings такой набор сбрасывает, здесь — страховка.
                 false
             } else {
-                val workingDirFile = try { java.io.File(_settings.value.defaultWorkingDir).canonicalFile } catch (_: Exception) { null }
-                if (workingDirFile != null) {
-                    if (isShellCall) {
-                        // Shell-команда считается «внутри папки», только если
-                        // она не поднимается по '..', не использует домашний
-                        // каталог и подстановки и все абсолютные пути ведут
-                        // в рабочую папку. Раньше проверялись лишь токены
-                        // с ведущим '/', поэтому `cd ..` и пути /data при
-                        // «Shell вне памяти» проходили без подтверждения.
-                        val unsafeEscapes = commandLine.contains("..") ||
-                                commandLine.contains('~') ||
-                                commandLine.contains('$') ||
-                                commandLine.contains('`')
-                        if (unsafeEscapes) {
-                            false
-                        } else {
-                            val pathTokens = ShellPathParser.pathTokens(commandLine)
-                            pathTokens.all { token ->
-                                try {
-                                    val canonical = java.io.File(token).canonicalPath
-                                    canonical == workingDirFile.canonicalPath ||
-                                            canonical.startsWith("${workingDirFile.canonicalPath}/")
-                                } catch (_: Exception) {
-                                    // Путь не разобрался — не рискуем, спросим.
+                withContext(Dispatchers.IO) {
+                    val workingDirFile = try {
+                        java.io.File(_settings.value.defaultWorkingDir).canonicalFile
+                            .takeIf { it.isDirectory && it.canonicalPath != "/" }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (workingDirFile != null) {
+                        when {
+                            // Termux и Shizuku выполняются в чужой среде / с правами ADB
+                            // и никогда не автоодобряются по рабочей папке.
+                            isShellCall && !isAndroidShellCall -> false
+                            isAndroidShellCall -> isShellCommandStrictlyInsideWorkingDir(
+                                commandLine = commandLine,
+                                workingDirCanonicalPath = workingDirFile.canonicalPath
+                            )
+                            else -> {
+                                val argsObj = try { JSONObject(call.arguments) } catch (_: Exception) { null }
+                                val targetPaths = mutableListOf<String>()
+                                argsObj?.optString("path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("src")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("dir")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("archive_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("destination")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("source_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("destination_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("target_dir")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                argsObj?.optString("zip_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                val sourcePathsArr = argsObj?.optJSONArray("source_paths")
+                                if (sourcePathsArr != null) {
+                                    for (i in 0 until sourcePathsArr.length()) {
+                                        sourcePathsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
+                                    }
+                                }
+                                if (targetPaths.isNotEmpty()) {
+                                    val rootPath = workingDirFile.canonicalPath.trimEnd('/')
+                                    targetPaths.all { tp ->
+                                        try {
+                                            val resolved = ToolDispatcher.resolvePath(tp).canonicalFile.canonicalPath.trimEnd('/')
+                                            resolved == rootPath || resolved.startsWith("$rootPath/")
+                                        } catch (_: Exception) {
+                                            false
+                                        }
+                                    }
+                                } else {
                                     false
                                 }
                             }
                         }
-                    } else {
-                        val argsObj = try { JSONObject(call.arguments) } catch (_: Exception) { null }
-                        val targetPaths = mutableListOf<String>()
-                        argsObj?.optString("path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("src")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("dir")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("archive_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("destination")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("source_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("destination_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("target_dir")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        argsObj?.optString("zip_path")?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                        val sourcePathsArr = argsObj?.optJSONArray("source_paths")
-                        if (sourcePathsArr != null) {
-                            for (i in 0 until sourcePathsArr.length()) {
-                                sourcePathsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { targetPaths.add(it) }
-                            }
-                        }
-                        if (targetPaths.isNotEmpty()) {
-                            targetPaths.all { tp ->
-                                val resolved = try {
-                                    ToolDispatcher.resolvePath(tp).canonicalFile
-                                } catch (_: Exception) {
-                                    val f = java.io.File(tp)
-                                    if (f.isAbsolute) f.canonicalFile else java.io.File(workingDirFile, tp).canonicalFile
-                                }
-                                resolved.canonicalPath == workingDirFile.canonicalPath || resolved.canonicalPath.startsWith("${workingDirFile.canonicalPath}/")
-                            }
-                        } else {
-                            false
-                        }
-                    }
-                } else false
+                    } else false
+                }
             }
         } else false
 
@@ -3695,11 +3884,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             blockedByDryRun -> false
             blockedByReadOnly -> false
             blockedByLiveModeOff -> false
-            isInsideWorkingDir -> false
-            // Аргументы из недоверенного вывода проверяем ДО Live-исключения
-            // ниже: текст, прочитанный из файла или буфера, - единственная
-            // защита, которую нельзя отключать режимами.
+            // Аргументы из недоверенного вывода проверяем ДО всех авто-режимов
+            // (рабочая папка, shellNoConfirm, Live): текст, прочитанный из файла
+            // или буфера, - единственная защита, которую нельзя отключать режимами.
             fromUntrusted -> true
+            isInsideWorkingDir -> false
             // Пользователь отдельно доверил shell: команды идут сразу.
             // Абсолютные запреты, root-гейт, read-only и сухой прогон
             // проверяются выше и всё равно срабатывают.
@@ -3751,7 +3940,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else if (needConfirm) {
             _currentStatus.value = "Жду подтверждения"
             hapticManager.onConfirmationRequired(_settings.value)
-            val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+            val info = withContext(Dispatchers.IO) {
+                ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+            }
 
             val decision = if (_settings.value.liveModeEnabled) {
                 // Live-задача сразу свернула приложение: шторка подтверждения
@@ -4163,9 +4354,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun availableToolCount(): Int =
         ToolDispatcher.availableToolCount(_settings.value.liveModeEnabled)
 
-    private fun freshContext(): JSONArray = JSONArray().apply {
+    private suspend fun freshContext(): JSONArray {
         // База зашита в код + доп. инструкции пользователя (если заданы).
-        put(systemMessage())
+        val arr = JSONArray()
+        arr.put(systemMessage())
+        return arr
     }
 
     /**
@@ -4175,7 +4368,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * и доп. инструкции могут измениться посреди сессии, а контекст лежит в базе
      * как есть и переживает перезапуск.
      */
-    private fun systemMessage(extraNote: String = ""): JSONObject {
+    private suspend fun systemMessage(extraNote: String = ""): JSONObject {
         var content = AppSettings.buildFinalSystemPrompt(
             _settings.value.effectiveInstructions,
             readOnly = _settings.value.readOnlyMode,
@@ -4199,7 +4392,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeToolScope?.let { scope ->
             content = content + "\n\n" + ToolDispatcher.toolScopeNote(scope, _settings.value.liveModeEnabled)
         }
-        content = content.trimEnd() + "\n\n" + deviceCapabilitiesNote()
+        val capabilities = withContext(Dispatchers.IO) { deviceCapabilitiesNote() }
+        content = content.trimEnd() + "\n\n" + capabilities
         return JSONObject().apply {
             put("role", "system")
             put("content", content)
@@ -4273,6 +4467,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val scope = mutableSetOf<String>()
             scope.addAll(ToolDispatcher.LIVE_TOOL_NAMES)
             scope.addAll(ToolDispatcher.CORE_TOOL_NAMES)
+            approvedPlanSteps?.map { it.tool }?.let { scope.addAll(it) }
+            scope.addAll(enabledToolNames)
+            scope.add(ToolDispatcher.ENABLE_TOOLS)
             activeToolScope = scope
             return
         }
@@ -4296,8 +4493,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * в том, чтобы модель описала пользователю, что именно будет сделано,
      * опираясь на реальные данные, а не на догадки.
      */
-    private fun dryRunRefusal(call: ToolCall): String {
-        val info = ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+    private suspend fun dryRunRefusal(call: ToolCall): String {
+        val info = withContext(Dispatchers.IO) {
+            ToolDispatcher.describeCriticalAction(call.name, call.arguments)
+        }
         return buildString {
             append("СУХОЙ ПРОГОН: операция НЕ выполнена, ничего не изменено.\n")
             append("Инструмент: ${call.name.substringAfterLast(":")}\n")
@@ -4315,7 +4514,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Обработка `enable_tools`: это не файловая операция, а часть диалога,
      * поэтому живёт здесь, а не в ToolDispatcher.
      */
-    private fun enableTools(argsJson: String): String {
+    private suspend fun enableTools(argsJson: String): String {
         val args = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Exception) {
@@ -4380,7 +4579,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Обновляет системное сообщение в текущем контексте, если оно там есть. */
-    private fun refreshSystemPrompt(extraNote: String = "") {
+    private suspend fun refreshSystemPrompt(extraNote: String = "") {
         if (conversationJson.length() == 0) return
         val first = conversationJson.optJSONObject(0) ?: return
         if (first.optString("role") != "system") return
@@ -4517,7 +4716,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sessionId = sessionId,
         role = role.name,
         content = content,
-        imageUris = if (imageUris.isEmpty()) null else imageUris.joinToString(","),
+        imageUris = ChatRepository.encodeImageUris(imageUris),
         toolName = toolName,
         toolArgs = toolArgs,
         toolOutput = toolOutput,
@@ -4662,7 +4861,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             MessageRole.SYSTEM_INFO
         },
         content = content,
-        imageUris = imageUris?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+        imageUris = ChatRepository.decodeImageUris(imageUris),
         toolName = toolName,
         toolArgs = toolArgs,
         toolOutput = toolOutput,

@@ -59,6 +59,7 @@ fun UsageSettings(viewModel: MainViewModel) {
     val events by viewModel.usageEvents.collectAsState()
     val currentSessionId by viewModel.currentSessionId.collectAsState()
     val provider by viewModel.activeProvider.collectAsState()
+    val appSettings by viewModel.settings.collectAsState()
     val rateLimits by RateLimitStore.byHost.collectAsState()
 
     val zone = remember { ZoneId.systemDefault() }
@@ -86,8 +87,8 @@ fun UsageSettings(viewModel: MainViewModel) {
             day to events.filter { it.localDate(zone) == day }.totals()
         }
     }
-    val rateLimit = remember(provider?.baseUrl, rateLimits) {
-        provider?.let { RateLimitStore.forBaseUrl(it.baseUrl) }
+    val rateLimit = remember(provider?.baseUrl, appSettings.reverseProxyUrl, rateLimits) {
+        provider?.let { RateLimitStore.forBaseUrl(it.baseUrl, appSettings.reverseProxyUrl) }
     }
     val supportsBalance = provider?.let { ProviderBalanceChecker.supports(it) } == true
 

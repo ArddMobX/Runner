@@ -44,7 +44,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +66,6 @@ import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.util.PluralUtils
 import com.runner.app.util.UrlSanitizer
-import kotlinx.coroutines.delay
 import com.runner.app.ui.components.RunnerIcons
 
 /**
@@ -94,23 +92,26 @@ fun ProviderEditScreen(
     val status = remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    // Авто-подгрузка моделей: как только пользователь закончил вводить ключ
-    // или Base URL, через 600 мс сами идём в GET /models. Ключ при этом
-    // не сохраняем — только список моделей, ключ уйдёт по кнопке «Сохранить».
-    var autoFetchEnabled by remember(providerId) { mutableStateOf(false) }
-
-    LaunchedEffect(apiKey, baseUrl, autoFetchEnabled) {
-        if (!autoFetchEnabled) return@LaunchedEffect
-        val cleanUrl = UrlSanitizer.sanitizeBaseUrl(baseUrl)
-        val cleanKey = apiKey.trim()
-        if (cleanKey.isBlank() || cleanUrl.isBlank()) return@LaunchedEffect
-        delay(600)
-        viewModel.fetchModels(provider.id, cleanUrl, cleanKey) { status.value = it }
-    }
-
     val isActive = provider.id == activeProviderId
     val isDirty = name != provider.name || baseUrl != provider.baseUrl || apiKey != provider.apiKey
     val isLoadingModels = loadingFor == provider.id
+
+    fun persistDraft(): Pair<String, String> {
+        val cleanUrl = UrlSanitizer.sanitizeBaseUrl(baseUrl)
+        val cleanKey = apiKey.trim()
+        val cleanName = name.trim().ifBlank { "Без названия" }
+        viewModel.saveProvider(
+            provider.copy(
+                name = cleanName,
+                baseUrl = cleanUrl,
+                apiKey = cleanKey
+            )
+        )
+        name = cleanName
+        baseUrl = cleanUrl
+        apiKey = cleanKey
+        return cleanUrl to cleanKey
+    }
 
     val providerLogo = remember(provider.id, name) {
         ProviderLogos.forProvider(provider.id, name)
@@ -222,7 +223,6 @@ fun ProviderEditScreen(
                                 .clickable {
                                     name = preset.name
                                     baseUrl = preset.baseUrl
-                                    autoFetchEnabled = true
                                 }
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
@@ -252,10 +252,7 @@ fun ProviderEditScreen(
                 FieldLabel("Base URL (адрес API)")
                 TextField(
                     value = baseUrl,
-                    onValueChange = {
-                        baseUrl = it
-                        autoFetchEnabled = true
-                    },
+                    onValueChange = { baseUrl = it },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         Text("https://api.groq.com/openai/v1", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = TypeScale.label)
@@ -269,10 +266,7 @@ fun ProviderEditScreen(
                 FieldLabel("API-ключ")
                 TextField(
                     value = apiKey,
-                    onValueChange = {
-                        apiKey = it
-                        autoFetchEnabled = true
-                    },
+                    onValueChange = { apiKey = it },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         val isGemini = provider.id.contains("gemini", ignoreCase = true) || name.contains("gemini", ignoreCase = true)
@@ -325,18 +319,13 @@ fun ProviderEditScreen(
                 ) {
                     Button(
                         onClick = {
-                            val cleanUrl = UrlSanitizer.sanitizeBaseUrl(baseUrl)
-                            val cleanKey = apiKey.trim()
-                            viewModel.saveProvider(
-                                provider.copy(
-                                    name = name.trim().ifBlank { "Без названия" },
-                                    baseUrl = cleanUrl,
-                                    apiKey = cleanKey
-                                )
-                            )
-                            baseUrl = cleanUrl
-                            apiKey = cleanKey
+                            val (cleanUrl, cleanKey) = persistDraft()
                             status.value = "Сохранено"
+                            // Подгружаем список моделей только после явного сохранения пары URL+ключ,
+                            // чтобы при вводе нового ключа он не уходил на старый Base URL.
+                            if (cleanUrl.isNotBlank() && cleanKey.isNotBlank()) {
+                                viewModel.fetchModels(provider.id, cleanUrl, cleanKey) { status.value = it }
+                            }
                         },
                         modifier = Modifier
                             .weight(1f)
@@ -356,7 +345,22 @@ fun ProviderEditScreen(
 
                     if (!isActive) {
                         OutlinedButton(
-                            onClick = { viewModel.selectProvider(provider.id) },
+                            onClick = {
+                                val wasDirty = isDirty
+                                val savedCreds = if (wasDirty) persistDraft() else null
+                                viewModel.selectProvider(provider.id)
+                                status.value = if (wasDirty) {
+                                    "Сохранено и выбрано активным"
+                                } else {
+                                    "Провайдер стал активным"
+                                }
+                                if (savedCreds != null) {
+                                    val (cleanUrl, cleanKey) = savedCreds
+                                    if (cleanUrl.isNotBlank() && cleanKey.isNotBlank() && provider.models.isEmpty()) {
+                                        viewModel.fetchModels(provider.id, cleanUrl, cleanKey) { status.value = it }
+                                    }
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .defaultMinSize(minHeight = 44.dp),
@@ -405,8 +409,9 @@ fun ProviderEditScreen(
                     }
                     IconButton(
                         onClick = {
-                            autoFetchEnabled = false
-                            viewModel.fetchModels(provider.id, baseUrl, apiKey) { status.value = it }
+                            val cleanUrl = UrlSanitizer.sanitizeBaseUrl(baseUrl)
+                            val cleanKey = apiKey.trim()
+                            viewModel.fetchModels(provider.id, cleanUrl, cleanKey) { status.value = it }
                         },
                         enabled = !isLoadingModels
                     ) {
@@ -434,8 +439,8 @@ fun ProviderEditScreen(
                         text = if (isLoadingModels) {
                             "Загружаю список моделей…"
                         } else {
-                            "Список пуст. Модели подтянутся сами после ввода ключа, " +
-                                    "либо нажмите кнопку обновления."
+                            "Список пуст. Нажмите «Сохранить» или кнопку обновления, " +
+                                    "чтобы загрузить список моделей."
                         },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption,
@@ -455,6 +460,7 @@ fun ProviderEditScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
+                                            if (isDirty) persistDraft()
                                             viewModel.selectModel(provider.id, model.id)
                                             status.value = "Модель: ${model.id}"
                                         }

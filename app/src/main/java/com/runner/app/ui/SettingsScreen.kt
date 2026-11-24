@@ -24,33 +24,32 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -90,6 +89,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -148,6 +148,7 @@ import com.runner.app.ui.theme.StatusWarning
 import com.runner.app.ui.theme.TypeScale
 import com.runner.app.ui.theme.accessibleMinHeight
 import com.runner.app.ui.theme.bounceClick
+import com.runner.app.ui.theme.bounceOnPress
 import com.runner.app.util.PluralUtils
 import kotlinx.coroutines.launch
 import java.net.URI
@@ -158,7 +159,6 @@ private sealed interface SettingsRoute {
     data object Root : SettingsRoute
     data object Providers : SettingsRoute
     data class ProviderEdit(val providerId: String) : SettingsRoute
-    data object Agent : SettingsRoute
     data object AgentBehavior : SettingsRoute
     data object AgentTools : SettingsRoute
     data object AgentWorkspace : SettingsRoute
@@ -179,7 +179,7 @@ private sealed interface SettingsRoute {
     data object ShellLog : SettingsRoute
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel,
@@ -188,14 +188,29 @@ fun SettingsScreen(
     onOpenAppSettings: () -> Unit = {},
     onOpenSupport: () -> Unit = {}
 ) {
-    var route by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Root) }
-    BackHandler(enabled = route != SettingsRoute.Root) { route = SettingsRoute.Root }
+    var routeStack by remember { mutableStateOf<List<SettingsRoute>>(listOf(SettingsRoute.Root)) }
+    val route = routeStack.lastOrNull() ?: SettingsRoute.Root
+
+    fun navigateTo(target: SettingsRoute) {
+        if (routeStack.lastOrNull() != target) {
+            routeStack = routeStack + target
+        }
+    }
+
+    val goBack: () -> Unit = {
+        if (routeStack.size > 1) {
+            routeStack = routeStack.dropLast(1)
+        } else {
+            onBackClick()
+        }
+    }
+
+    BackHandler(enabled = routeStack.size > 1) { goBack() }
 
     val title = when (route) {
         SettingsRoute.Root -> "Настройки"
         SettingsRoute.Providers -> "Провайдеры"
         is SettingsRoute.ProviderEdit -> "Провайдер"
-        SettingsRoute.Agent -> "Агент"
         SettingsRoute.AgentBehavior -> "Поведение"
         SettingsRoute.AgentTools -> "Инструменты и доступ"
         SettingsRoute.AgentWorkspace -> "Рабочая папка"
@@ -212,29 +227,35 @@ fun SettingsScreen(
         SettingsRoute.ShellLog -> "Журнал команд"
     }
 
-    val goBack: () -> Unit = {
-        if (route == SettingsRoute.Root) {
-            onBackClick()
-        } else {
-            route = SettingsRoute.Root
-        }
-    }
+    val backInteractionSource = remember { MutableInteractionSource() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    AnimatedContent(
+                        targetState = title to routeStack.size,
+                        transitionSpec = {
+                            MotionTokens.sharedAxisTitleTransition(
+                                forward = targetState.second >= initialState.second
+                            )
+                        },
+                        contentKey = { it.first },
+                        label = "settings_title"
+                    ) { (animatedTitle, _) ->
+                        Text(
+                            text = animatedTitle,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(
                         onClick = goBack,
-                        modifier = Modifier.bounceClick { goBack() }
+                        interactionSource = backInteractionSource,
+                        modifier = Modifier.bounceOnPress(backInteractionSource)
                     ) {
                         Icon(
                             imageVector = RunnerIcons.ArrowBack,
@@ -256,41 +277,58 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .navigationBarsPadding()
+                .consumeWindowInsets(paddingValues)
                 .imePadding()
         ) {
-            when (val current = route) {
-                SettingsRoute.Root -> SettingsRoot(viewModel) { route = it }
+            AnimatedContent(
+                targetState = route to routeStack.size,
+                transitionSpec = {
+                    MotionTokens.sharedAxisXTransition(
+                        forward = targetState.second >= initialState.second
+                    )
+                },
+                contentKey = { it.first },
+                modifier = Modifier.fillMaxSize(),
+                label = "settings_route"
+            ) { (current, _) ->
+                when (current) {
+                    SettingsRoute.Root -> SettingsRoot(viewModel) { navigateTo(it) }
 
-                SettingsRoute.Providers -> ProvidersList(viewModel) { route = SettingsRoute.ProviderEdit(it) }
+                    SettingsRoute.Providers -> ProvidersList(viewModel) { navigateTo(SettingsRoute.ProviderEdit(it)) }
 
-                is SettingsRoute.ProviderEdit -> ProviderEditScreen(
-                    viewModel = viewModel,
-                    providerId = current.providerId,
-                    onDeleted = { route = SettingsRoute.Providers }
-                )
+                    is SettingsRoute.ProviderEdit -> ProviderEditScreen(
+                        viewModel = viewModel,
+                        providerId = current.providerId,
+                        onDeleted = {
+                            routeStack = if (routeStack.size > 1) {
+                                routeStack.dropLast(1)
+                            } else {
+                                listOf(SettingsRoute.Root, SettingsRoute.Providers)
+                            }
+                        }
+                    )
 
-                SettingsRoute.Agent -> AgentSettings(viewModel) { route = it }
-                SettingsRoute.AgentBehavior -> AgentBehaviorSettings(viewModel)
-                SettingsRoute.AgentTools -> AgentToolsSettings(viewModel) { route = it }
-                SettingsRoute.AgentWorkspace -> AgentWorkspaceSettings(viewModel)
+                    SettingsRoute.AgentBehavior -> AgentBehaviorSettings(viewModel)
+                    SettingsRoute.AgentTools -> AgentToolsSettings(viewModel) { navigateTo(it) }
+                    SettingsRoute.AgentWorkspace -> AgentWorkspaceSettings(viewModel)
 
-                SettingsRoute.Commands -> CustomCommandsScreen(viewModel)
+                    SettingsRoute.Commands -> CustomCommandsScreen(viewModel)
 
-                SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
+                    SettingsRoute.Access -> AccessSettings(viewModel, onOpenStorageSettings, onOpenAppSettings)
 
-                SettingsRoute.Security -> SecuritySettings(viewModel)
+                    SettingsRoute.Security -> SecuritySettings(viewModel)
 
-                SettingsRoute.Appearance -> AppearanceSettings(viewModel)
-                SettingsRoute.Network -> NetworkSettings(viewModel)
-                SettingsRoute.Diagnostics -> DiagnosticsSettings { route = it }
-                SettingsRoute.Data -> DataSettings(viewModel) { route = it }
-                SettingsRoute.Usage -> UsageSettings(viewModel)
-                SettingsRoute.About -> AboutSettings(viewModel, onOpenSupport)
+                    SettingsRoute.Appearance -> AppearanceSettings(viewModel)
+                    SettingsRoute.Network -> NetworkSettings(viewModel)
+                    SettingsRoute.Diagnostics -> DiagnosticsSettings { navigateTo(it) }
+                    SettingsRoute.Data -> DataSettings(viewModel) { navigateTo(it) }
+                    SettingsRoute.Usage -> UsageSettings(viewModel)
+                    SettingsRoute.About -> AboutSettings(viewModel, onOpenSupport)
 
-                SettingsRoute.Trash -> TrashListScreen(viewModel)
+                    SettingsRoute.Trash -> TrashListScreen(viewModel)
 
-                SettingsRoute.ShellLog -> ShellLogScreen()
+                    SettingsRoute.ShellLog -> ShellLogScreen()
+                }
             }
         }
     }
@@ -734,6 +772,17 @@ private fun SettingsRoot(
                 onClick = { onNavigate(SettingsRoute.Providers) },
                 icon = RunnerIcons.SmartToy
             )
+            SettingsDivider()
+            SettingsRow(
+                label = "Сеть и прокси",
+                value = if (appSettings.reverseProxyUrl.isBlank()) {
+                    "Прямое подключение · ${appSettings.connectTimeoutSeconds}/${appSettings.responseTimeoutSeconds} с"
+                } else {
+                    appSettings.reverseProxyUrl
+                },
+                onClick = { onNavigate(SettingsRoute.Network) },
+                icon = RunnerIcons.Refresh
+            )
         }
 
         SettingsGroup("Агент") {
@@ -1147,8 +1196,24 @@ private fun NetworkSettings(viewModel: MainViewModel) {
     val activeProvider by viewModel.activeProvider.collectAsState()
     val connectionState by viewModel.connectionTestState.collectAsState()
     val context = LocalContext.current
-    val proxyUrl = appSettings.reverseProxyUrl
+    var proxyUrl by remember { mutableStateOf(appSettings.reverseProxyUrl) }
+    var lastPersistedProxy by remember { mutableStateOf(appSettings.reverseProxyUrl) }
+    LaunchedEffect(appSettings.reverseProxyUrl) {
+        if (appSettings.reverseProxyUrl != lastPersistedProxy) {
+            proxyUrl = appSettings.reverseProxyUrl
+            lastPersistedProxy = appSettings.reverseProxyUrl
+        }
+    }
     val isValidProxy = remember(proxyUrl) { isValidHttpUrl(proxyUrl) }
+
+    fun onProxyInputChanged(raw: String) {
+        proxyUrl = raw
+        val trimmed = raw.trim()
+        if (isPersistableReverseProxyUrl(trimmed) && trimmed != appSettings.reverseProxyUrl) {
+            lastPersistedProxy = trimmed
+            viewModel.updateSettings(appSettings.copy(reverseProxyUrl = trimmed))
+        }
+    }
 
     // VPN или другая сеть включилась, пока открыт экран: перепроверяем сами,
     // но только если предыдущая проверка не удалась или её ещё не было.
@@ -1198,9 +1263,7 @@ private fun NetworkSettings(viewModel: MainViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 BasicTextField(
                     value = proxyUrl,
-                    onValueChange = {
-                        viewModel.updateSettings(appSettings.copy(reverseProxyUrl = it))
-                    },
+                    onValueChange = { onProxyInputChanged(it) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RunnerShapes.small)
@@ -1243,11 +1306,9 @@ private fun NetworkSettings(viewModel: MainViewModel) {
 
                             IconButton(
                                 onClick = {
-                                    val text = readClipboard(context)
+                                    val text = readClipboard(context).trim()
                                     if (text.isNotBlank()) {
-                                        viewModel.updateSettings(
-                                            appSettings.copy(reverseProxyUrl = text.trim())
-                                        )
+                                        onProxyInputChanged(text)
                                     }
                                 },
                                 modifier = Modifier.size(30.dp)
@@ -1266,8 +1327,8 @@ private fun NetworkSettings(viewModel: MainViewModel) {
                 Text(
                     text = when {
                         proxyUrl.isBlank() -> "Если задан, запросы идут через него вместо прямого Base URL."
-                        isValidProxy -> "Адрес корректен."
-                        else -> "Нужен полный адрес вида https://host/path"
+                        isValidProxy -> "Адрес корректен и сохранён."
+                        else -> "Нужен полный адрес вида https://host/path (несохранённый черновик)"
                     },
                     color = if (proxyUrl.isNotBlank() && !isValidProxy) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
                     fontSize = TypeScale.caption
@@ -1483,9 +1544,21 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
     val appSettings by viewModel.settings.collectAsState()
     val themeConfig by viewModel.themeConfig.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var permissionRefreshTick by remember { mutableStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permissionRefreshTick++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
+        permissionRefreshTick++
         if (isGranted) {
             viewModel.updateSettings(appSettings.copy(notifyOnCompletion = true))
         } else {
@@ -1599,7 +1672,7 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
                         fontSize = TypeScale.body
                     )
                     Text(
-                        text = "Переходы экранов, нажатия и раскрытие карточек",
+                        text = "Пружинные переходы экранов и карточек. Выключите для полного отключения",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = TypeScale.caption
                     )
@@ -1735,11 +1808,13 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
 
             SettingsDivider()
 
-            val notificationsPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.POST_NOTIFICATIONS
-                    ) == PackageManager.PERMISSION_GRANTED
+            val notificationsPermissionGranted = remember(context, permissionRefreshTick) {
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1882,8 +1957,15 @@ private fun AppearanceSettings(viewModel: MainViewModel) {
                 CustomSuggestionsManager(
                     customSuggestions = appSettings.customPromptSuggestions,
                     onAddSuggestion = { newSuggestion ->
-                        val updated = appSettings.customPromptSuggestions + newSuggestion
-                        viewModel.updateSettings(appSettings.copy(customPromptSuggestions = updated))
+                        val updated = mergeUniqueSuggestion(
+                            existing = appSettings.customPromptSuggestions,
+                            candidate = newSuggestion
+                        )
+                        if (updated.size == appSettings.customPromptSuggestions.size) {
+                            Toast.makeText(context, "Такой сценарий уже добавлен", Toast.LENGTH_SHORT).show()
+                        } else {
+                            viewModel.updateSettings(appSettings.copy(customPromptSuggestions = updated))
+                        }
                     },
                     onRemoveSuggestion = { indexToRemove ->
                         val updated = appSettings.customPromptSuggestions.toMutableList().apply {
@@ -1906,6 +1988,7 @@ private fun ApiQuickGuideCard() {
     var isExpanded by remember { mutableStateOf(false) }
     val rotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = MotionTokens.spatialFast(),
         label = "guide_chevron"
     )
     val context = LocalContext.current
@@ -1964,16 +2047,8 @@ private fun ApiQuickGuideCard() {
 
             AnimatedVisibility(
                 visible = isExpanded,
-                enter = expandVertically(
-                    animationSpec = MotionTokens.fluidSpring()
-                ) + fadeIn(
-                    animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
-                ),
-                exit = shrinkVertically(
-                    animationSpec = MotionTokens.fluidSpring()
-                ) + fadeOut(
-                    animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast)
-                )
+                enter = MotionTokens.expandSectionEnter(),
+                exit = MotionTokens.expandSectionExit()
             ) {
                 Column(
                     modifier = Modifier
@@ -2399,49 +2474,6 @@ private fun ProvidersList(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AgentSettings(viewModel: MainViewModel, onNavigate: (SettingsRoute) -> Unit) {
-    val appSettings by viewModel.settings.collectAsState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
-    ) {
-        SettingsGroup("Агент") {
-            SettingsRow(
-                label = "Поведение",
-                value = "${appSettings.temperature} · " +
-                        if (appSettings.maxSteps == 0) "Без лимита" else PluralUtils.steps(appSettings.maxSteps),
-                onClick = { onNavigate(SettingsRoute.AgentBehavior) },
-                icon = RunnerIcons.Tune
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Инструменты и доступ",
-                value = "Подтверждения, shell, root и мосты",
-                onClick = { onNavigate(SettingsRoute.AgentTools) },
-                icon = RunnerIcons.Terminal
-            )
-            SettingsDivider()
-            SettingsRow(
-                label = "Рабочая папка",
-                value = appSettings.defaultWorkingDir
-                    .takeIf { it.isNotBlank() }
-                    ?.trimEnd('/')
-                    ?.substringAfterLast('/')
-                    ?.takeIf { it.isNotEmpty() }
-                    ?: "Вся память",
-                onClick = { onNavigate(SettingsRoute.AgentWorkspace) },
-                icon = RunnerIcons.FolderSpecial
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
@@ -3219,9 +3251,21 @@ private fun BridgeSettings(
     appSettings: AppSettings
 ) {
     val context = LocalContext.current
-    val termuxInstalled = TermuxBridge.isInstalled(context)
-    val termuxPermission = TermuxBridge.hasRunCommandPermission(context)
-    val shizukuInstalled = ShizukuBridge.isInstalled(context)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var bridgeRefreshTick by remember { mutableStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                bridgeRefreshTick++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val termuxInstalled = remember(context, bridgeRefreshTick) { TermuxBridge.isInstalled(context) }
+    val termuxPermission = remember(context, bridgeRefreshTick) { TermuxBridge.hasRunCommandPermission(context) }
+    val termuxStatusText = remember(context, bridgeRefreshTick) { TermuxBridge.status(context) }
+    val shizukuInstalled = remember(context, bridgeRefreshTick) { ShizukuBridge.isInstalled(context) }
     var showTermuxWarning by remember { mutableStateOf(false) }
     var showShizukuWarning by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -3253,7 +3297,7 @@ private fun BridgeSettings(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = TermuxBridge.status(context),
+                        text = termuxStatusText,
                         color = if (termuxInstalled && termuxPermission) {
                             StatusSuccess
                         } else {
@@ -4252,9 +4296,7 @@ private fun InstructionProfilesField(
                     shape = RunnerShapes.large,
                     color = bgColor,
                     border = border,
-                    modifier = Modifier
-                        .bounceClick { viewModel.selectInstructionProfile(profile.id) }
-                        .clickable { viewModel.selectInstructionProfile(profile.id) }
+                    modifier = Modifier.bounceClick { viewModel.selectInstructionProfile(profile.id) }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -4286,9 +4328,7 @@ private fun InstructionProfilesField(
                 shape = RunnerShapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainerLowest,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier
-                    .bounceClick { showCreateDialog = true }
-                    .clickable { showCreateDialog = true }
+                modifier = Modifier.bounceClick { showCreateDialog = true }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -4522,9 +4562,7 @@ private fun TtsSettingsCard(
                         shape = RunnerShapes.large,
                         color = if (isDefSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLowest,
                         border = if (isDefSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .bounceClick { viewModel.updateSettings(appSettings.copy(ttsVoiceName = "")) }
-                            .clickable { viewModel.updateSettings(appSettings.copy(ttsVoiceName = "")) }
+                        modifier = Modifier.bounceClick { viewModel.updateSettings(appSettings.copy(ttsVoiceName = "")) }
                     ) {
                         Text(
                             text = "По умолчанию",
@@ -4540,9 +4578,7 @@ private fun TtsSettingsCard(
                             shape = RunnerShapes.large,
                             color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLowest,
                             border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            modifier = Modifier
-                                .bounceClick { viewModel.updateSettings(appSettings.copy(ttsVoiceName = voice.name)) }
-                                .clickable { viewModel.updateSettings(appSettings.copy(ttsVoiceName = voice.name)) }
+                            modifier = Modifier.bounceClick { viewModel.updateSettings(appSettings.copy(ttsVoiceName = voice.name)) }
                         ) {
                             Text(
                                 text = voice.displayName,
@@ -4571,9 +4607,11 @@ private fun TtsSettingsCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = TypeScale.label
             )
+            val previewInteractionSource = remember { MutableInteractionSource() }
             OutlinedButton(
                 onClick = { viewModel.previewTtsVoice() },
-                modifier = Modifier.bounceClick { viewModel.previewTtsVoice() },
+                interactionSource = previewInteractionSource,
+                modifier = Modifier.bounceOnPress(previewInteractionSource),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Icon(
@@ -4811,7 +4849,11 @@ private fun WorkingDirField(
             if (resolved != null) {
                 onDirChange(resolved)
             } else {
-                Toast.makeText(context, "Выбрана папка: $uri", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    "Не удалось определить путь к папке. Выберите папку в основной памяти или введите путь вручную.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -5024,7 +5066,7 @@ private fun <T> SegmentedChips(
                     active -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
                 },
-                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+                animationSpec = MotionTokens.effectsFast(),
                 label = "segment_background"
             )
             val labelColor by animateColorAsState(
@@ -5033,7 +5075,7 @@ private fun <T> SegmentedChips(
                     active -> MaterialTheme.colorScheme.onPrimary
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+                animationSpec = MotionTokens.effectsFast(),
                 label = "segment_label"
             )
             val borderColor by animateColorAsState(
@@ -5042,7 +5084,7 @@ private fun <T> SegmentedChips(
                     active -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                 },
-                animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+                animationSpec = MotionTokens.effectsFast(),
                 label = "segment_border"
             )
 
@@ -5092,6 +5134,7 @@ private fun SettingSlider(
     val stepSize = span / intervals
     val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
     val thumbSize = 14.dp
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
 
     fun snap(raw: Float): Float {
         val clamped = raw.coerceIn(valueRange.start, valueRange.endInclusive)
@@ -5112,14 +5155,14 @@ private fun SettingSlider(
                     val trackWidth = size.width.toFloat().coerceAtLeast(1f)
                     awaitEachGesture {
                         val down = awaitFirstDown()
-                        onValueChange(
+                        currentOnValueChange(
                             snap(valueRange.start + (down.position.x / trackWidth) * span)
                         )
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: break
                             if (!change.pressed) break
-                            onValueChange(
+                            currentOnValueChange(
                                 snap(valueRange.start + (change.position.x / trackWidth) * span)
                             )
                             change.consume()
@@ -5573,17 +5616,17 @@ private fun AccessSettings(
             }
         }
 
-        val activity = context as? androidx.activity.ComponentActivity
-        DisposableEffect(activity) {
-            if (activity == null) return@DisposableEffect onDispose {}
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner) {
             val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                 if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                     isAssistantActive = checkAssistantActive()
+                    viewModel.checkAllPermissions()
                 }
             }
-            activity.lifecycle.addObserver(observer)
+            lifecycleOwner.lifecycle.addObserver(observer)
             onDispose {
-                activity.lifecycle.removeObserver(observer)
+                lifecycleOwner.lifecycle.removeObserver(observer)
             }
         }
 
@@ -5716,7 +5759,7 @@ private fun AccessSettings(
                 if (!isAssistantActive) {
                     Spacer(modifier = Modifier.height(6.dp))
                     TextButton(
-                        onClick = { showAssistantBetaWarningDialog = true },
+                        onClick = { openSystemAssistantSettings() },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
@@ -6318,7 +6361,7 @@ private fun ConnectionStatusWidget(
     }
 }
 
-private fun isValidHttpUrl(value: String): Boolean {
+internal fun isValidHttpUrl(value: String): Boolean {
     val trimmed = value.trim()
     if (trimmed.isBlank()) return false
     return try {
@@ -6330,9 +6373,24 @@ private fun isValidHttpUrl(value: String): Boolean {
     }
 }
 
+internal fun isPersistableReverseProxyUrl(value: String): Boolean {
+    val trimmed = value.trim()
+    return trimmed.isEmpty() || isValidHttpUrl(trimmed)
+}
+
+internal fun mergeUniqueSuggestion(existing: List<String>, candidate: String): List<String> {
+    val clean = candidate.trim()
+    if (clean.isEmpty()) return existing
+    val normalizedExisting = existing.map { it.trim().lowercase(Locale.ROOT) }.toSet()
+    if (clean.lowercase(Locale.ROOT) in normalizedExisting) return existing
+    return existing + clean
+}
+
 private fun readClipboard(context: Context): String {
-    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    return manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return ""
+    val clip = manager.primaryClip ?: return ""
+    if (clip.itemCount <= 0) return ""
+    return clip.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
 }
 
 @Composable

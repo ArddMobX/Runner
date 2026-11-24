@@ -7,12 +7,6 @@ import android.media.MediaPlayer
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,11 +22,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -77,19 +73,36 @@ fun mediaKindOf(fileName: String): MediaKind {
     }
 }
 
+private val ABSOLUTE_ROOT_SEGMENTS = setOf(
+    "storage", "sdcard", "data", "mnt", "system", "vendor",
+    "product", "proc", "sys", "dev", "cache", "oem", "apex"
+)
+
+internal fun resolveFileEntryAbsolutePath(folder: String?, name: String): String? {
+    val cleanName = name.trim()
+    if (cleanName.isEmpty()) return null
+    val folderPart = folder?.trim()?.trim('/').orEmpty()
+    return when {
+        folderPart.isNotEmpty() -> {
+            val firstSegment = folderPart.substringBefore('/').lowercase()
+            if (firstSegment in ABSOLUTE_ROOT_SEGMENTS) {
+                "/$folderPart/$cleanName"
+            } else {
+                "/storage/emulated/0/$folderPart/$cleanName"
+            }
+        }
+        cleanName.startsWith("/") -> cleanName
+        else -> null
+    }
+}
+
 /**
  * Абсолютный путь к файлу. В FileEntry папка хранится без ведущего слэша,
- * потому что парсер его срезает для читаемости.
+ * потому что парсер его срезает для читаемости. Относительные папки вроде
+ * `DCIM/Camera` резолвятся относительно `/storage/emulated/0/`.
  */
 val FileEntry.absolutePath: String?
-    get() {
-        val folderPart = folder?.trim('/').orEmpty()
-        return when {
-            folderPart.isNotEmpty() -> "/$folderPart/$name"
-            name.startsWith("/") -> name
-            else -> null
-        }
-    }
+    get() = resolveFileEntryAbsolutePath(folder, name)
 
 /**
  * Плеер для превью из чата. Держит один MediaPlayer: одновременно играет
@@ -105,40 +118,81 @@ object AudioPreviewPlayer {
     var isPlaying by mutableStateOf(false)
         private set
 
+    var isPreparing by mutableStateOf(false)
+        private set
+
     var lastError by mutableStateOf<String?>(null)
         private set
 
+    var errorEvent by mutableStateOf<Pair<String, String>?>(null)
+        private set
+
+    fun consumeError() {
+        errorEvent = null
+    }
+
     fun toggle(path: String) {
         if (activePath == path && player != null) {
-            if (isPlaying) pause() else resume()
+            when {
+                isPreparing -> release()
+                isPlaying -> pause()
+                else -> resume()
+            }
             return
         }
         release()
         try {
-            val created = MediaPlayer().apply {
-                setDataSource(path)
-                // Явный получатель обязателен: у самого MediaPlayer есть
-                // синтетическое свойство isPlaying без сеттера, и без префикса
-                // компилятор ругается «Val cannot be reassigned»
-                setOnCompletionListener {
-                    AudioPreviewPlayer.isPlaying = false
-                    AudioPreviewPlayer.activePath = null
-                }
-                setOnErrorListener { _, _, _ ->
-                    AudioPreviewPlayer.lastError = "Не удалось воспроизвести файл"
-                    AudioPreviewPlayer.isPlaying = false
-                    AudioPreviewPlayer.activePath = null
-                    true
-                }
-                prepare()
-                start()
-            }
+            val created = MediaPlayer()
             player = created
             activePath = path
-            isPlaying = true
+            isPreparing = true
+            isPlaying = false
             lastError = null
+            errorEvent = null
+
+            created.setDataSource(path)
+            // Явный получатель обязателен: у самого MediaPlayer есть
+            // синтетическое свойство isPlaying без сеттера, и без префикса
+            // компилятор ругается «Val cannot be reassigned»
+            created.setOnPreparedListener { mp ->
+                if (player !== mp) {
+                    runCatching { mp.release() }
+                    return@setOnPreparedListener
+                }
+                AudioPreviewPlayer.isPreparing = false
+                try {
+                    mp.start()
+                    AudioPreviewPlayer.isPlaying = true
+                } catch (e: Exception) {
+                    val msg = e.localizedMessage ?: "Не удалось воспроизвести файл"
+                    AudioPreviewPlayer.lastError = msg
+                    AudioPreviewPlayer.errorEvent = path to msg
+                    release()
+                }
+            }
+            created.setOnCompletionListener { mp ->
+                if (player === mp) {
+                    release()
+                } else {
+                    runCatching { mp.release() }
+                }
+            }
+            created.setOnErrorListener { mp, _, _ ->
+                if (player === mp) {
+                    val msg = "Не удалось воспроизвести файл"
+                    AudioPreviewPlayer.lastError = msg
+                    AudioPreviewPlayer.errorEvent = path to msg
+                    release()
+                } else {
+                    runCatching { mp.release() }
+                }
+                true
+            }
+            created.prepareAsync()
         } catch (e: Exception) {
-            lastError = e.localizedMessage ?: "Не удалось открыть файл"
+            val msg = e.localizedMessage ?: "Не удалось открыть файл"
+            lastError = msg
+            errorEvent = path to msg
             release()
         }
     }
@@ -149,17 +203,26 @@ object AudioPreviewPlayer {
     }
 
     private fun resume() {
-        runCatching { player?.start() }
-        isPlaying = true
+        try {
+            player?.start()
+            isPlaying = true
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: "Не удалось продолжить воспроизведение"
+            lastError = msg
+            activePath?.let { errorEvent = it to msg }
+            release()
+        }
     }
 
     fun stop() = release()
 
     private fun release() {
-        player?.let { runCatching { it.release() } }
+        val toRelease = player
         player = null
+        isPreparing = false
         isPlaying = false
         activePath = null
+        toRelease?.let { runCatching { it.release() } }
     }
 }
 
@@ -169,6 +232,15 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
     val context = LocalContext.current
     val isActive = path != null && AudioPreviewPlayer.activePath == path
     val isPlaying = isActive && AudioPreviewPlayer.isPlaying
+    val isPreparing = isActive && AudioPreviewPlayer.isPreparing
+
+    LaunchedEffect(AudioPreviewPlayer.errorEvent, path) {
+        val event = AudioPreviewPlayer.errorEvent
+        if (event != null && event.first == path) {
+            Toast.makeText(context, event.second, Toast.LENGTH_SHORT).show()
+            AudioPreviewPlayer.consumeError()
+        }
+    }
 
     val background by animateColorAsState(
         targetValue = if (isActive) {
@@ -176,7 +248,7 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "play_background"
     )
     val iconTint by animateColorAsState(
@@ -185,7 +257,7 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
             isActive -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "play_tint"
     )
 
@@ -197,35 +269,31 @@ fun AudioPlayButton(path: String?, enabled: Boolean) {
             .clickable(enabled = enabled && path != null) {
                 if (path != null) {
                     AudioPreviewPlayer.toggle(path)
-                    // Иначе на неудаче кнопка просто молчит и выглядит сломанной
-                    AudioPreviewPlayer.lastError?.let { message ->
-                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                    }
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        // Иконка меняется через масштаб, а не подменой: глаз успевает
-        // заметить, что состояние переключилось
-        AnimatedContent(
-            targetState = isPlaying,
-            transitionSpec = {
-                (scaleIn(initialScale = 0.7f, animationSpec = MotionTokens.fluidSpring()) +
-                        fadeIn(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro))) togetherWith
-                        (scaleOut(
-                            targetScale = 0.7f,
-                            animationSpec = MotionTokens.fluidSpring()
-                        ) +
-                                fadeOut(animationSpec = MotionTokens.fluidTween(MotionTokens.DurationMicro)))
-            },
-            label = "play_pause_icon"
-        ) { playing ->
-            Icon(
-                imageVector = if (playing) RunnerIcons.Pause else RunnerIcons.PlayArrow,
-                contentDescription = if (playing) "Пауза" else "Воспроизвести",
-                tint = iconTint,
-                modifier = Modifier.size(18.dp)
+        if (isPreparing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = iconTint
             )
+        } else {
+            // Иконка меняется через масштаб, а не подменой: глаз успевает
+            // заметить, что состояние переключилось
+            AnimatedContent(
+                targetState = isPlaying,
+                transitionSpec = { MotionTokens.iconSwapTransition() },
+                label = "play_pause_icon"
+            ) { playing ->
+                Icon(
+                    imageVector = if (playing) RunnerIcons.Pause else RunnerIcons.PlayArrow,
+                    contentDescription = if (playing) "Пауза" else "Воспроизвести",
+                    tint = iconTint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
@@ -252,18 +320,50 @@ fun MediaKindBadge(kind: MediaKind) {
     }
 }
 
+sealed interface MediaThumbnailState {
+    data object Loading : MediaThumbnailState
+    data class Ready(val bitmap: ImageBitmap) : MediaThumbnailState
+    data object Failed : MediaThumbnailState
+}
+
+/**
+ * Уменьшенная копия картинки с явным состоянием загрузки, чтобы не мигать
+ * иконкой битого изображения во время декодирования на IO-потоке.
+ */
+@Composable
+fun rememberThumbnailState(path: String?, targetSize: Int): MediaThumbnailState {
+    val state by produceState<MediaThumbnailState>(
+        initialValue = if (path == null) MediaThumbnailState.Failed else MediaThumbnailState.Loading,
+        path,
+        targetSize
+    ) {
+        value = if (path == null) {
+            MediaThumbnailState.Failed
+        } else {
+            val decoded = withContext(Dispatchers.IO) {
+                decodeDownsampled(path, targetSize)
+            }
+            if (decoded != null) MediaThumbnailState.Ready(decoded) else MediaThumbnailState.Failed
+        }
+    }
+    return state
+}
+
 /**
  * Уменьшенная копия картинки. Декодируем с даунсэмплингом: полноразмерный
  * снимок с телефона иначе съест память на первом же списке.
  */
 @Composable
-fun rememberThumbnail(path: String?, targetSize: Int): ImageBitmap? {
-    val state by produceState<ImageBitmap?>(initialValue = null, path, targetSize) {
-        value = if (path == null) null else withContext(Dispatchers.IO) {
-            decodeDownsampled(path, targetSize)
-        }
+fun rememberThumbnail(path: String?, targetSize: Int): ImageBitmap? =
+    (rememberThumbnailState(path, targetSize) as? MediaThumbnailState.Ready)?.bitmap
+
+internal fun computeDownsampleSize(width: Int, height: Int, targetSize: Int): Int {
+    if (width <= 0 || height <= 0 || targetSize <= 0) return 1
+    var sample = 1
+    while (width / sample > targetSize || height / sample > targetSize) {
+        sample *= 2
     }
-    return state
+    return sample
 }
 
 private fun decodeDownsampled(path: String, targetSize: Int): ImageBitmap? = try {
@@ -273,16 +373,11 @@ private fun decodeDownsampled(path: String, targetSize: Int): ImageBitmap? = try
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
         null
     } else {
-        var sample = 1
-        while (bounds.outWidth / (sample * 2) >= targetSize &&
-            bounds.outHeight / (sample * 2) >= targetSize
-        ) {
-            sample *= 2
-        }
+        val sample = computeDownsampleSize(bounds.outWidth, bounds.outHeight, targetSize)
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
         BitmapFactory.decodeFile(path, options)?.asImageBitmap()
     }
-} catch (e: Exception) {
+} catch (_: Exception) {
     null
 }
 
@@ -290,31 +385,40 @@ private fun decodeDownsampled(path: String, targetSize: Int): ImageBitmap? = try
 @Composable
 fun ImageThumbnail(path: String?) {
     var showFull by remember { mutableStateOf(false) }
-    val bitmap = rememberThumbnail(path, targetSize = 160)
+    val thumbState = rememberThumbnailState(path, targetSize = 160)
 
     Box(
         modifier = Modifier
             .size(44.dp)
             .clip(RunnerShapes.small)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(enabled = bitmap != null) { showFull = true },
+            .clickable(enabled = thumbState is MediaThumbnailState.Ready) { showFull = true },
         contentAlignment = Alignment.Center
     ) {
-        val image = bitmap
-        if (image != null) {
-            Image(
-                bitmap = image,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Icon(
-                imageVector = RunnerIcons.BrokenImage,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(16.dp)
-            )
+        when (thumbState) {
+            is MediaThumbnailState.Ready -> {
+                Image(
+                    bitmap = thumbState.bitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            MediaThumbnailState.Loading -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 1.8.dp,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            MediaThumbnailState.Failed -> {
+                Icon(
+                    imageVector = RunnerIcons.BrokenImage,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 
@@ -326,7 +430,7 @@ fun ImageThumbnail(path: String?) {
 /** Просмотр картинки целиком. */
 @Composable
 fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
-    val bitmap = rememberThumbnail(path, targetSize = 1440)
+    val thumbState = rememberThumbnailState(path, targetSize = 1440)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -354,24 +458,46 @@ fun ImageViewerDialog(path: String, onDismiss: () -> Unit) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val image = bitmap
-            if (image != null) {
-                Image(
-                    bitmap = image,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .clip(RunnerShapes.medium)
-                )
-            } else {
-                Text(
-                    text = "Не удалось открыть изображение",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = TypeScale.body,
-                    modifier = Modifier.weight(1f)
-                )
+            when (thumbState) {
+                is MediaThumbnailState.Ready -> {
+                    Image(
+                        bitmap = thumbState.bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clip(RunnerShapes.medium)
+                    )
+                }
+                MediaThumbnailState.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                MediaThumbnailState.Failed -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Не удалось открыть изображение",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = TypeScale.body
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

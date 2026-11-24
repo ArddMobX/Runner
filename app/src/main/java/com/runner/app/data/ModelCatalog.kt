@@ -1,6 +1,8 @@
 package com.runner.app.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -8,6 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 /**
  * Модель провайдера. Название и длина контекста есть не у всех:
@@ -43,10 +46,64 @@ object ModelCatalog {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private val tokenBoundaryNonChat = listOf(
+        "aqa",
+        "guard",
+        "image",
+        "audio",
+        "live",
+        "video",
+        "speech",
+        "rerank",
+        "decision",
+        "genie",
+        "deep-research",
+        "computer-use",
+        "antigravity",
+        "search-preview"
+    )
+
+    private val blockedKeywords = listOf(
+        "embed",
+        "moderation",
+        "safeguard",
+        "content-safety",
+        "tts",
+        "orpheus",
+        "chirp",
+        "lyria",
+        "veo",
+        "whisper",
+        "transcribe",
+        "transcription",
+        "dall-e",
+        "imagen",
+        "nano-banana",
+        "gemini-omni",
+        "robotics",
+        "realtime",
+        "babbage",
+        "davinci"
+    )
+
+    private fun hasTokenMatch(text: String, token: String): Boolean {
+        if (text.isEmpty()) return false
+        var start = text.indexOf(token)
+        while (start >= 0) {
+            val beforeOk = start == 0 || !text[start - 1].isLetterOrDigit()
+            val end = start + token.length
+            val afterOk = end == text.length || !text[end].isLetterOrDigit()
+            if (beforeOk && afterOk) return true
+            start = text.indexOf(token, start + 1)
+        }
+        return false
+    }
+
     /**
      * Фильтрует не-чат модели:
      * - Оставляет только модели с поддержкой generateContent (если провайдер отдаёт supportedGenerationMethods).
-     * - Скрывает aqa, deep-research*, computer-use*, antigravity*, embedding, moderation, tts, whisper, etc.
+     * - Скрывает aqa, guard, image, audio, live, deep-research, computer-use, antigravity,
+     *   embedding, moderation, tts, whisper и прочие не-чат модели.
      */
     fun isChatAndToolModel(
         id: String,
@@ -54,52 +111,26 @@ object ModelCatalog {
         supportedMethods: List<String>? = null
     ): Boolean {
         // 1. Проверка методов генерации (Gemini API)
-        if (supportedMethods != null && supportedMethods.isNotEmpty()) {
-            if (!supportedMethods.contains("generateContent")) {
-                return false
-            }
+        if (!supportedMethods.isNullOrEmpty() && !supportedMethods.contains("generateContent")) {
+            return false
         }
 
         val cleanId = id.removePrefix("models/").lowercase()
         val cleanName = name.removePrefix("models/").lowercase()
 
-        // 2. Скрываем aqa, deep-research*, computer-use*, antigravity*
-        val blockedExactOrPrefix = listOf(
-            "aqa",
-            "deep-research",
-            "computer-use",
-            "antigravity"
-        )
-        for (pattern in blockedExactOrPrefix) {
-            if (cleanId == pattern ||
-                cleanId.startsWith("$pattern-") ||
-                cleanId.startsWith("${pattern}_") ||
-                cleanId.contains(pattern)
-            ) {
-                return false
-            }
-            if (cleanName.contains(pattern)) {
+        // 1b. Batch-варианты OpenRouter (суффикс :batch) работают только с /v1/batches, не с чатом.
+        if (cleanId.endsWith(":batch")) {
+            return false
+        }
+
+        // 2. Токены, которые проверяем по границам слова/разделителя (чтобы не цеплять случайные подстроки)
+        for (token in tokenBoundaryNonChat) {
+            if (hasTokenMatch(cleanId, token) || hasTokenMatch(cleanName, token)) {
                 return false
             }
         }
 
         // 3. Скрываем embedding и прочие не-чат сервисы
-        // (эмбеддинги, TTS/музыка/видео, realtime, транскрипция, легаси).
-        val blockedKeywords = listOf(
-            "embed",
-            "moderation",
-            "tts",
-            "chirp",
-            "lyria",
-            "veo",
-            "whisper",
-            "dall-e",
-            "imagen",
-            "realtime",
-            "transcription",
-            "babbage",
-            "davinci"
-        )
         for (kw in blockedKeywords) {
             if (cleanId.contains(kw) || cleanName.contains(kw)) {
                 return false
@@ -107,6 +138,15 @@ object ModelCatalog {
         }
 
         return true
+    }
+
+    internal fun resolveModelsEndpoint(target: String): String {
+        val clean = target.trim().trimEnd('/')
+        return when {
+            clean.endsWith("/models") -> clean
+            clean.endsWith("/chat/completions") -> clean.removeSuffix("/chat/completions") + "/models"
+            else -> "$clean/models"
+        }
     }
 
     suspend fun fetchModels(
@@ -123,34 +163,44 @@ object ModelCatalog {
             return@withContext Result.failure(IOException("Base URL не задан"))
         }
 
-        val endpoint = if (target.endsWith("/models")) target else "$target/models"
-        val requestBuilder = Request.Builder()
-            .url(endpoint)
-            .get()
-            .addHeader("Accept", "application/json")
-            .apply {
-                if (apiKey.isNotBlank()) {
-                    addHeader("Authorization", "Bearer ${apiKey.trim()}")
-                    // Нативный Gemini-эндпоинт Bearer не принимает — ключ едет
-                    // в x-goog-api-key (остальные провайдеры лишний заголовок игнорят).
-                    if (target.contains("googleapis.com", ignoreCase = true)) {
-                        addHeader("x-goog-api-key", apiKey.trim())
+        val endpoint = resolveModelsEndpoint(target)
+        val request = try {
+            val requestBuilder = Request.Builder()
+                .url(endpoint)
+                .get()
+                .addHeader("Accept", "application/json")
+                .apply {
+                    if (apiKey.isNotBlank()) {
+                        val cleanKey = apiKey.trim()
+                        addHeader("Authorization", "Bearer $cleanKey")
+                        // Нативный Gemini-эндпоинт Bearer не принимает — ключ едет в x-goog-api-key.
+                        if (extractHost(endpoint) == "generativelanguage.googleapis.com") {
+                            addHeader("x-goog-api-key", cleanKey)
+                        }
                     }
                 }
-            }
 
-        parseCustomHeaders(customHeaders).forEach { (name, value) ->
-            requestBuilder.header(name, value)
+            parseCustomHeaders(customHeaders).forEach { (name, value) ->
+                requestBuilder.header(name, value)
+            }
+            requestBuilder.build()
+        } catch (e: IllegalArgumentException) {
+            return@withContext Result.failure(
+                IOException("Некорректный адрес URL, ключ или заголовки: ${e.localizedMessage ?: endpoint}")
+            )
         }
 
-        val request = requestBuilder.build()
         val requestClient = client.newBuilder()
-            .connectTimeout(timeoutSeconds.coerceIn(5, 60).toLong().coerceAtMost(20), TimeUnit.SECONDS)
+            .connectTimeout(timeoutSeconds.coerceIn(5, 60).toLong(), TimeUnit.SECONDS)
             .readTimeout(timeoutSeconds.coerceIn(5, 120).toLong(), TimeUnit.SECONDS)
             .build()
 
+        val call = requestClient.newCall(request)
+        val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
+        }
         try {
-            requestClient.newCall(request).execute().use { response ->
+            call.execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(
@@ -166,17 +216,40 @@ object ModelCatalog {
 
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    val rawId = item.optString("id").ifBlank { item.optString("name") }
+                    val rawId = item.optNullableString("id")?.takeIf { it.isNotBlank() }
+                        ?: item.optNullableString("name").orEmpty()
                     if (rawId.isBlank()) continue
                     val id = rawId.removePrefix("models/")
 
-                    val rawDisplayName = item.optString("displayName").ifBlank { item.optString("name") }
+                    val rawDisplayName = item.optNullableString("displayName")?.takeIf { it.isNotBlank() }
+                        ?: item.optNullableString("name").orEmpty()
                     val displayName = rawDisplayName.removePrefix("models/")
 
                     val methodsJson = item.optJSONArray("supportedGenerationMethods")
                     val supportedMethods = if (methodsJson != null) {
-                        List(methodsJson.length()) { methodsJson.optString(it) }
+                        buildList {
+                            for (i in 0 until methodsJson.length()) {
+                                (methodsJson.opt(i) as? String)?.takeIf { it.isNotBlank() }?.let { add(it) }
+                            }
+                        }
                     } else null
+
+                    // OpenRouter отдаёт endpoints и architecture.output_modalities:
+                    // отсекаем batch-only, audio/image-only и прочие не-чат записи автоматически.
+                    val endpointsJson = item.optJSONArray("endpoints")
+                    if (endpointsJson != null && endpointsJson.length() > 0) {
+                        val hasChatEndpoint = (0 until endpointsJson.length()).any { i ->
+                            (endpointsJson.opt(i) as? String)?.endsWith("/chat/completions") == true
+                        }
+                        if (!hasChatEndpoint) continue
+                    }
+                    val outputModalities = item.optJSONObject("architecture")?.optJSONArray("output_modalities")
+                    if (outputModalities != null && outputModalities.length() > 0) {
+                        val outputsText = (0 until outputModalities.length()).any { i ->
+                            (outputModalities.opt(i) as? String).equals("text", ignoreCase = true)
+                        }
+                        if (!outputsText) continue
+                    }
 
                     if (!isChatAndToolModel(id, displayName, supportedMethods)) {
                         continue
@@ -203,19 +276,24 @@ object ModelCatalog {
                     Result.success(models.values.sortedBy { it.label.lowercase() })
                 }
             }
+        } catch (e: CancellationException) {
+            call.cancel()
+            throw e
         } catch (e: IOException) {
             Result.failure(IOException("Сеть недоступна: ${e.localizedMessage ?: "не удалось подключиться"}"))
         } catch (e: Exception) {
-            Result.failure(IOException("Не удалось разобрать ответ: ${e.localizedMessage}"))
+            Result.failure(IOException("Не удалось разобрать ответ: ${e.localizedMessage ?: "некорректный формат"}"))
+        } finally {
+            cancelHandle?.dispose()
         }
     }
 
     private fun describeHttpError(code: Int, body: String, endpoint: String): String {
         val details = try {
             val json = JSONObject(body)
-            json.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
-                ?: json.optString("message").takeIf { it.isNotBlank() }
-        } catch (e: Exception) {
+            json.optJSONObject("error")?.optNullableString("message")?.takeIf { it.isNotBlank() }
+                ?: json.optNullableString("message")?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
             null
         } ?: body.take(200)
 

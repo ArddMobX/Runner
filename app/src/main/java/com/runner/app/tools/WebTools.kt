@@ -1,6 +1,7 @@
 package com.runner.app.tools
 
 import com.runner.app.data.WebSource
+import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -11,6 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.URI
 import java.net.URLEncoder
+import java.net.UnknownHostException
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -22,7 +24,8 @@ import java.util.concurrent.TimeUnit
  * настройках задан ключ Tavily, используется он: результаты чище, а текст
  * страниц уже приходит в LLM-ready виде.
  *
- * Чтение страниц: только http/https, только внешние адреса, лимит размера,
+ * Чтение страниц: только http/https, только внешние адреса (проверка IP
+ * прямо внутри кастомного OkHttp Dns — защита от DNS Rebinding), лимит размера,
  * ручные редиректы с повторной проверкой. Всё, что вернулось, считается
  * недоверенным текстом и оборачивается вызывающим кодом.
  */
@@ -39,7 +42,34 @@ object WebTools {
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
+    /**
+     * Защита от DNS Rebinding (TOCTOU): OkHttp подключается ровно к тем
+     * [java.net.InetAddress], которые прошли проверку [WebPageParser.isPrivateAddress],
+     * без повторного резолва DNS между проверкой и соединением.
+     */
+    private val safeDns = Dns { hostname ->
+        val normalized = hostname.trim().trimEnd('.').lowercase(Locale.ROOT)
+        if (normalized.isEmpty() ||
+            normalized == "localhost" ||
+            normalized.endsWith(".localhost") ||
+            normalized.endsWith(".local") ||
+            normalized.endsWith(".internal") ||
+            normalized.endsWith(".home")
+        ) {
+            throw UnknownHostException("локальные адреса не открываются")
+        }
+        val addresses = Dns.SYSTEM.lookup(hostname)
+        if (addresses.isEmpty()) {
+            throw UnknownHostException("не удалось найти сайт $normalized")
+        }
+        if (addresses.any { WebPageParser.isPrivateAddress(it) }) {
+            throw UnknownHostException("адрес ведёт во внутреннюю сеть")
+        }
+        addresses
+    }
+
     private val client = OkHttpClient.Builder()
+        .dns(safeDns)
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(false)
@@ -103,7 +133,7 @@ object WebTools {
      */
     fun fetch(rawUrl: String): WebToolResult {
         val url = try {
-            WebPageParser.validateFetchUrl(rawUrl)
+            WebPageParser.validateFetchUrlSyntax(rawUrl)
         } catch (e: IllegalArgumentException) {
             return WebToolResult("Не удалось открыть страницу: ${e.message}.")
         }
@@ -122,7 +152,7 @@ object WebTools {
 
         if (!isTextual(page.contentType)) {
             return WebToolResult(
-                "По адресу $url не текстовая страница (${page.contentType ?: "неизвестный тип"}). " +
+                "По адресу $url не текстовая страница (${page.contentType.ifBlank { "неизвестный тип" }}). " +
                         "Скачивать файлы этим инструментом нельзя."
             )
         }
@@ -276,9 +306,11 @@ object WebTools {
             val out = mutableListOf<WebSource>()
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
-                val url = item.optString("url").trim()
-                if (url.isEmpty()) continue
-                val title = item.optString("title").trim().ifBlank { WebSource.domainOf(url) }
+                val url = (item.opt("url") as? String)?.trim().orEmpty()
+                if (url.isEmpty() || (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true))) {
+                    continue
+                }
+                val title = (item.opt("title") as? String)?.trim().orEmpty().ifBlank { WebSource.domainOf(url) }
                 val domain = WebSource.domainOf(url)
                 if (domain.isBlank()) continue
                 out.add(
@@ -286,7 +318,7 @@ object WebTools {
                         url = url,
                         title = title,
                         domain = domain,
-                        snippet = item.optString("content").trim()
+                        snippet = (item.opt("content") as? String)?.trim().orEmpty()
                     )
                 )
                 if (out.size >= limit) break
@@ -326,9 +358,9 @@ object WebTools {
                         throw IllegalStateException("слишком много перенаправлений")
                     }
                     currentUrl = resolveRedirect(currentUrl, location)
-                    // Каждый редирект снова проверяем: публичный сайт мог
-                    // перенаправить на localhost или в домашнюю сеть.
-                    currentUrl = WebPageParser.validateFetchUrl(currentUrl)
+                    // Каждый редирект снова проверяем по синтаксису/схеме/порту;
+                    // IP-адрес на новом хосте проверит safeDns при подключении.
+                    currentUrl = WebPageParser.validateFetchUrlSyntax(currentUrl)
                     return@use
                 }
 

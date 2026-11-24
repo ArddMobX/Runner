@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "**" ]
+    branches: [ "**", "!ci-errors" ]
   workflow_dispatch:
 
 # contents: write нужен и для ветки ci-errors (выжимка из лога падения),
@@ -74,20 +74,6 @@ jobs:
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # Мастер-ключ проверяем по-настоящему: он обязан декодироваться в JKS.
-          if [ -n "$SEC_KEYSTORE" ]; then
-            printf '%s' "$SEC_KEYSTORE" | base64 -d > /tmp/probe.jks
-            echo "base64 декодируется в $(stat -c%s /tmp/probe.jks) байт"
-            rm -f /tmp/probe.jks
-          fi
-
-          if [ -z "$SEC_KEYSTORE" ]; then
-            echo "::warning::KEYSTORE_BASE64 не подставлен — релиз собираться не будет."
-            echo "Проверьте, что секреты добавлены именно в среду release-signing"
-            echo "(Settings -> Environments -> release-signing -> Add secret),"
-            echo "а не в общие секреты репозитория."
-          fi
-
           # Проверяем каждый секрет поимённо. Раньше отсутствие KEY_PASSWORD
           # давало невнятное «SigningConfig release is missing required property
           # keyPassword» уже в конце сборки, спустя минуты компиляции.
@@ -100,6 +86,24 @@ jobs:
               missing=1
             fi
           done
+
+          # Мастер-ключ проверяем по-настоящему: он обязан декодироваться в непустой JKS.
+          if [ -n "$SEC_KEYSTORE" ]; then
+            if printf '%s' "$SEC_KEYSTORE" | base64 -d > /tmp/probe.jks 2>/dev/null && [ -s /tmp/probe.jks ]; then
+              echo "base64 декодируется в $(stat -c%s /tmp/probe.jks) байт"
+            else
+              echo "::error::KEYSTORE_BASE64 не является корректной строкой base64."
+              missing=1
+            fi
+            rm -f /tmp/probe.jks
+          fi
+
+          if [ -z "$SEC_KEYSTORE" ]; then
+            echo "::warning::KEYSTORE_BASE64 не подставлен — релиз собираться не будет."
+            echo "Проверьте, что секреты добавлены именно в среду release-signing"
+            echo "(Settings -> Environments -> release-signing -> Add secret),"
+            echo "а не в общие секреты репозитория."
+          fi
 
           if [ "$missing" = "1" ]; then
             {
@@ -122,13 +126,18 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
+          if [ "${{ steps.signing.outputs.ok }}" != "true" ] || [ -z "$KEYSTORE_BASE64" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "Секрет KEYSTORE_BASE64 не задан — release собираться не будет."
+            echo "Секреты подписи не заданы полностью — release собираться не будет."
             exit 0
           fi
           mkdir -p "$RUNNER_TEMP/signing"
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
+          if ! printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/release.jks" || [ ! -s "$RUNNER_TEMP/signing/release.jks" ]; then
+            rm -f "$RUNNER_TEMP/signing/release.jks"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Не удалось декодировать KEYSTORE_BASE64."
+            exit 1
+          fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "размер ключа: $(stat -c%s "$RUNNER_TEMP/signing/release.jks") байт"
 
@@ -145,7 +154,7 @@ jobs:
       # спецсимволов вообще не участвует.
       - name: Configure signing properties
         id: signprops
-        if: steps.keystore.outputs.configured == 'true'
+        if: steps.signing.outputs.ok == 'true' && steps.keystore.outputs.configured == 'true'
         env:
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS_VALUE: ${{ secrets.KEY_ALIAS }}
@@ -200,7 +209,7 @@ jobs:
           PYEOF
           echo "properties=$PROPS" >> "$GITHUB_OUTPUT"
 
-      - name: Build APK
+      - name: Test & Build APK
         id: build
         continue-on-error: true
         timeout-minutes: 25
@@ -208,33 +217,50 @@ jobs:
           set +e
           chmod +x gradlew
 
-          TASKS="assembleDebug"
-          SIGNING_ARGS=""
-          # Release собирается, только если все четыре секрета подставлены.
-          # Пароли берутся из файла свойств (см. шаг выше): в командную строку
-          # они не попадают, поэтому спецсимволы ничего не ломают.
-          if [ "${{ steps.signing.outputs.ok }}" = "true" ]; then
-            TASKS="assembleDebug assembleRelease"
-            # Из командной строки передаётся только путь к ключу. Пароли Gradle
-            # читает из файла свойств, путь к которому передан как
-            # -PsigningPropertiesFile.
-            SIGNING_ARGS=(-P"RUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks")
+          # 1. Unit-тесты обязательны перед сборкой APK и публикацией релиза.
+          # Запускаем их отдельным шагом до assemble*, чтобы при падении теста
+          # сборка останавливалась сразу и хвост build.log показывал причину.
+          ./gradlew testDebugUnitTest \
+            --stacktrace --console=plain --no-daemon > build.log 2>&1
+          status=$?
+
+          TASKS=(assembleDebug)
+          SIGNING_ARGS=()
+          RELEASE_BUILT="false"
+          # Release собирается, только если все четыре секрета подставлены,
+          # ключ декодирован и файл свойств записан.
+          if [ "${{ steps.signing.outputs.ok }}" = "true" ] && \
+             [ "${{ steps.keystore.outputs.configured }}" = "true" ] && \
+             [ -n "${{ steps.signprops.outputs.properties }}" ]; then
+            TASKS+=(assembleRelease)
+            SIGNING_ARGS=(
+              -P"signingPropertiesFile=${{ steps.signprops.outputs.properties }}"
+              -P"RUNNER_KEYSTORE_PATH=$RUNNER_TEMP/signing/release.jks"
+            )
+            RELEASE_BUILT="true"
             echo "release собирается, ключ: $RUNNER_TEMP/signing/release.jks"
           else
             echo "Секреты подписи неполные — release не собираю, будет только debug."
           fi
 
+          # 2. Сборка APK и контрольных сумм (только если unit-тесты прошли).
           # console=plain и отсутствие пайпа: пайп с tee держит вывод и мешает
           # видеть прогресс; лог всё равно нужен, поэтому пишем его через
           # перенаправление, а в консоль выводим хвост.
-          ./gradlew $TASKS generateApkSha256 \
-            -PsigningPropertiesFile="${{ steps.signprops.outputs.properties }}" \
-            "${SIGNING_ARGS[@]}" \
-            -PrunnerVersionCode="${{ github.run_number }}" \
-            -PrunnerVersionName="1.0.${{ github.run_number }}" \
-            --stacktrace --console=plain --no-daemon > build.log 2>&1
-          status=$?
+          if [ "$status" = "0" ]; then
+            ./gradlew "${TASKS[@]}" generateApkSha256 \
+              "${SIGNING_ARGS[@]}" \
+              -PrunnerVersionCode="${{ github.run_number }}" \
+              -PrunnerVersionName="1.0.${{ github.run_number }}" \
+              --stacktrace --console=plain --no-daemon >> build.log 2>&1
+            status=$?
+          fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = "0" ] && [ "$RELEASE_BUILT" = "true" ]; then
+            echo "release_built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_built=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "--- последние строки вывода сборки ---"
           tail -30 build.log || true
 
@@ -243,7 +269,7 @@ jobs:
           # Секреты GitHub маскирует в выводе автоматически.
           if [ "$status" != "0" ]; then
             {
-              echo "### Сборка упала (код $status)"
+              echo "### Сборка или тесты упали (код $status)"
               echo
               echo '```'
               # Секция «What went wrong» идёт сразу после FAILURE и содержит
@@ -256,6 +282,29 @@ jobs:
           fi
 
           exit $status
+
+      # Android Lint запускается отдельно, чтобы отчёт был доступен всегда,
+      # не ломая выпуск APK на сторонних/OEM-предупреждениях разрешений.
+      - name: Run Android Lint
+        id: lint
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set +e
+          ./gradlew lintDebug --console=plain --no-daemon > lint.log 2>&1
+          lint_status=$?
+          echo "status=$lint_status" >> "$GITHUB_OUTPUT"
+          tail -20 lint.log || true
+          {
+            echo "### Android Lint (debug)"
+            if [ "$lint_status" = "0" ]; then
+              echo "Lint завершён без критических ошибок."
+            else
+              echo "Lint сообщил об ошибках (код $lint_status) — см. артефакт \`lint-report-${{ github.run_number }}\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $lint_status
 
       # Логи GitHub Actions закрыты авторизацией, поэтому при падении выкладываем
       # выжимку из build.log в отдельную ветку ci-errors. Её читает агент через git fetch.
@@ -277,12 +326,16 @@ jobs:
             echo
             echo "## Строки ошибок"
             echo '```'
-            grep -nE '^e: |What went wrong|^> |^Caused by|Execution failed|FAILURE:|Unresolved reference|error:' build.log | head -150 || true
+            if [ -f build.log ]; then
+              grep -nE '^e: |What went wrong|^> |^Caused by|Execution failed|FAILURE:|Unresolved reference|error:|FAILED$' build.log | head -150 || true
+            fi
             echo '```'
             echo
             echo "## Хвост лога"
             echo '```'
-            tail -120 build.log || true
+            if [ -f build.log ]; then
+              tail -120 build.log || true
+            fi
             echo '```'
           } > .ci/last-build-error.txt
 
@@ -290,12 +343,16 @@ jobs:
           git config user.email "github-actions@github.com"
           git add -f .ci/last-build-error.txt
 
-          git commit -m "ci: лог ошибки сборки [skip ci]" || true
-          # force нужен именно здесь. Ветка ci-errors — одноразовая витрина
-          # последней ошибки, её история не ценна, а накопленный хвост делает
-          # обычный push не fast-forward. В #50 отсутствие force уронило прогон
-          # на этом шаге: сборка была успешной, а красным стал лог падения.
-          git push --force origin HEAD:ci-errors
+          # Пушим только если коммит с [skip ci] действительно создался,
+          # иначе можно отправить исходный коммит без [skip ci].
+          if git commit -m "ci: лог ошибки сборки [skip ci]"; then
+            # force нужен именно здесь. Ветка ci-errors — одноразовая витрина
+            # последней ошибки, её история не ценна, а накопленный хвост делает
+            # обычный push не fast-forward.
+            git push --force origin HEAD:ci-errors
+          else
+            echo "Коммит с логом ошибок не создан — push в ci-errors пропущен."
+          fi
 
       # Полный лог сборки выкладывается артефактом всегда, а не только при
       # падении. Причина: логи шагов GitHub отдаёт лишь авторизованным, а
@@ -312,6 +369,29 @@ jobs:
           if-no-files-found: warn
           overwrite: true
 
+      - name: Upload Unit Test Report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-report-${{ github.run_number }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          overwrite: true
+
+      - name: Upload Lint Report
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lint-report-${{ github.run_number }}
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            lint.log
+          if-no-files-found: ignore
+          overwrite: true
+
       # Debug-сборка остаётся артефактом для проверки на устройстве, но
       # в релизы не попадает: у неё общеизвестный ключ и debuggable=true.
       - name: Upload Debug APK Artifact
@@ -326,7 +406,7 @@ jobs:
           overwrite: false
 
       - name: Upload Release APK Artifact
-        if: steps.build.outcome == 'success' && steps.keystore.outputs.configured == 'true'
+        if: steps.build.outcome == 'success' && steps.build.outputs.release_built == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Runner-Release-APK-${{ github.run_number }}
@@ -339,13 +419,25 @@ jobs:
       # Публичный релиз. Только release-вариант и только на main.
       - name: Verify release APK is signed
         id: verify
-        if: steps.build.outcome == 'success' && steps.keystore.outputs.configured == 'true'
+        if: steps.build.outcome == 'success' && steps.build.outputs.release_built == 'true'
         run: |
-          APK=$(ls app/build/outputs/apk/release/Runner-*.apk | head -1)
+          set -euo pipefail
+          shopt -s nullglob
+          APKS=(app/build/outputs/apk/release/Runner-*.apk)
+          APK="${APKS[0]:-}"
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
+            echo "::error::Release APK не найден"
+            exit 1
+          fi
           echo "apk=$APK" >> "$GITHUB_OUTPUT"
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "::error::apksigner не найден в $ANDROID_HOME/build-tools"
+            exit 1
+          fi
           echo "apksigner: $APKSIGNER"
-          "$APKSIGNER" verify --print-certs "$APK" | tee certs.txt
+          "$APKSIGNER" verify --print-certs "$APK" > certs.txt
+          cat certs.txt
           # Отладочный ключ начинается с CN=Android Debug — такой релиз выпускать нельзя.
           if grep -q "CN=Android Debug" certs.txt; then
             echo "::error::Release APK подписан отладочным ключом"
@@ -353,7 +445,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: steps.build.outcome == 'success' && steps.verify.outcome == 'success' && github.ref == 'refs/heads/main'
+        if: steps.build.outcome == 'success' && steps.build.outputs.release_built == 'true' && steps.verify.outcome == 'success' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v1.0.${{ github.run_number }}
@@ -379,10 +471,14 @@ jobs:
             cat app/build/outputs/apk/debug/*.sha256 2>/dev/null || true
             cat app/build/outputs/apk/release/*.sha256 2>/dev/null || true
             echo '```'
-            if [ "${{ steps.keystore.outputs.configured }}" = "true" ]; then
-              echo "Release подписан и опубликован в Releases."
+            if [ "${{ steps.build.outputs.release_built }}" = "true" ]; then
+              if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+                echo "Release подписан и опубликован в Releases."
+              else
+                echo "Release подписан и загружен в артефакты (публикация в Releases только с main)."
+              fi
             else
-              echo "Секрет KEYSTORE_BASE64 не задан: собран только debug."
+              echo "Секреты подписи не заданы полностью: собран только debug."
               echo "Чтобы включить релизы, добавьте секреты KEYSTORE_BASE64,"
               echo "KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD."
             fi

@@ -58,18 +58,18 @@ class AgentExecutionService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RELEASE -> {
-                // Задача завершилась сама. Гасим службу, но НЕ трогаем
-                // обработчики «Стоп»: это обычное завершение, а не остановка
-                // пользователем. Раньше здесь вызывался тот же колбэк, что и
-                // у кнопки, и завершение задачи обрывало озвучку ответа,
-                // которую только что запустил авто-speak.
-                activeTasks.set(0)
-                stopForegroundAndSelf()
+                // Задача завершилась сама. НЕ сбрасываем счётчик activeTasks:
+                // пока ACTION_RELEASE шёл по очереди Intent, параллельная задача
+                // могла уже вызвать start() (activeTasks >= 1). Гасим службу
+                // только когда активных задач действительно не осталось.
+                if (shouldStopServiceOnRelease()) {
+                    stopForegroundAndSelf()
+                }
                 return START_NOT_STICKY
             }
             ACTION_UPDATE_STATUS -> {
                 val status = intent.getStringExtra(EXTRA_STATUS)
-                if (!status.isNullOrBlank()) {
+                if (!status.isNullOrBlank() && activeTasks.get() > 0) {
                     currentStatusText = status
                     val manager = getSystemService(NotificationManager::class.java)
                     manager?.notify(NOTIFICATION_ID, createNotification(currentStatusText))
@@ -80,27 +80,30 @@ class AgentExecutionService : Service() {
                 if (!status.isNullOrBlank()) {
                     currentStatusText = status
                 }
+                val notification = createNotification(currentStatusText)
+                // Сначала всегда выполняем startForeground(), чтобы соблюсти 5-секундный
+                // контракт startForegroundService() даже если задача успела завершиться
+                // до доставки этого Intent.
+                if (!startForegroundSafely(notification)) {
+                    return START_NOT_STICKY
+                }
+                if (shouldStopServiceOnRelease()) {
+                    stopForegroundAndSelf()
+                    return START_NOT_STICKY
+                }
                 acquireLocks()
                 // Продление на случай задачи длиннее таймаута блокировки.
                 scheduleLockRenewal()
-                val notification = createNotification(currentStatusText)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    } else {
-                        0
-                    }
-                    startForeground(NOTIFICATION_ID, notification, type)
-                } else {
-                    startForeground(NOTIFICATION_ID, notification)
-                }
             }
             else -> {
-                if (wakeLock == null) {
-                    acquireLocks()
-                    scheduleLockRenewal()
+                if (shouldStopServiceOnRelease()) {
+                    stopForegroundAndSelf()
+                } else if (wakeLock == null) {
                     val notification = createNotification(currentStatusText)
-                    startForeground(NOTIFICATION_ID, notification)
+                    if (startForegroundSafely(notification)) {
+                        acquireLocks()
+                        scheduleLockRenewal()
+                    }
                 }
             }
         }
@@ -199,6 +202,41 @@ class AgentExecutionService : Service() {
             stopForeground(true)
         }
         stopSelf()
+    }
+
+    private fun startForegroundSafely(notification: Notification): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (e: Exception) {
+            // Android 12+ / 15: ForegroundServiceStartNotAllowedException при
+            // исчерпании 6-часового лимита dataSync или старте из фона.
+            Log.w(TAG, "startForeground отклонён системой", e)
+            cancelLockRenewal()
+            releaseLocks()
+            stopSelf()
+            false
+        }
+    }
+
+    /**
+     * Обязательный колбэк Android 15 (API 35) для foreground-службы типа `dataSync`.
+     * По истечении 6-часового лимита система даёт несколько секунд на вызов stopSelf(),
+     * иначе роняет процесс с RemoteServiceException / ANR.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "достигнут системный лимит времени dataSync (startId=$startId, fgsType=$fgsType)")
+        fireStopHandlers()
+        activeTasks.set(0)
+        stopForegroundAndSelf()
     }
 
     override fun onDestroy() {
@@ -322,8 +360,21 @@ class AgentExecutionService : Service() {
             }
         }
 
+        internal fun markTaskStarted(): Int = activeTasks.incrementAndGet()
+
+        internal fun markTaskReleased(): Boolean =
+            activeTasks.getAndUpdate { current -> if (current > 0) current - 1 else 0 } == 1
+
+        internal fun shouldStopServiceOnRelease(): Boolean = activeTasks.get() <= 0
+
+        internal fun activeTaskCountForTest(): Int = activeTasks.get()
+
+        internal fun resetActiveTasksForTest() {
+            activeTasks.set(0)
+        }
+
         fun start(context: Context, status: String = "Выполняется…") {
-            activeTasks.incrementAndGet()
+            markTaskStarted()
             try {
                 val intent = Intent(context, AgentExecutionService::class.java).apply {
                     action = ACTION_START
@@ -335,7 +386,7 @@ class AgentExecutionService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                activeTasks.decrementAndGet()
+                activeTasks.updateAndGet { current -> if (current > 0) current - 1 else 0 }
                 // Молчать нельзя: без foreground-службы задача останется без
                 // wake-lock, и это выглядит как «телефон сам уснул».
                 Log.w(TAG, "не удалось запустить службу выполнения задач", e)
@@ -364,11 +415,10 @@ class AgentExecutionService : Service() {
          * ни одной — иначе завершение задачи в оверлее обрывало бы основную.
          */
         fun release(context: Context) {
-            val previous = activeTasks.getAndUpdate { current -> if (current > 0) current - 1 else 0 }
             // Только последняя задача гасит службу. Если задач не осталось
             // (принудительная остановка уже была) — новый интент не нужен:
             // служба создалась бы ради немедленной остановки.
-            if (previous != 1) return
+            if (!markTaskReleased()) return
             try {
                 val intent = Intent(context, AgentExecutionService::class.java).apply {
                     action = ACTION_RELEASE

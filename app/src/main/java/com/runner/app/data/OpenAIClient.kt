@@ -2,7 +2,9 @@ package com.runner.app.data
 
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.util.CrashReportManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -20,6 +22,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
+import kotlin.math.roundToLong
 
 data class ToolCall(
     val id: String,
@@ -37,6 +42,12 @@ data class ConnectionTestResult(
     val message: String,
     val targetEndpoint: String
 )
+
+/** Безопасное чтение строкового поля из org.json (JSON null -> null, а не строка "null"). */
+internal fun JSONObject.optNullableString(key: String): String? {
+    val raw = opt(key)
+    return if (raw is String) raw else null
+}
 
 /**
  * Парсит строку кастомных заголовков.
@@ -56,8 +67,9 @@ fun parseCustomHeaders(raw: String): Map<String, String> {
             val keys = json.keys()
             while (keys.hasNext()) {
                 val key = keys.next().trim()
-                if (key.isNotEmpty()) {
-                    result[key] = json.optString(key, "")
+                val rawVal = json.opt(key)
+                if (key.isNotEmpty() && rawVal != null && rawVal != JSONObject.NULL) {
+                    result[key] = rawVal.toString()
                 }
             }
             if (result.isNotEmpty()) return result
@@ -132,18 +144,34 @@ class GenerationMetrics {
     private var reasoningEndedAt = 0L
     private val reasoningBuffer = StringBuilder()
 
-    private var firstTokenAt = 0L
-    private var lastTokenAt = 0L
+    private var firstOutputAt = 0L
+    private var lastOutputAt = 0L
+
+    /** Сбрасывает накопленное состояние перед новой попыткой (retry / optional strip). */
+    fun reset() {
+        promptTokens = null
+        completionTokens = null
+        reasoningText = ""
+        reasoningMillis = 0L
+        finishReason = null
+        reasoningStartedAt = 0L
+        reasoningEndedAt = 0L
+        reasoningBuffer.setLength(0)
+        firstOutputAt = 0L
+        lastOutputAt = 0L
+    }
 
     fun noteReasoning(delta: String, now: Long) {
         if (reasoningStartedAt == 0L) reasoningStartedAt = now
         reasoningEndedAt = now
+        if (firstOutputAt == 0L) firstOutputAt = now
+        if (now > lastOutputAt) lastOutputAt = now
         reasoningBuffer.append(delta)
     }
 
     fun noteContent(now: Long) {
-        if (firstTokenAt == 0L) firstTokenAt = now
-        lastTokenAt = now
+        if (firstOutputAt == 0L) firstOutputAt = now
+        if (now > lastOutputAt) lastOutputAt = now
     }
 
     /** Вызывается по завершении запроса — фиксирует размышления и их длительность. */
@@ -156,12 +184,15 @@ class GenerationMetrics {
         }
     }
 
-    /** Скорость генерации: выходные токены за время после первого токена. */
+    /**
+     * Скорость генерации: выходные токены (включая reasoning-токены) за время
+     * от первого полученного токена (размышлений или текста) до последнего.
+     */
     val tokensPerSecond: Double?
         get() {
             val tokens = completionTokens ?: return null
-            if (firstTokenAt == 0L || lastTokenAt <= firstTokenAt) return null
-            val seconds = (lastTokenAt - firstTokenAt) / 1000.0
+            if (firstOutputAt == 0L || lastOutputAt <= firstOutputAt) return null
+            val seconds = (lastOutputAt - firstOutputAt) / 1000.0
             if (seconds < 0.15) return null
             return tokens / seconds
         }
@@ -187,13 +218,11 @@ class OpenAIClient {
      *
      * У известных хостов это проверено один раз. У незнакомых (свои прокси и
      * шлюзы) выясняем опытом: пока попытки не исчерпаны, поле отправляется,
-     * а после двух жалоб на неизвестный параметр больше не шлётся. Отдельный
-     * «пробный» запрос для этого не нужен и ничего не доказывает: он ушёл бы
-     * с несуществующей моделью и упал бы по другой причине.
+     * а после двух жалоб на неизвестный параметр больше не шлётся.
      */
     private fun streamUsageSupported(endpoint: String): Boolean {
         if (endpoint.isBlank()) return false
-        if (KNOWN_STREAM_USAGE_HOSTS.any { endpoint.contains(it) }) return true
+        if (isKnownStreamUsageHost(endpoint)) return true
         return (streamUsageFailures[endpoint] ?: 0) < STREAM_USAGE_PROBE_ATTEMPTS
     }
 
@@ -206,7 +235,7 @@ class OpenAIClient {
 
     /**
      * Модель понимает reasoning_effort. Проверка по имени, а не по провайдеру:
-     * один и тот же GPT-приходит и с OpenAI, и через прокси/агрегаторы.
+     * один и тот же GPT приходит и с OpenAI, и через прокси/агрегаторы.
      */
     private fun supportsReasoningEffort(model: String): Boolean {
         val name = model.substringAfterLast('/').lowercase()
@@ -219,9 +248,7 @@ class OpenAIClient {
 
     /**
      * Модель через OpenRouter умеет reasoning. Список по именам, а не по
-     * провайдеру: OpenRouter отдаёт десятки чужих моделей. Нужен, чтобы
-     * не слать reasoning тем моделям, которые его не понимают, и не
-     * тратить лишний запрос на отказ.
+     * провайдеру: OpenRouter отдаёт десятки чужих моделей.
      */
     private fun supportsOpenRouterReasoning(model: String): Boolean {
         val name = model.substringAfterLast('/').lowercase()
@@ -232,43 +259,49 @@ class OpenAIClient {
                 name.startsWith("o3") ||
                 name.startsWith("o4") ||
                 name.startsWith("gemini-3") ||
+                name.startsWith("gemini-4") ||
                 name.startsWith("claude") ||
-                name.startsWith("grok")
+                name.startsWith("grok") ||
+                name.startsWith("qwen3") ||
+                name.startsWith("qwen4") ||
+                name.startsWith("glm-5") ||
+                name.startsWith("nemotron-3") ||
+                name.startsWith("kimi-k3") ||
+                name.startsWith("minimax-m3")
     }
 
     /**
      * Достаёт текст размышлений в разных форматах:
      * reasoning_content у DeepSeek, reasoning у OpenRouter, reasoning_details
-     * у прокси, которые отдают структурированные блоки. Если есть простой
-     * reasoning, структурированные блоки не дублируем.
+     * у прокси, которые отдают структурированные блоки.
      */
     private fun extractReasoningText(source: JSONObject): String? {
-        (source.opt("reasoning_content") as? String)
-            ?.takeIf { it.isNotBlank() }
+        source.optNullableString("reasoning_content")
+            ?.takeIf { it.isNotEmpty() }
             ?.let { return it }
-        (source.opt("reasoning") as? String)
-            ?.takeIf { it.isNotBlank() }
+        source.optNullableString("reasoning")
+            ?.takeIf { it.isNotEmpty() }
             ?.let { return it }
 
         val details = source.optJSONArray("reasoning_details") ?: return null
         val parts = mutableListOf<String>()
         for (index in 0 until details.length()) {
             val item = details.optJSONObject(index) ?: continue
-            (item.opt("text") as? String)
-                ?.takeIf { it.isNotBlank() }
+            item.optNullableString("text")
+                ?.takeIf { it.isNotEmpty() }
                 ?.let { parts += it }
-            (item.opt("summary") as? String)
-                ?.takeIf { it.isNotBlank() }
+            item.optNullableString("summary")
+                ?.takeIf { it.isNotEmpty() }
                 ?.let { parts += it }
             val content = item.optJSONArray("content") ?: continue
             for (partIndex in 0 until content.length()) {
                 val part = content.optJSONObject(partIndex) ?: continue
-                (part.opt("text") as? String)
-                    ?.takeIf { it.isNotBlank() }
+                part.optNullableString("text")
+                    ?.takeIf { it.isNotEmpty() }
                     ?.let { parts += it }
             }
         }
-        return parts.joinToString("").takeIf { it.isNotBlank() }
+        return parts.joinToString("").takeIf { it.isNotEmpty() }
     }
 
     private val client = OkHttpClient.Builder()
@@ -293,16 +326,16 @@ class OpenAIClient {
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    @Volatile
-    private var activeCall: Call? = null
+    private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
     /** Сколько раз эндпоинт отказался от stream_options. Живёт в памяти. */
     private val streamUsageFailures = ConcurrentHashMap<String, Int>()
 
-    /** Обрывает текущий запрос. Стриминг прекращается сразу. */
+    /** Обрывает все текущие запросы. Стриминг прекращается сразу. */
     fun cancelActive() {
-        activeCall?.cancel()
-        activeCall = null
+        val snapshot = activeCalls.toList()
+        activeCalls.clear()
+        snapshot.forEach { it.cancel() }
     }
 
     suspend fun sendChatCompletion(
@@ -325,16 +358,11 @@ class OpenAIClient {
         /**
          * Какие именно инструменты объявить в запросе. `null` — все, доступные
          * в текущем режиме.
-         *
-         * Схемы инструментов уходят в КАЖДОМ запросе и занимают заметную часть
-         * лимита токенов, поэтому набор можно сузить: объявлять только нужное,
-         * а остальное подключать инструментом `enable_tools`.
          */
         toolNames: Set<String>? = null,
         /**
          * Включён ли Live-режим. Инструменты управления экраном (`ui_*`)
-         * объявляются только при нём: вне Live-режима их не должно быть
-         * в запросе вовсе, даже если набор не сужен.
+         * объявляются только при нём.
          */
         liveMode: Boolean = false,
         /** Бюджет контекста в символах: старые реплики отбрасываются, чтобы не упереться в лимит. */
@@ -357,8 +385,7 @@ class OpenAIClient {
         shouldStop: () -> Boolean = { false },
         /**
          * Режим «Думать»: включить thinking у DeepSeek и reasoning_effort
-         * у моделей OpenAI, если они это поддерживают. Для остальных остаётся
-         * только добавка к системному промпту.
+         * у моделей OpenAI, если они это поддерживают.
          */
         forceThinking: Boolean = false
     ): AIResponseResult = withContext(Dispatchers.IO) {
@@ -370,196 +397,280 @@ class OpenAIClient {
 
         val effectiveBaseUrl = baseUrl.ifBlank { "https://openrouter.ai/api/v1" }
         val endpoint = resolveChatEndpoint(effectiveBaseUrl, reverseProxyUrl)
+        val endpointHost = extractHost(endpoint)
+        val baseHost = extractHost(effectiveBaseUrl)
+        val hasReverseProxy = reverseProxyUrl.isNotBlank()
 
+        // Тип провайдера определяется по ProviderKind и точному хосту, но НЕ по имени модели:
+        // иначе при вызове Gemini через OpenRouter/шлюзы ключ утекал в x-goog-api-key,
+        // а в запросы подмешивался Google-специфичный thought_signature.
         val isGemini = providerKind == ProviderKind.GEMINI ||
-                endpoint.contains("googleapis.com", ignoreCase = true) ||
-                effectiveBaseUrl.contains("googleapis.com", ignoreCase = true) ||
-                modelName.contains("gemini", ignoreCase = true)
+                endpointHost == "generativelanguage.googleapis.com" ||
+                baseHost == "generativelanguage.googleapis.com"
 
         val effectiveModel = modelName.removePrefix("models/").trim().ifBlank {
-            if (isGemini) "gemini-2.5-flash" else "openai/gpt-oss-120b"
+            if (isGemini) "gemini-4-hydrogen" else "openai/gpt-oss-120b"
         }
 
-        val isOpenRouterHost = effectiveBaseUrl.contains("openrouter.ai", ignoreCase = true)
+        val isOpenRouterHost = !hasReverseProxy &&
+                (endpointHost == "openrouter.ai" || endpointHost.endsWith(".openrouter.ai"))
+        val isDirectOfficialDeepSeek = !hasReverseProxy &&
+                providerKind == ProviderKind.DEEPSEEK &&
+                (officialDeepSeekHost || endpointHost == "api.deepseek.com")
 
         // Параметры, которые провайдер может не знать. При жалобе на неизвестное
         // поле убираем его и повторяем сразу, не тратя попытку ретрая.
         var allowStreamUsage = streamUsageSupported(endpoint)
         var allowTemperature = true
-        var allowMaxTokens = maxTokens > 0
-        var allowThinking = providerKind == ProviderKind.DEEPSEEK && officialDeepSeekHost
+        // Не отправляем max_tokens и max_completion_tokens одновременно:
+        // OpenAI o1/o3/o4/gpt-5 отклоняют max_tokens, старые шлюзы — max_completion_tokens.
+        var maxTokensParam: String? = when {
+            maxTokens <= 0 -> null
+            supportsReasoningEffort(effectiveModel) -> "max_completion_tokens"
+            else -> "max_tokens"
+        }
+        var triedMaxTokensFallback = false
+        var allowThinking = isDirectOfficialDeepSeek
         var allowReasoning = true
         var allowReasoningEffort = true
         var allowTools = withTools
         var optionalStripped = 0
 
         var forceSkipValidator = false
-        /**
-         * Подставлять ли заглушку thought_signature, когда Google её не прислал.
-         *
-         * Раньше заглушка подставлялась всем Gemini-запросам заранее, то есть
-         * недокументированная строка уходила в API всегда. Теперь только после
-         * того, как Google сам пожаловался на отсутствующую подпись.
-         */
         var signatureFallback = false
         var attempt = 0
+        val stallTimeoutMs = computeStreamingWatchdogTimeoutMs(responseTimeoutSeconds)
+        val rateLimitBaseHost = baseHost.takeIf { it.isNotBlank() }
+
         while (attempt <= MAX_RETRIES) {
+            if (shouldStop()) return@withContext AIResponseResult.Cancelled
+
             val sanitizedMessages = sanitizeMessages(messages, isGemini, forceSkipValidator)
             // Старые реплики отбрасываем до отправки: иначе длинная сессия
             // упирается в лимит модели и падает с 400 без пути восстановления.
             val contextMessages = trimMessagesToBudget(sanitizedMessages, contextBudgetChars)
+            val sentOptionalParams = LinkedHashSet<String>()
 
             fun buildBody(): JSONObject = JSONObject().apply {
                 put("model", effectiveModel.removePrefix("models/"))
                 put("messages", contextMessages)
                 if (allowTools) {
                     val tools = ToolDispatcher.getToolsJson(toolNames, liveMode)
-                    // Пустой набор означает «инструменты не нужны». Пустой массив
-                    // в поле tools часть провайдеров отвергает как ошибку схемы,
-                    // поэтому поле просто не отправляем.
                     if (tools.length() > 0) {
                         put("tools", tools)
                         put("tool_choice", "auto")
+                        sentOptionalParams += "tools"
+                        sentOptionalParams += "tool_choice"
                     }
                 }
-                if (allowTemperature) put("temperature", temperature)
-                if (allowMaxTokens && maxTokens > 0) {
-                    put("max_tokens", maxTokens)
-                    put("max_completion_tokens", maxTokens)
+                if (allowTemperature) {
+                    val cleanTemp = (temperature * 100.0).roundToLong() / 100.0
+                    put("temperature", cleanTemp)
+                    sentOptionalParams += "temperature"
+                }
+                val activeMaxTokensKey = maxTokensParam
+                if (activeMaxTokensKey != null && maxTokens > 0) {
+                    put(activeMaxTokensKey, maxTokens)
+                    sentOptionalParams += activeMaxTokensKey
                 }
                 if (streaming) {
                     put("stream", true)
                     if (allowStreamUsage) {
                         put("stream_options", JSONObject().put("include_usage", true))
+                        sentOptionalParams += "stream_options"
                     }
                 }
-                // У DeepSeek V4 thinking mode включён по умолчанию, для агентского
-                // цикла это лишняя латентность. Но поле не из схемы OpenAI, поэтому
-                // шлём его только на официальный хост, а не на любой похожий прокси.
                 if (allowThinking) {
                     put(
                         "thinking",
                         JSONObject().put("type", if (forceThinking) "enabled" else "disabled")
                     )
+                    sentOptionalParams += "thinking"
                 }
                 when {
                     forceThinking -> {
                         when {
-                            // OpenRouter нормализует reasoning для всех моделей.
-                            // Верхнеуровневый reasoning_effort вместе с ним слать
-                            // нельзя: OpenRouter отвечает 400. Если reasoning
-                            // отвергли, второй вариант для OpenRouter не шлём.
                             isOpenRouterHost -> {
                                 if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
                                     put("reasoning", JSONObject().put("effort", "high"))
+                                    sentOptionalParams += "reasoning"
                                 }
                             }
                             allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
                                 put("reasoning_effort", "high")
+                                sentOptionalParams += "reasoning_effort"
                             }
                         }
                     }
-                    // Быстрый профиль Live: рутинные действия не должны
-                    // тратить столько же reasoning, сколько сложный план.
                     liveMode -> {
                         when {
                             isOpenRouterHost -> {
                                 if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
                                     put("reasoning", JSONObject().put("effort", "low"))
+                                    sentOptionalParams += "reasoning"
                                 }
                             }
                             allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
-                                put("reasoning_effort", "low")
+                                val normalized = effectiveModel.substringAfterLast('/').lowercase()
+                                val effort = if (endpointHost == "api.openai.com" &&
+                                    allowTools &&
+                                    (normalized == "gpt-6-luna" || normalized == "gpt-6-sol")
+                                ) {
+                                    "none"
+                                } else {
+                                    "low"
+                                }
+                                put("reasoning_effort", effort)
+                                sentOptionalParams += "reasoning_effort"
                             }
+                        }
+                    }
+                    // По официальной документации OpenAI gpt-6-luna и gpt-6-sol поддерживают
+                    // function calling в /v1/chat/completions только с reasoning_effort = "none".
+                    endpointHost == "api.openai.com" && allowTools && allowReasoningEffort -> {
+                        val normalized = effectiveModel.substringAfterLast('/').lowercase()
+                        if (normalized == "gpt-6-luna" || normalized == "gpt-6-sol") {
+                            put("reasoning_effort", "none")
+                            sentOptionalParams += "reasoning_effort"
                         }
                     }
                 }
             }
 
             val requestBody = buildBody()
+            val request = try {
+                val requestBuilder = Request.Builder()
+                    .url(endpoint)
+                    .addHeader("Authorization", "Bearer ${apiKey.trim()}")
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
+                    .addHeader("X-Title", "Runner Android Agent")
 
-            val requestBuilder = Request.Builder()
-                .url(endpoint)
-                .addHeader("Authorization", "Bearer ${apiKey.trim()}")
-                .addHeader("Content-Type", "application/json")
-                .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
-                .addHeader("X-Title", "Runner Android Agent")
+                if (isGemini) {
+                    requestBuilder.addHeader("x-goog-api-key", apiKey.trim())
+                }
 
-            if (isGemini) {
-                requestBuilder.addHeader("x-goog-api-key", apiKey.trim())
+                parseCustomHeaders(customHeaders).forEach { (name, value) ->
+                    requestBuilder.header(name, value)
+                }
+
+                requestBuilder
+                    .post(requestBody.toString().toRequestBody(jsonMediaType))
+                    .build()
+            } catch (e: IllegalArgumentException) {
+                return@withContext AIResponseResult.Error(
+                    "Некорректный URL, API-ключ или заголовки запроса: ${e.localizedMessage ?: endpoint}"
+                )
             }
 
-            parseCustomHeaders(customHeaders).forEach { (name, value) ->
-                requestBuilder.header(name, value)
-            }
-
-            val request = requestBuilder
-                .post(requestBody.toString().toRequestBody(jsonMediaType))
-                .build()
+            if (shouldStop()) return@withContext AIResponseResult.Cancelled
 
             val call = clientWithTimeout(connectTimeoutSeconds, responseTimeoutSeconds).newCall(request)
-            activeCall = call
+            activeCalls.add(call)
+            val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+                if (cause != null) call.cancel()
+            }
+            metrics?.reset()
             CrashReportManager.log("API", "Запрос $effectiveModel, попытка ${attempt + 1}")
             try {
+                val fallback = signatureFallback || (isGemini && attempt > 0)
                 val result = if (streaming) {
-                    // Заглушка thought_signature — недокументированная строка Google.
-                    // На первой попытке её нет; включается после явной жалобы на
-                    // подпись, а для Gemini ещё и на любом повторе: раньше она уходила
-                    // всегда, и отказываться от проверенного поведения сразу нельзя.
-                    val fallback = signatureFallback || (isGemini && attempt > 0)
-                    executeStreaming(call, listener, fallback, metrics)
+                    executeStreaming(
+                        call = call,
+                        listener = listener,
+                        signatureFallback = fallback,
+                        metrics = metrics,
+                        stallTimeoutMs = stallTimeoutMs,
+                        sentOptionalParams = sentOptionalParams,
+                        rateLimitBaseHost = rateLimitBaseHost
+                    )
                 } else {
-                    val fallback = signatureFallback || (isGemini && attempt > 0)
-                    executeBlocking(call, fallback, metrics)
+                    executeBlocking(
+                        call = call,
+                        signatureFallback = fallback,
+                        metrics = metrics,
+                        sentOptionalParams = sentOptionalParams,
+                        rateLimitBaseHost = rateLimitBaseHost
+                    )
                 }
 
                 if (result is AIResponseResult.Error && result.optionalField != null &&
                     optionalStripped < MAX_OPTIONAL_STRIPS
                 ) {
-                    // Провайдер не знает такое поле. Убираем его и повторяем сразу:
-                    // это не ошибка пользователя и не повод расходовать попытку ретрая.
+                    var changed = false
                     when (result.optionalField) {
-                        "stream_options" -> {
+                        "stream_options" -> if (allowStreamUsage) {
                             allowStreamUsage = false
                             noteStreamUsageRejected(endpoint)
+                            changed = true
                         }
-                        "temperature" -> allowTemperature = false
-                        "max_tokens", "max_completion_tokens" -> allowMaxTokens = false
-                        "thinking" -> allowThinking = false
-                        "reasoning" -> allowReasoning = false
-                        "reasoning_effort" -> allowReasoningEffort = false
-                        "tools", "tool_choice" -> allowTools = false
-                        else -> Unit
+                        "temperature" -> if (allowTemperature) {
+                            allowTemperature = false
+                            changed = true
+                        }
+                        "max_tokens" -> if (maxTokensParam == "max_tokens") {
+                            maxTokensParam = if (!triedMaxTokensFallback) {
+                                triedMaxTokensFallback = true
+                                "max_completion_tokens"
+                            } else {
+                                null
+                            }
+                            changed = true
+                        }
+                        "max_completion_tokens" -> if (maxTokensParam == "max_completion_tokens") {
+                            maxTokensParam = if (!triedMaxTokensFallback) {
+                                triedMaxTokensFallback = true
+                                "max_tokens"
+                            } else {
+                                null
+                            }
+                            changed = true
+                        }
+                        "thinking" -> if (allowThinking) {
+                            allowThinking = false
+                            changed = true
+                        }
+                        "reasoning" -> if (allowReasoning) {
+                            allowReasoning = false
+                            changed = true
+                        }
+                        "reasoning_effort" -> if (allowReasoningEffort) {
+                            allowReasoningEffort = false
+                            changed = true
+                        }
+                        "tools", "tool_choice" -> if (allowTools) {
+                            allowTools = false
+                            changed = true
+                        }
                     }
-                    optionalStripped++
-                    continue
+                    if (changed) {
+                        optionalStripped++
+                        continue
+                    }
                 }
 
                 if (result is AIResponseResult.Error && result.retryable && attempt < MAX_RETRIES) {
                     if (result.message.contains("thought_signature", ignoreCase = true)) {
                         forceSkipValidator = true
-                        // Google требует подпись, а модель её не прислала: только
-                        // теперь подставляем заглушку, а не заранее всем запросам.
                         signatureFallback = true
                     }
                     attempt++
                     val pause = backoffMillis(attempt)
-                    // 429 (лимит запросов): отдельный индикатор ожидания снятия ограничения.
                     val retryText = if (result.message.contains("429")) {
                         "Лимит запросов, ожидаю снятия ограничения"
                     } else {
                         result.message
                     }
                     listener?.onRetry(retryText, pause)
-                    // Стоп во время ожидания должен прервать цикл, а не запустить
-                    // запрос заново уже после нажатия кнопки.
                     if (waitForRetry(pause, shouldStop)) return@withContext AIResponseResult.Cancelled
                     continue
                 }
                 return@withContext result
+            } catch (e: CancellationException) {
+                call.cancel()
+                throw e
             } catch (e: IOException) {
-                if (call.isCanceled()) return@withContext AIResponseResult.Cancelled
-                if (shouldStop()) return@withContext AIResponseResult.Cancelled
+                if (call.isCanceled() || shouldStop()) return@withContext AIResponseResult.Cancelled
                 if (attempt < MAX_RETRIES) {
                     attempt++
                     val pause = backoffMillis(attempt)
@@ -571,17 +682,16 @@ class OpenAIClient {
                     "Сетевая ошибка: ${e.localizedMessage ?: "не удалось подключиться к серверу"}"
                 )
             } catch (e: JSONException) {
-                // Битый JSON от сервера — сырой текст исключения с куском
-                // ответа в чат не тащим, только понятное сообщение.
                 return@withContext AIResponseResult.Error(
                     "Ответ сервера не распознан (битый JSON). Повторите запрос."
                 )
             } catch (e: Exception) {
                 return@withContext AIResponseResult.Error(
-                    "Ошибка обработки ответа: ${e.localizedMessage}"
+                    "Ошибка обработки ответа: ${e.localizedMessage ?: "неизвестный сбой"}"
                 )
             } finally {
-                activeCall = null
+                cancelHandle?.dispose()
+                activeCalls.remove(call)
             }
         }
 
@@ -590,27 +700,40 @@ class OpenAIClient {
 
     /**
      * Обёртка над разбором SSE: заводит сторожа потока и превращает зависание
-     * в обычную retryable-ошибку, а не в вечное ожидание.
+     * в обычную retryable-ошибку (если текст ещё не выведен), а не в вечное ожидание.
      */
     private fun executeStreaming(
         call: Call,
         listener: StreamListener?,
         signatureFallback: Boolean,
-        metrics: GenerationMetrics?
+        metrics: GenerationMetrics?,
+        stallTimeoutMs: Long,
+        sentOptionalParams: Set<String>,
+        rateLimitBaseHost: String?
     ): AIResponseResult {
-        val watchdog = StreamWatchdog()
+        val watchdog = StreamWatchdog(stallTimeoutMs)
+        val emitted = AtomicBoolean(false)
         watchdog.start(call)
         CrashReportManager.log("API", "Стрим начат")
         try {
-            val result = executeStreamingInner(call, listener, signatureFallback, metrics, watchdog)
+            val result = executeStreamingInner(
+                call = call,
+                listener = listener,
+                signatureFallback = signatureFallback,
+                metrics = metrics,
+                watchdog = watchdog,
+                emitted = emitted,
+                sentOptionalParams = sentOptionalParams,
+                rateLimitBaseHost = rateLimitBaseHost
+            )
             if (watchdog.stalled) {
                 CrashReportManager.log(
                     "API",
-                    "Поток завис: ${STREAM_STALL_TIMEOUT_MS / 1000} с без полезных данных"
+                    "Поток завис: ${stallTimeoutMs / 1000} с без полезных данных"
                 )
                 return AIResponseResult.Error(
-                    "Модель молчит уже ${STREAM_STALL_TIMEOUT_MS / 1000} секунд. Повторяю запрос.",
-                    retryable = true
+                    "Модель не отвечает уже ${stallTimeoutMs / 1000} с.",
+                    retryable = !emitted.get()
                 )
             }
             CrashReportManager.log("API", "Стрим завершён: ${result::class.simpleName}")
@@ -619,11 +742,11 @@ class OpenAIClient {
             if (watchdog.stalled) {
                 CrashReportManager.log(
                     "API",
-                    "Поток завис: ${STREAM_STALL_TIMEOUT_MS / 1000} с без полезных данных"
+                    "Поток завис: ${stallTimeoutMs / 1000} с без полезных данных"
                 )
                 return AIResponseResult.Error(
-                    "Модель молчит уже ${STREAM_STALL_TIMEOUT_MS / 1000} секунд. Повторяю запрос.",
-                    retryable = true
+                    "Модель не отвечает уже ${stallTimeoutMs / 1000} с.",
+                    retryable = !emitted.get()
                 )
             }
             throw e
@@ -638,45 +761,55 @@ class OpenAIClient {
         listener: StreamListener?,
         signatureFallback: Boolean,
         metrics: GenerationMetrics?,
-        watchdog: StreamWatchdog
+        watchdog: StreamWatchdog,
+        emitted: AtomicBoolean,
+        sentOptionalParams: Set<String>,
+        rateLimitBaseHost: String?
     ): AIResponseResult {
         val content = StringBuilder()
+        val rawReasoningContent = StringBuilder()
         val toolCallSlots = sortedMapOf<Int, ToolCallAccumulator>()
-        var emitted = false
 
         call.execute().use { response ->
-            captureRateLimits(response)
+            captureRateLimits(response, rateLimitBaseHost)
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string().orEmpty()
-                return withEmitted(httpError(response.code, errorBody, call), emitted)
+                return withEmitted(
+                    httpError(response.code, errorBody, call, sentOptionalParams),
+                    emitted.get()
+                )
             }
 
             val responseBody = response.body
                 ?: return AIResponseResult.Error("Пустой ответ от сервера.")
 
+            // Если прокси/провайдер проигнорировал stream=true и вернул обычный JSON (HTTP 200),
+            // разбираем его напрямую, вместо того чтобы молча получить «пустой ответ».
+            val contentType = response.header("Content-Type").orEmpty().lowercase()
+            if (contentType.contains("json") && !contentType.contains("text/event-stream")) {
+                val jsonText = responseBody.string()
+                return parseBlockingJson(
+                    responseBody = jsonText,
+                    signatureFallback = signatureFallback,
+                    metrics = metrics,
+                    listener = listener,
+                    emitted = emitted
+                )
+            }
+
             val source = responseBody.source()
-            while (true) {
-                val line = source.readUtf8Line() ?: break
-                if (line.isEmpty() || !line.startsWith("data:")) continue
+            val eventData = StringBuilder()
+            val nonSseBuffer = StringBuilder()
+            var sawSseData = false
 
-                val payload = line.substring(5).trim()
-                if (payload.isEmpty()) continue
-                if (payload == DONE_SENTINEL) break
-
-                val chunk = try {
-                    JSONObject(payload)
-                } catch (e: Exception) {
-                    continue
-                }
-
-                // OpenRouter и часть прокси присылают ошибку отдельным SSE-чанком
-                // без choices. Раньше он молча игнорировался, и ход заканчивался
-                // пустым ответом без понятной причины.
+            fun processChunk(chunk: JSONObject): AIResponseResult? {
+                // OpenRouter и часть прокси присылают ошибку отдельным SSE-чанком без choices.
                 val streamErrorObj = chunk.optJSONObject("error")
                 val streamErrorText = when {
-                    streamErrorObj != null -> streamErrorObj.optString("message")
-                        .ifBlank { streamErrorObj.toString() }
-                    else -> chunk.optString("error").takeIf { it.isNotBlank() }
+                    streamErrorObj != null -> streamErrorObj.optNullableString("message")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: streamErrorObj.toString()
+                    else -> chunk.optNullableString("error")?.takeIf { it.isNotBlank() }
                 }
                 if (!streamErrorText.isNullOrBlank()) {
                     val code = streamErrorObj?.optInt("code", 0) ?: 0
@@ -696,19 +829,21 @@ class OpenAIClient {
                 }
                 if (usage != null) watchdog.touch()
 
-                val choices = chunk.optJSONArray("choices") ?: continue
-                val choice0 = choices.optJSONObject(0) ?: continue
-                val choiceFinishReason = choice0.optString("finish_reason")
-                if (choiceFinishReason.isNotBlank() && metrics?.finishReason == null) {
+                val choices = chunk.optJSONArray("choices") ?: return null
+                val choice0 = choices.optJSONObject(0) ?: return null
+                val choiceFinishReason = choice0.optNullableString("finish_reason")?.takeIf { it.isNotBlank() }
+                if (choiceFinishReason != null) {
                     metrics?.finishReason = choiceFinishReason
                 }
 
-                val delta = choice0.optJSONObject("delta") ?: continue
-
+                val delta = choice0.optJSONObject("delta") ?: return null
                 val now = System.currentTimeMillis()
 
-                // Размышления thinking-моделей: у OpenRouter это reasoning
-                // или reasoning_details, у DeepSeek — reasoning_content.
+                // Сохраняем сырой reasoning_content (нужен DeepSeek Thinking Mode для echo в tool_calls)
+                delta.optNullableString("reasoning_content")?.takeIf { it.isNotEmpty() }?.let {
+                    rawReasoningContent.append(it)
+                }
+
                 val reasoningPiece = extractReasoningText(delta)
                 if (reasoningPiece != null) {
                     metrics?.noteReasoning(reasoningPiece, now)
@@ -716,10 +851,10 @@ class OpenAIClient {
                     watchdog.touch()
                 }
 
-                (delta.opt("content") as? String)?.takeIf { it.isNotEmpty() }?.let { piece ->
+                delta.optNullableString("content")?.takeIf { it.isNotEmpty() }?.let { piece ->
                     metrics?.noteContent(now)
                     content.append(piece)
-                    emitted = true
+                    emitted.set(true)
                     listener?.onTextDelta(piece)
                     watchdog.touch()
                 }
@@ -728,25 +863,27 @@ class OpenAIClient {
                     ?: choice0.optJSONObject("extra_content")
                     ?: chunk.optJSONObject("extra_content")
 
-                val deltaSig = (delta.opt("thought_signature") as? String)?.takeIf { it.isNotBlank() }
-                    ?: (delta.opt("thoughtSignature") as? String)?.takeIf { it.isNotBlank() }
-                    ?: deltaExtra?.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                    ?: deltaExtra?.optString("thought_signature")?.takeIf { it.isNotBlank() }
+                val deltaSig = delta.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                    ?: delta.optNullableString("thoughtSignature")?.takeIf { it.isNotBlank() }
+                    ?: deltaExtra?.optJSONObject("google")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                    ?: deltaExtra?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
 
                 val deltaToolCalls = delta.optJSONArray("tool_calls")
                 if (deltaToolCalls != null) {
                     watchdog.touch()
                     for (index in 0 until deltaToolCalls.length()) {
                         val item = deltaToolCalls.optJSONObject(index) ?: continue
-                        val hasIndex = item.has("index")
+                        val hasIndex = item.has("index") && !item.isNull("index")
                         val itemIndex = if (hasIndex) item.optInt("index", -1) else -1
-                        val itemId = (item.opt("id") as? String)?.takeIf { it.isNotBlank() }
+                        val itemId = item.optNullableString("id")?.takeIf { it.isNotBlank() }
 
                         val accumulator = when {
                             itemIndex >= 0 -> toolCallSlots.getOrPut(itemIndex) { ToolCallAccumulator() }
                             itemId != null -> {
                                 toolCallSlots.values.firstOrNull { it.id == itemId }
-                                    ?: toolCallSlots.getOrPut(toolCallSlots.size) { ToolCallAccumulator() }
+                                    ?: toolCallSlots.getOrPut(nextToolCallSlotKey(toolCallSlots.keys)) {
+                                        ToolCallAccumulator()
+                                    }
                             }
                             toolCallSlots.isNotEmpty() -> toolCallSlots.values.last()
                             else -> toolCallSlots.getOrPut(0) { ToolCallAccumulator() }
@@ -758,29 +895,29 @@ class OpenAIClient {
 
                         val function = item.optJSONObject("function")
                         if (function != null) {
-                            (function.opt("name") as? String)?.takeIf { it.isNotBlank() }?.let { name ->
+                            function.optNullableString("name")?.takeIf { it.isNotBlank() }?.let { name ->
                                 if (accumulator.name.isBlank()) {
                                     accumulator.name = name
                                     listener?.onToolCallStarted(name)
                                 }
                             }
-                            functionArgsToString(function).takeIf { it != "{}" }?.let {
-                                accumulator.arguments.append(it)
+                            extractStreamingArgsDelta(function)?.let { argsDelta ->
+                                accumulator.arguments.append(argsDelta)
                             }
                         }
 
                         val itemExtra = item.optJSONObject("extra_content") ?: deltaExtra
                         if (itemExtra != null) {
                             accumulator.extraContent = itemExtra
-                            val sig = itemExtra.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                                ?: (itemExtra.opt("thought_signature") as? String)?.takeIf { it.isNotBlank() }
+                            val sig = itemExtra.optJSONObject("google")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                                ?: itemExtra.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
                             if (sig != null) {
                                 accumulator.thoughtSignature = sig
                             }
                         }
 
-                        val itemSig = (item.opt("thought_signature") as? String)?.takeIf { it.isNotBlank() }
-                            ?: (item.opt("thoughtSignature") as? String)?.takeIf { it.isNotBlank() }
+                        val itemSig = item.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                            ?: item.optNullableString("thoughtSignature")?.takeIf { it.isNotBlank() }
                             ?: deltaSig
                         if (itemSig != null) {
                             accumulator.thoughtSignature = itemSig
@@ -791,6 +928,73 @@ class OpenAIClient {
                     if (deltaExtra != null) {
                         toolCallSlots.values.last().extraContent = deltaExtra
                     }
+                }
+                return null
+            }
+
+            fun flushEventData(): AIResponseResult? {
+                if (eventData.isEmpty()) return null
+                val payload = eventData.toString().trim()
+                eventData.setLength(0)
+                if (payload.isEmpty() || payload == DONE_SENTINEL) return null
+                val chunk = try {
+                    JSONObject(payload)
+                } catch (_: Exception) {
+                    return null
+                }
+                return processChunk(chunk)
+            }
+
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                if (line.isEmpty()) {
+                    flushEventData()?.let { return it }
+                    continue
+                }
+                if (line.startsWith(":")) continue
+
+                if (line.startsWith("data:")) {
+                    sawSseData = true
+                    val piece = line.substring(5).removePrefix(" ")
+                    if (piece.trim() == DONE_SENTINEL) {
+                        flushEventData()?.let { return it }
+                        break
+                    }
+                    if (eventData.isNotEmpty()) eventData.append('\n')
+                    eventData.append(piece)
+
+                    // Поддерживаем и стандартный многострочный SSE (с пустой строкой-разделителем),
+                    // и прокси, шлющие `data: {...}` подряд без пустых строк.
+                    val candidate = eventData.toString().trim()
+                    if (candidate.startsWith("{") && candidate.endsWith("}")) {
+                        val parsed = try {
+                            JSONObject(candidate)
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (parsed != null) {
+                            eventData.setLength(0)
+                            processChunk(parsed)?.let { return it }
+                        }
+                    }
+                } else if (!sawSseData && nonSseBuffer.length < NON_SSE_FALLBACK_MAX_CHARS) {
+                    nonSseBuffer.append(line).append('\n')
+                }
+            }
+
+            flushEventData()?.let { return it }
+
+            // Если сервер вернул JSON без Content-Type: application/json и без SSE `data:`
+            if (!sawSseData && nonSseBuffer.isNotBlank()) {
+                val raw = nonSseBuffer.toString().trim()
+                if (raw.startsWith("{")) {
+                    return parseBlockingJson(
+                        responseBody = raw,
+                        signatureFallback = signatureFallback,
+                        metrics = metrics,
+                        listener = listener,
+                        emitted = emitted
+                    )
                 }
             }
         }
@@ -807,124 +1011,188 @@ class OpenAIClient {
                         retryable = false
                     )
                 } else {
-                    AIResponseResult.Error("Модель вернула пустой ответ.", retryable = !emitted)
+                    AIResponseResult.Error("Модель вернула пустой ответ.", retryable = !emitted.get())
                 }
             } else {
                 AIResponseResult.TextResult(text)
             }
         }
-        return buildToolCallResult(content.toString(), toolCallSlots, signatureFallback)
+        return buildToolCallResult(
+            text = content.toString(),
+            slots = toolCallSlots,
+            signatureFallback = signatureFallback,
+            reasoningContent = rawReasoningContent.toString().takeIf { it.isNotEmpty() }
+        )
     }
 
     private fun executeBlocking(
         call: Call,
         signatureFallback: Boolean,
-        metrics: GenerationMetrics?
+        metrics: GenerationMetrics?,
+        sentOptionalParams: Set<String>,
+        rateLimitBaseHost: String?
     ): AIResponseResult {
         call.execute().use { response ->
-            captureRateLimits(response)
+            captureRateLimits(response, rateLimitBaseHost)
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                return httpError(response.code, responseBody, call)
+                return httpError(response.code, responseBody, call, sentOptionalParams)
             }
+            return parseBlockingJson(
+                responseBody = responseBody,
+                signatureFallback = signatureFallback,
+                metrics = metrics,
+                listener = null,
+                emitted = null
+            )
+        }
+    }
 
-            val json = JSONObject(responseBody)
-            val choices = json.optJSONArray("choices")
-            if (choices == null || choices.length() == 0) {
-                return AIResponseResult.Error("Получен пустой ответ от модели.")
+    private fun parseBlockingJson(
+        responseBody: String,
+        signatureFallback: Boolean,
+        metrics: GenerationMetrics?,
+        listener: StreamListener?,
+        emitted: AtomicBoolean?
+    ): AIResponseResult {
+        val json = JSONObject(responseBody)
+
+        val errObj = json.optJSONObject("error")
+        val errText = when {
+            errObj != null -> errObj.optNullableString("message")?.takeIf { it.isNotBlank() } ?: errObj.toString()
+            else -> json.optNullableString("error")?.takeIf { it.isNotBlank() }
+        }
+        if (!errText.isNullOrBlank()) {
+            val code = errObj?.optInt("code", 0) ?: 0
+            val prefix = if (code > 0) "Ошибка провайдера ($code)" else "Ошибка провайдера"
+            return AIResponseResult.Error("$prefix: $errText")
+        }
+
+        val choices = json.optJSONArray("choices")
+        if (choices == null || choices.length() == 0) {
+            return AIResponseResult.Error("Получен пустой ответ от модели.")
+        }
+
+        json.optJSONObject("usage")?.let { usage ->
+            if (metrics != null) {
+                val prompt = usage.optInt("prompt_tokens", 0)
+                if (prompt > 0) metrics.promptTokens = prompt
+                val completion = usage.optInt("completion_tokens", 0)
+                if (completion > 0) metrics.completionTokens = completion
             }
+        }
 
-            json.optJSONObject("usage")?.let { usage ->
-                if (metrics != null) {
-                    val prompt = usage.optInt("prompt_tokens", 0)
-                    if (prompt > 0) metrics.promptTokens = prompt
-                    val completion = usage.optInt("completion_tokens", 0)
-                    if (completion > 0) metrics.completionTokens = completion
+        val choice0 = choices.getJSONObject(0)
+        choice0.optNullableString("finish_reason")?.takeIf { it.isNotBlank() }?.let {
+            metrics?.finishReason = it
+        }
+        val message = choice0.getJSONObject("message")
+
+        val reasoning = extractReasoningText(message)
+        if (reasoning != null) {
+            val now = System.currentTimeMillis()
+            metrics?.noteReasoning(reasoning, now)
+            listener?.onReasoningDelta(reasoning)
+        }
+        metrics?.finish()
+
+        val toolCallsJson = message.optJSONArray("tool_calls")
+        val messageExtra = message.optJSONObject("extra_content")
+        val messageSig = messageExtra?.optJSONObject("google")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+            ?: messageExtra?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+            ?: message.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+
+        if (toolCallsJson != null && toolCallsJson.length() > 0) {
+            val calls = mutableListOf<ToolCall>()
+            var firstSig: String? = messageSig
+
+            for (index in 0 until toolCallsJson.length()) {
+                val item = toolCallsJson.getJSONObject(index)
+                val function = item.getJSONObject("function")
+
+                var sig = item.optJSONObject("extra_content")?.optJSONObject("google")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                    ?: item.optJSONObject("extra_content")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                    ?: item.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                    ?: messageSig
+
+                if (sig.isNullOrBlank() && signatureFallback) {
+                    sig = GEMINI_THOUGHT_SIGNATURE_BYPASS
                 }
-            }
+                if (firstSig == null && !sig.isNullOrBlank()) {
+                    firstSig = sig
+                }
 
-            val choice0 = choices.getJSONObject(0)
-            val message = choice0.getJSONObject("message")
+                if (!sig.isNullOrBlank()) {
+                    val extra = item.optJSONObject("extra_content") ?: JSONObject()
+                    val google = extra.optJSONObject("google") ?: JSONObject()
+                    google.put("thought_signature", sig)
+                    extra.put("google", google)
+                    item.put("extra_content", extra)
+                    item.put("thought_signature", sig)
+                }
 
-            // Размышления thinking-модели приходят в самом сообщении
-            val reasoning = extractReasoningText(message)
-            if (reasoning != null && metrics != null) {
-                val now = System.currentTimeMillis()
-                metrics.noteReasoning(reasoning, now)
-            }
-            metrics?.finish()
+                val callId = item.optNullableString("id").orEmpty()
+                    .ifBlank { "call_${System.currentTimeMillis()}_$index" }
+                item.put("id", callId)
 
-            val toolCallsJson = message.optJSONArray("tool_calls")
-            val messageExtra = message.optJSONObject("extra_content")
-            val messageSig = messageExtra?.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                ?: messageExtra?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                ?: message.optString("thought_signature").takeIf { it.isNotBlank() }
+                val toolName = function.getString("name")
+                listener?.onToolCallStarted(toolName)
 
-            if (toolCallsJson != null && toolCallsJson.length() > 0) {
-                val calls = mutableListOf<ToolCall>()
-                var firstSig: String? = messageSig
-
-                for (index in 0 until toolCallsJson.length()) {
-                    val item = toolCallsJson.getJSONObject(index)
-                    val function = item.getJSONObject("function")
-
-                    var sig = item.optJSONObject("extra_content")?.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                        ?: item.optJSONObject("extra_content")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                        ?: item.optString("thought_signature").takeIf { it.isNotBlank() }
-                        ?: messageSig
-
-                    if (sig.isNullOrBlank() && signatureFallback) {
-                        sig = GEMINI_THOUGHT_SIGNATURE_BYPASS
-                    }
-                    if (firstSig == null && !sig.isNullOrBlank()) {
-                        firstSig = sig
-                    }
-
-                    if (!sig.isNullOrBlank()) {
-                        val extra = item.optJSONObject("extra_content") ?: JSONObject()
-                        val google = extra.optJSONObject("google") ?: JSONObject()
-                        google.put("thought_signature", sig)
-                        extra.put("google", google)
-                        item.put("extra_content", extra)
-                        item.put("thought_signature", sig)
-                    }
-
-                    // Нормализуем id и записываем обратно в echo: пустой id
-                    // (Gemini такое присылает) роняет следующий запрос с
-                    // 400 function_response.name — echo и tool-ответ обязаны
-                    // нести один и тот же непустой id.
-                    val callId = (item.opt("id") as? String).orEmpty()
-                        .ifBlank { "call_${System.currentTimeMillis()}_$index" }
-                    item.put("id", callId)
-
-                    calls.add(
-                        ToolCall(
-                            id = callId,
-                            name = function.getString("name"),
-                            arguments = functionArgsToString(function),
-                            thoughtSignature = sig,
-                            extraContent = item.optJSONObject("extra_content")
-                        )
+                calls.add(
+                    ToolCall(
+                        id = callId,
+                        name = toolName,
+                        arguments = functionArgsToString(function),
+                        thoughtSignature = sig,
+                        extraContent = item.optJSONObject("extra_content")
                     )
-                }
-
-                if (firstSig != null && !message.has("extra_content")) {
-                    message.put(
-                        "extra_content",
-                        JSONObject().put("google", JSONObject().put("thought_signature", firstSig))
-                    )
-                }
-
-                return AIResponseResult.ToolCallsResult(message, calls)
+                )
             }
 
-            return AIResponseResult.TextResult(message.optString("content", ""))
+            if (firstSig != null && !message.has("extra_content")) {
+                message.put(
+                    "extra_content",
+                    JSONObject().put("google", JSONObject().put("thought_signature", firstSig))
+                )
+            }
+
+            return AIResponseResult.ToolCallsResult(message, calls)
+        }
+
+        val text = message.optNullableString("content").orEmpty()
+        if (text.isBlank()) {
+            return if (metrics?.finishReason == "length") {
+                AIResponseResult.Error(
+                    "Модель израсходовала лимит вывода на размышления и не оставила текста. " +
+                            "Увеличь лимит вывода или выключи «Думать».",
+                    retryable = false
+                )
+            } else {
+                AIResponseResult.Error("Модель вернула пустой ответ.", retryable = true)
+            }
+        }
+        if (listener != null) {
+            emitted?.set(true)
+            listener.onTextDelta(text)
+        }
+        return AIResponseResult.TextResult(text)
+    }
+
+    /**
+     * Извлекает дельту аргументов из SSE-чанка без порчи пробельных токенов
+     * (`" "`, `"\n"`, `"    "`) и буквального токена `"{}"`.
+     */
+    private fun extractStreamingArgsDelta(function: JSONObject): String? {
+        return when (val args = function.opt("arguments")) {
+            is String -> args.takeIf { it.isNotEmpty() }
+            is JSONObject, is JSONArray -> args.toString()
+            else -> null
         }
     }
 
     /**
-     * Аргументы вызова в строку: Gemini иногда отдаёт arguments объектом,
-     * а не строкой — приводим к JSON-строке вместо потери.
+     * Аргументы полного (нестримингового) вызова в строку: Gemini иногда отдаёт
+     * arguments объектом, а не строкой — приводим к JSON-строке вместо потери.
      */
     private fun functionArgsToString(function: JSONObject): String {
         return when (val args = function.opt("arguments")) {
@@ -937,7 +1205,8 @@ class OpenAIClient {
     private fun buildToolCallResult(
         text: String,
         slots: Map<Int, ToolCallAccumulator>,
-        signatureFallback: Boolean
+        signatureFallback: Boolean,
+        reasoningContent: String? = null
     ): AIResponseResult {
         val calls = mutableListOf<ToolCall>()
         val jsonCalls = JSONArray()
@@ -999,6 +1268,9 @@ class OpenAIClient {
             put("role", "assistant")
             put("content", text)
             put("tool_calls", jsonCalls)
+            if (!reasoningContent.isNullOrEmpty()) {
+                put("reasoning_content", reasoningContent)
+            }
             if (firstSig != null) {
                 put(
                     "extra_content",
@@ -1023,7 +1295,7 @@ class OpenAIClient {
             val msg = messages.optJSONObject(i) ?: continue
             val copy = JSONObject(msg.toString())
 
-            if (isGemini && copy.optString("role") == "assistant") {
+            if (isGemini && copy.optNullableString("role") == "assistant") {
                 val toolCalls = copy.optJSONArray("tool_calls")
                 if (toolCalls != null && toolCalls.length() > 0) {
                     var defaultSig: String? = null
@@ -1033,11 +1305,11 @@ class OpenAIClient {
                         val sig = if (forceSkipValidator) {
                             GEMINI_THOUGHT_SIGNATURE_BYPASS
                         } else {
-                            tc.optJSONObject("extra_content")?.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                                ?: tc.optJSONObject("extra_content")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                                ?: tc.optString("thought_signature").takeIf { it.isNotBlank() }
-                                ?: copy.optJSONObject("extra_content")?.optJSONObject("google")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
-                                ?: copy.optJSONObject("extra_content")?.optString("thought_signature")?.takeIf { it.isNotBlank() }
+                            tc.optJSONObject("extra_content")?.optJSONObject("google")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                                ?: tc.optJSONObject("extra_content")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                                ?: tc.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                                ?: copy.optJSONObject("extra_content")?.optJSONObject("google")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
+                                ?: copy.optJSONObject("extra_content")?.optNullableString("thought_signature")?.takeIf { it.isNotBlank() }
                                 ?: GEMINI_THOUGHT_SIGNATURE_BYPASS
                         }
 
@@ -1065,30 +1337,35 @@ class OpenAIClient {
         return output
     }
 
-    private fun httpError(code: Int, body: String, call: Call): AIResponseResult {
+    private fun httpError(
+        code: Int,
+        body: String,
+        call: Call,
+        sentOptionalParams: Set<String>
+    ): AIResponseResult {
         if (call.isCanceled()) return AIResponseResult.Cancelled
 
         // Сырой JSON/HTML в плашку чата не вываливаем — только понятный текст.
         val details = try {
             val json = JSONObject(body)
             val errorObj = json.optJSONObject("error")
-            val mainMsg = errorObj?.optString("message")?.takeIf { it.isNotBlank() }
-                ?: json.optString("message").takeIf { it.isNotBlank() }
-                ?: json.optString("error").takeIf { it.isNotBlank() }
-                ?: errorObj?.optString("error")?.takeIf { it.isNotBlank() }
-                ?: json.optString("detail").takeIf { it.isNotBlank() }
-                ?: errorObj?.optString("detail")?.takeIf { it.isNotBlank() }
+            val mainMsg = errorObj?.optNullableString("message")?.takeIf { it.isNotBlank() }
+                ?: json.optNullableString("message")?.takeIf { it.isNotBlank() }
+                ?: json.optNullableString("error")?.takeIf { it.isNotBlank() }
+                ?: errorObj?.optNullableString("error")?.takeIf { it.isNotBlank() }
+                ?: json.optNullableString("detail")?.takeIf { it.isNotBlank() }
+                ?: errorObj?.optNullableString("detail")?.takeIf { it.isNotBlank() }
                 ?: json.optJSONArray("detail")?.let { arr ->
                     val list = mutableListOf<String>()
                     for (i in 0 until arr.length()) {
                         val d = arr.optJSONObject(i)
-                        val msg = d?.optString("msg") ?: arr.optString(i)
-                        if (msg.isNotBlank()) list.add(msg)
+                        val msg = d?.optNullableString("msg") ?: (arr.opt(i) as? String)
+                        if (!msg.isNullOrBlank()) list.add(msg)
                     }
                     if (list.isNotEmpty()) list.joinToString("; ") else null
                 }
-                ?: json.optString("error_description").takeIf { it.isNotBlank() }
-                ?: json.optString("msg").takeIf { it.isNotBlank() }
+                ?: json.optNullableString("error_description")?.takeIf { it.isNotBlank() }
+                ?: json.optNullableString("msg")?.takeIf { it.isNotBlank() }
 
             val violations = errorObj?.optJSONArray("details")?.let { arr ->
                 val list = mutableListOf<String>()
@@ -1097,9 +1374,9 @@ class OpenAIClient {
                     val fv = d.optJSONArray("fieldViolations") ?: continue
                     for (j in 0 until fv.length()) {
                         val v = fv.optJSONObject(j) ?: continue
-                        val desc = v.optString("description").takeIf { it.isNotBlank() }
-                            ?: v.optString("field")
-                        if (desc.isNotBlank()) list.add(desc)
+                        val desc = v.optNullableString("description")?.takeIf { it.isNotBlank() }
+                            ?: v.optNullableString("field")
+                        if (!desc.isNullOrBlank()) list.add(desc)
                     }
                 }
                 if (list.isNotEmpty()) list.joinToString("; ") else null
@@ -1119,47 +1396,13 @@ class OpenAIClient {
             raw.removePrefix("{").removeSuffix("}").trim()
         }
 
-        val isThoughtSignatureError = details?.contains("thought_signature", ignoreCase = true) == true
-
-        // Провайдер назвал поле, которого не знает. Формат у Google свой
-        // (error.details[].fieldViolations[].description), у остальных — текст.
-        val unknownField = if (code == 400) extractUnknownField(body) else null
-
-        return when {
-            unknownField != null -> AIResponseResult.Error(
-                "Провайдер не принял параметр «$unknownField». " +
-                        "Запрос повторяется без него.",
-                optionalField = unknownField,
-                retryable = true
-            )
-            code == 400 && details != null ->
-                AIResponseResult.Error("Ошибка запроса (400): $details")
-            code == 400 ->
-                AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Проверьте модель и параметры в настройках.")
-            code == 401 -> {
-                val host = call.request().url.host
-                AIResponseResult.Error(
-                    "Ошибка авторизации (401) на $host. Ключ не подошёл этому провайдеру: " +
-                            "проверьте, что он от этого сервиса, а не от другого, и что Base URL совпадает."
-                )
-            }
-            code == 403 -> AIResponseResult.Error(
-                if (details != null) "Доступ запрещён (403): $details"
-                else "Доступ запрещён (403). Проверьте ключ и доступ модели."
-            )
-            code == 404 -> AIResponseResult.Error(
-                if (details != null) "Эндпоинт или модель не найдены (404): $details"
-                else "Эндпоинт или модель не найдены (404). Проверьте Base URL и модель."
-            )
-            code == 429 -> AIResponseResult.Error(
-                if (details != null) "Лимит запросов (429): $details"
-                else "Лимит запросов исчерпан (429). Повторите запрос через несколько секунд.",
-                retryable = true
-            )
-            isThoughtSignatureError -> AIResponseResult.Error("Ошибка API ($code): $details", retryable = true)
-            details != null -> AIResponseResult.Error("Ошибка API ($code): $details")
-            else -> AIResponseResult.Error("Ошибка сервера ($code): ответ не распознан, повторите запрос")
-        }
+        val unknownField = if (code == 400) extractUnknownField(body, sentOptionalParams) else null
+        return classifyHttpError(
+            code = code,
+            details = details,
+            host = call.request().url.host,
+            unknownField = unknownField
+        )
     }
 
     /** Если часть ответа уже показана, повторять запрос нельзя — текст задвоится. */
@@ -1168,15 +1411,13 @@ class OpenAIClient {
 
     /**
      * Достаёт из тела ошибки имя поля, которое провайдер не знает.
-     * Проверяются оба известных формата: Google (structured details) и текстовый.
-     * Возвращается только имя из белого списка: убирать из запроса произвольное
-     * поле, названное сервером, слишком рискованно.
+     * Возвращается только имя из белого списка, которое реально отправлялось в запросе.
      */
-    private fun extractUnknownField(body: String): String? {
+    private fun extractUnknownField(body: String, sentOptionalParams: Set<String>): String? {
         val text = try {
             val json = JSONObject(body)
             val error = json.optJSONObject("error") ?: json
-            val message = error.optString("message")
+            val message = error.optNullableString("message").orEmpty()
             val details = error.optJSONArray("details")
             buildString {
                 append(message)
@@ -1187,41 +1428,10 @@ class OpenAIClient {
                     }
                 }
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             body
         }
-
-        val lowered = text.lowercase()
-        if (lowered.contains("tools are not supported") ||
-            lowered.contains("tool calling is not supported") ||
-            lowered.contains("function calling is not supported") ||
-            (lowered.contains("tools") && lowered.contains("multimodal"))
-        ) {
-            return "tools"
-        }
-
-        if (lowered.contains("reasoning_effort") &&
-            (lowered.contains("not supported") || lowered.contains("unsupported") ||
-                    lowered.contains("invalid") || lowered.contains("unknown"))
-        ) {
-            return "reasoning_effort"
-        }
-        if (lowered.contains("reasoning") &&
-            (lowered.contains("not supported") || lowered.contains("unsupported") ||
-                    lowered.contains("invalid") || lowered.contains("unknown"))
-        ) {
-            return "reasoning"
-        }
-
-        if (!lowered.contains("unknown name") &&
-            !lowered.contains("unknown parameter") &&
-            !lowered.contains("unrecognized") &&
-            !lowered.contains("unexpected")
-        ) {
-            return null
-        }
-
-        return OPTIONAL_PARAM_NAMES.firstOrNull { lowered.contains(it) }
+        return detectUnknownFieldFromText(text, sentOptionalParams)
     }
 
     /** Экспоненциальная пауза 3-6-10 с: лимит успевает отпустить, ожидание терпимое. */
@@ -1274,35 +1484,44 @@ class OpenAIClient {
             .callTimeout(timeoutSec + 2, TimeUnit.SECONDS)
             .build()
 
-        val requestBuilder = try {
-            Request.Builder().url(testEndpoint)
+        val request = try {
+            val requestBuilder = Request.Builder()
+                .url(testEndpoint)
+                .get()
+                .addHeader("Accept", "application/json")
+                .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
+                .addHeader("X-Title", "Runner Android Agent")
+
+            if (apiKey.isNotBlank()) {
+                val cleanKey = apiKey.trim()
+                requestBuilder.addHeader("Authorization", "Bearer $cleanKey")
+                if (extractHost(testEndpoint) == "generativelanguage.googleapis.com") {
+                    requestBuilder.addHeader("x-goog-api-key", cleanKey)
+                }
+            }
+
+            parsedHeaders.forEach { (name, value) ->
+                requestBuilder.header(name, value)
+            }
+            requestBuilder.build()
         } catch (e: Exception) {
             return@withContext ConnectionTestResult(
                 isSuccess = false,
                 isReachable = false,
                 statusCode = null,
                 latencyMs = 0L,
-                message = "${providerPrefix}Некорректный адрес URL: ${e.localizedMessage ?: cleanUrl}",
+                message = "${providerPrefix}Некорректный адрес URL или заголовки: ${e.localizedMessage ?: cleanUrl}",
                 targetEndpoint = testEndpoint
             )
         }
 
-        requestBuilder.get()
-            .addHeader("Accept", "application/json")
-            .addHeader("HTTP-Referer", "https://github.com/ArddMobX/Runner")
-            .addHeader("X-Title", "Runner Android Agent")
-
-        if (apiKey.isNotBlank()) {
-            requestBuilder.addHeader("Authorization", "Bearer ${apiKey.trim()}")
+        val call = testClient.newCall(request)
+        val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
         }
-
-        parsedHeaders.forEach { (name, value) ->
-            requestBuilder.header(name, value)
-        }
-
         val start = System.currentTimeMillis()
         try {
-            testClient.newCall(requestBuilder.build()).execute().use { response ->
+            call.execute().use { response ->
                 val latencyMs = System.currentTimeMillis() - start
                 val code = response.code
 
@@ -1323,6 +1542,14 @@ class OpenAIClient {
                         message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 401 Unauthorized (проверьте ключ)",
                         targetEndpoint = testEndpoint
                     )
+                    code == 402 -> ConnectionTestResult(
+                        isSuccess = false,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 402 Недостаточно средств на балансе",
+                        targetEndpoint = testEndpoint
+                    )
                     code == 403 -> ConnectionTestResult(
                         isSuccess = false,
                         isReachable = true,
@@ -1332,8 +1559,6 @@ class OpenAIClient {
                         targetEndpoint = testEndpoint
                     )
                     code == 404 -> ConnectionTestResult(
-                        // Сервер ответил, значит он доступен. Но работоспособной
-                        // связку назвать нельзя: эндпоинта нет и запросы упадут.
                         isSuccess = false,
                         isReachable = true,
                         statusCode = code,
@@ -1359,16 +1584,27 @@ class OpenAIClient {
                         message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 429 Превышен лимит запросов",
                         targetEndpoint = testEndpoint
                     )
-                    else -> ConnectionTestResult(
-                        isSuccess = code < 500,
+                    code == 451 -> ConnectionTestResult(
+                        isSuccess = false,
                         isReachable = true,
                         statusCode = code,
                         latencyMs = latencyMs,
-                        message = "${providerPrefix}Сервер ответил · HTTP $code · $latencyMs мс",
+                        message = "${providerPrefix}Сервер ответил ($latencyMs мс) · 451 Доступ ограничен по региону",
+                        targetEndpoint = testEndpoint
+                    )
+                    else -> ConnectionTestResult(
+                        isSuccess = false,
+                        isReachable = true,
+                        statusCode = code,
+                        latencyMs = latencyMs,
+                        message = "${providerPrefix}Сервер ответил ошибкой · HTTP $code · $latencyMs мс",
                         targetEndpoint = testEndpoint
                     )
                 }
             }
+        } catch (e: CancellationException) {
+            call.cancel()
+            throw e
         } catch (e: java.net.SocketTimeoutException) {
             val latencyMs = System.currentTimeMillis() - start
             ConnectionTestResult(
@@ -1425,10 +1661,12 @@ class OpenAIClient {
                 message = "Ошибка: ${e.localizedMessage ?: "неизвестный сбой"}",
                 targetEndpoint = testEndpoint
             )
+        } finally {
+            cancelHandle?.dispose()
         }
     }
 
-    private fun captureRateLimits(response: Response) {
+    private fun captureRateLimits(response: Response, providerBaseHost: String?) {
         val headers = response.headers
         fun intHeader(name: String): Int? =
             headers[name]?.trim()?.toIntOrNull()
@@ -1442,19 +1680,11 @@ class OpenAIClient {
             resetTokens = headers["x-ratelimit-reset-tokens"]?.trim()
         )
         if (info.hasAny) {
-            RateLimitStore.update(response.request.url.host, info)
-        }
-    }
-
-    private fun resolvePingUrl(target: String): String {
-        val trimmed = target.trim().trimEnd('/')
-        return when {
-            trimmed.endsWith("/chat/completions") -> trimmed
-            trimmed.endsWith("/models") -> trimmed
-            trimmed.endsWith("/v1") -> "$trimmed/models"
-            trimmed.endsWith("/openai") -> "$trimmed/models"
-            !trimmed.contains("/models") && !trimmed.contains("/chat/completions") -> "$trimmed/models"
-            else -> trimmed
+            val requestHost = response.request.url.host
+            RateLimitStore.update(requestHost, info)
+            if (!providerBaseHost.isNullOrBlank() && !providerBaseHost.equals(requestHost, ignoreCase = true)) {
+                RateLimitStore.update(providerBaseHost, info)
+            }
         }
     }
 
@@ -1464,7 +1694,6 @@ class OpenAIClient {
      * сохранить уже сгенерированный текст), значит проверять надо самим.
      */
     private suspend fun waitForRetry(totalMs: Long, shouldStop: () -> Boolean): Boolean {
-        // true — ожидание прервано пользователем.
         var waited = 0L
         while (waited < totalMs) {
             if (shouldStop()) return true
@@ -1476,32 +1705,29 @@ class OpenAIClient {
     }
 
     /**
-     * Отбрасывает старые сообщения, чтобы запрос влезал в бюджет символов.
+     * Отбрасывает старые сообщения за O(N), чтобы запрос влезал в бюджет символов.
      *
      * Три правила, без которых провайдер отвечает 400:
      * 1. system-сообщение остаётся всегда;
-     * 2. хвост диалога (от последнего сообщения пользователя) сохраняется целиком —
-     *    именно он нужен для продолжения работы;
-     * 3. assistant с tool_calls и его ответы tool — неделимая группа: нельзя
-     *    оставить tool-ответ без запроса или запрос без ответов.
+     * 2. хвост диалога (от последнего сообщения пользователя) сохраняется целиком;
+     * 3. assistant с tool_calls и его ответы tool — неделимая группа.
      */
     private fun trimMessagesToBudget(messages: JSONArray, budgetChars: Int): JSONArray {
         if (budgetChars <= 0 || messages.length() <= 1) return messages
 
-        fun sizeOf(picked: List<JSONObject>): Int {
-            val array = JSONArray()
-            picked.forEach { array.put(it) }
-            return array.toString().toByteArray(Charsets.UTF_8).size
-        }
-
         val all = (0 until messages.length()).mapNotNull { messages.optJSONObject(it) }
         if (all.size != messages.length()) return messages
-        if (sizeOf(all) <= budgetChars) return messages
+
+        // Предвычисляем длину каждого элемента один раз: избегаем O(N^2) пересериализации
+        // и считаем именно символы (budgetChars), а не UTF-8 байты (не режем кириллицу вдвое).
+        val itemChars = IntArray(all.size) { all[it].toString().length }
+        var totalChars = 2 + itemChars.sum() + (all.size - 1).coerceAtLeast(0)
+        if (totalChars <= budgetChars) return messages
 
         // Последнее сообщение пользователя: всё от него и до конца — неприкосновенно.
         var tailStart = -1
         for (i in all.indices.reversed()) {
-            if (all[i].optString("role") == "user") {
+            if (all[i].optNullableString("role") == "user") {
                 tailStart = i
                 break
             }
@@ -1514,10 +1740,10 @@ class OpenAIClient {
         val inGroup = BooleanArray(all.size)
         var i = 0
         while (i < all.size) {
-            val role = all[i].optString("role")
+            val role = all[i].optNullableString("role")
             if (role == "assistant" && (all[i].optJSONArray("tool_calls")?.length() ?: 0) > 0) {
                 var j = i + 1
-                while (j < all.size && all[j].optString("role") == "tool") j++
+                while (j < all.size && all[j].optNullableString("role") == "tool") j++
                 if (j > i + 1) {
                     groups += ToolGroup(i, j - 1)
                     for (k in i until j) inGroup[k] = true
@@ -1529,10 +1755,19 @@ class OpenAIClient {
         }
 
         val keep = BooleanArray(all.size) { true }
+        var keptCount = all.size
         var anyDropped = false
+
+        fun dropIndex(idx: Int) {
+            if (!keep[idx]) return
+            keep[idx] = false
+            totalChars -= itemChars[idx] + if (keptCount > 1) 1 else 0
+            keptCount--
+            anyDropped = true
+        }
+
         i = 0
-        while (i < all.size) {
-            if (sizeOf((0 until all.size).filter { keep[it] }.map { all[it] }) <= budgetChars) break
+        while (i < all.size && totalChars > budgetChars) {
             val protected = i == 0 || (tailStart >= 0 && i >= tailStart)
             if (protected) {
                 i++
@@ -1542,31 +1777,32 @@ class OpenAIClient {
             if (inGroup[i]) {
                 val group = groups.firstOrNull { it.start == i }
                 if (group != null) {
-                    // Группа целиком уходит или остаётся: половина сломает протокол.
-                    val canDrop = (group.start..group.endInclusive).none { it == 0 || (tailStart >= 0 && it >= tailStart) }
+                    val canDrop = (group.start..group.endInclusive).none {
+                        it == 0 || (tailStart >= 0 && it >= tailStart)
+                    }
                     if (canDrop) {
-                        for (k in group.start..group.endInclusive) keep[k] = false
-                        anyDropped = true
+                        for (k in group.start..group.endInclusive) dropIndex(k)
                     }
                     i = group.endInclusive + 1
                     continue
                 }
                 // tool-ответ без своего assistant — битая история, убираем.
-                keep[i] = false
-                anyDropped = true
+                dropIndex(i)
                 i++
                 continue
             }
 
-            keep[i] = false
-            anyDropped = true
+            dropIndex(i)
             i++
         }
 
         if (!anyDropped) return messages
 
-        val kept = (0 until all.size).filter { keep[it] }.map { all[it] }
-        return JSONArray().apply { kept.forEach { put(it) } }
+        return JSONArray().apply {
+            for (idx in all.indices) {
+                if (keep[idx]) put(all[idx])
+            }
+        }
     }
 
     private class ToolCallAccumulator {
@@ -1577,31 +1813,35 @@ class OpenAIClient {
         var thoughtSignature: String? = null
     }
 
-    private companion object {
+    internal companion object {
         const val MAX_RETRIES = 3
         const val DONE_SENTINEL = "[DONE]"
         const val GEMINI_THOUGHT_SIGNATURE_BYPASS = "skip_thought_signature_validator"
 
         /** Сколько необязательных полей разрешено убрать в одном запросе. */
-        const val MAX_OPTIONAL_STRIPS = 3
+        const val MAX_OPTIONAL_STRIPS = 4
 
         /** Сколько раз пробуем stream_options у незнакомого провайдера. */
         const val STREAM_USAGE_PROBE_ATTEMPTS = 2
 
+        /** Лимит буфера для fallback-разбора non-SSE JSON-ответа. */
+        const val NON_SSE_FALLBACK_MAX_CHARS = 512_000
+
         /**
          * Поля, которые разрешено убирать по жалобе провайдера. Белый список:
-         * удалять из запроса произвольное поле, названное сервером, нельзя.
+         * более специфичные имена стоят первыми (max_completion_tokens до max_tokens,
+         * reasoning_effort до reasoning).
          */
         val OPTIONAL_PARAM_NAMES = listOf(
             "stream_options",
-            "temperature",
-            "max_tokens",
             "max_completion_tokens",
-            "thinking",
-            "reasoning",
+            "max_tokens",
             "reasoning_effort",
-            "tools",
-            "tool_choice"
+            "reasoning",
+            "temperature",
+            "thinking",
+            "tool_choice",
+            "tools"
         )
 
         /** Хосты, про которые точно известно, что stream_options они принимают. */
@@ -1609,18 +1849,140 @@ class OpenAIClient {
             "openai.com", "groq.com", "openrouter.ai", "deepseek.com", "googleapis.com"
         )
 
-        /**
-         * Бюджет контекста в символах (не токенах: точного токенайзера здесь нет).
-         * 600 КБ ≈ 150–200 тыс. токенов — с запасом влезает в окна современных
-         * моделей (128k+), но не даёт длинной сессии вырасти безгранично и упасть
-         * с 400 «context length exceeded».
-         */
         const val DEFAULT_CONTEXT_BUDGET_CHARS = 600_000
-
-        /** Шаг ожидания между ретраями: чаще — и Стоп реагирует быстрее. */
         const val RETRY_TICK_MS = 120L
-    }
 
+        internal fun isKnownStreamUsageHost(endpoint: String): Boolean {
+            val host = extractHost(endpoint)
+            if (host.isEmpty()) return false
+            return KNOWN_STREAM_USAGE_HOSTS.any { known ->
+                host == known || host.endsWith(".$known")
+            }
+        }
+
+        internal fun nextToolCallSlotKey(existingKeys: Collection<Int>): Int =
+            (existingKeys.maxOrNull() ?: -1) + 1
+
+        internal fun computeStreamingWatchdogTimeoutMs(responseTimeoutSeconds: Int): Long {
+            val userMs = responseTimeoutSeconds.coerceIn(10, 300).toLong() * 1000L
+            return maxOf(DEFAULT_STREAM_STALL_TIMEOUT_MS, userMs)
+        }
+
+        internal fun resolvePingUrl(target: String): String {
+            val trimmed = target.trim().trimEnd('/')
+            return when {
+                trimmed.endsWith("/chat/completions") ->
+                    trimmed.removeSuffix("/chat/completions") + "/models"
+                trimmed.endsWith("/models") -> trimmed
+                trimmed.endsWith("/v1") -> "$trimmed/models"
+                trimmed.endsWith("/openai") -> "$trimmed/models"
+                !trimmed.contains("/models") -> "$trimmed/models"
+                else -> trimmed
+            }
+        }
+
+        internal fun detectUnknownFieldFromText(
+            text: String,
+            sentOptionalParams: Set<String>
+        ): String? {
+            if (sentOptionalParams.isEmpty()) return null
+            val lowered = text.lowercase()
+
+            if ("tools" in sentOptionalParams && (
+                        lowered.contains("tools are not supported") ||
+                                lowered.contains("tool calling is not supported") ||
+                                lowered.contains("function calling is not supported") ||
+                                (lowered.contains("tools") && lowered.contains("multimodal"))
+                        )
+            ) {
+                return "tools"
+            }
+
+            if ("reasoning_effort" in sentOptionalParams && lowered.contains("reasoning_effort") &&
+                (lowered.contains("not supported") || lowered.contains("unsupported") ||
+                        lowered.contains("invalid") || lowered.contains("unknown"))
+            ) {
+                return "reasoning_effort"
+            }
+            if ("reasoning" in sentOptionalParams && lowered.contains("reasoning") &&
+                (lowered.contains("not supported") || lowered.contains("unsupported") ||
+                        lowered.contains("invalid") || lowered.contains("unknown"))
+            ) {
+                return "reasoning"
+            }
+
+            val isParamError = lowered.contains("unknown name") ||
+                    lowered.contains("unknown parameter") ||
+                    lowered.contains("unsupported parameter") ||
+                    lowered.contains("unsupported value") ||
+                    lowered.contains("invalid parameter") ||
+                    lowered.contains("is not supported") ||
+                    lowered.contains("unrecognized") ||
+                    lowered.contains("unexpected")
+
+            if (!isParamError) return null
+
+            return OPTIONAL_PARAM_NAMES.firstOrNull { param ->
+                param in sentOptionalParams && lowered.contains(param)
+            }
+        }
+
+        internal fun classifyHttpError(
+            code: Int,
+            details: String?,
+            host: String,
+            unknownField: String?
+        ): AIResponseResult.Error {
+            val isThoughtSignatureError =
+                details?.contains("thought_signature", ignoreCase = true) == true
+
+            return when {
+                unknownField != null -> AIResponseResult.Error(
+                    "Провайдер не принял параметр «$unknownField». " +
+                            "Запрос повторяется без него.",
+                    optionalField = unknownField,
+                    retryable = true
+                )
+                // Gemini возвращает HTTP 400 при ошибке thought_signature — проверяем ДО общей ветки 400!
+                isThoughtSignatureError -> AIResponseResult.Error(
+                    "Ошибка API ($code): ${details ?: "требуется thought_signature"}",
+                    retryable = true
+                )
+                code == 400 && details != null ->
+                    AIResponseResult.Error("Ошибка запроса (400): $details")
+                code == 400 ->
+                    AIResponseResult.Error("Ошибка запроса (400): сервер не принял параметры вызова. Проверьте модель и параметры в настройках.")
+                code == 401 -> AIResponseResult.Error(
+                    "Ошибка авторизации (401) на $host. Ключ не подошёл этому провайдеру: " +
+                            "проверьте, что он от этого сервиса, а не от другого, и что Base URL совпадает."
+                )
+                code == 402 -> AIResponseResult.Error(
+                    if (details != null) "Недостаточно средств (402): $details"
+                    else "Недостаточно средств на балансе провайдера (402)."
+                )
+                code == 403 -> AIResponseResult.Error(
+                    if (details != null) "Доступ запрещён (403): $details"
+                    else "Доступ запрещён (403). Проверьте ключ и доступ модели."
+                )
+                code == 404 -> AIResponseResult.Error(
+                    if (details != null) "Эндпоинт или модель не найдены (404): $details"
+                    else "Эндпоинт или модель не найдены (404). Проверьте Base URL и модель."
+                )
+                code == 429 -> AIResponseResult.Error(
+                    if (details != null) "Лимит запросов (429): $details"
+                    else "Лимит запросов исчерпан (429). Повторите запрос через несколько секунд.",
+                    retryable = true
+                )
+                code in 500..599 -> AIResponseResult.Error(
+                    if (details != null) "Ошибка сервера ($code): $details"
+                    else "Ошибка сервера ($code): временный сбой провайдера, повторите запрос",
+                    retryable = true
+                )
+                details != null -> AIResponseResult.Error("Ошибка API ($code): $details")
+                else -> AIResponseResult.Error("Ошибка сервера ($code): ответ не распознан, повторите запрос")
+            }
+        }
+    }
 }
 
 /**
@@ -1628,13 +1990,12 @@ class OpenAIClient {
  *
  * OkHttp-таймаут следит за байтами, а не за смыслом: провайдер может слать
  * пустые keepalive-строки, и соединение будет жить вечно, пока модель молчит.
- * Сторож тикает раз в несколько секунд и отменяет вызов, если полезных
- * событий (текст, reasoning, tool-call) не было дольше [STREAM_STALL_TIMEOUT_MS].
+ * Использует монотонный `System.nanoTime()` и уважает пользовательский `responseTimeoutSeconds`.
  */
-private class StreamWatchdog {
+private class StreamWatchdog(private val stallTimeoutMs: Long) {
 
     @Volatile
-    private var lastEventAt: Long = System.currentTimeMillis()
+    private var lastEventNanos: Long = System.nanoTime()
 
     @Volatile
     var stalled: Boolean = false
@@ -1643,9 +2004,10 @@ private class StreamWatchdog {
     private var future: ScheduledFuture<*>? = null
 
     fun start(call: Call) {
+        val timeoutNanos = TimeUnit.MILLISECONDS.toNanos(stallTimeoutMs)
         future = streamWatchdogExecutor.scheduleWithFixedDelay(
             {
-                if (System.currentTimeMillis() - lastEventAt > STREAM_STALL_TIMEOUT_MS) {
+                if (System.nanoTime() - lastEventNanos > timeoutNanos) {
                     stalled = true
                     call.cancel()
                 }
@@ -1658,7 +2020,7 @@ private class StreamWatchdog {
 
     /** Отметить полезное событие: поток жив, даже если это только reasoning. */
     fun touch() {
-        lastEventAt = System.currentTimeMillis()
+        lastEventNanos = System.nanoTime()
     }
 
     fun stop() {
@@ -1667,12 +2029,7 @@ private class StreamWatchdog {
     }
 }
 
-/*
- * 90 секунд — заведомо больше обычного «первого токена» даже у thinking-моделей
- * на большом контексте. Сторож нужен против keepalive-зависаний, а не против
- * медленного старта: обычный readTimeout OkHttp ловит мёртвое соединение раньше.
- */
-private const val STREAM_STALL_TIMEOUT_MS = 90_000L
+private const val DEFAULT_STREAM_STALL_TIMEOUT_MS = 90_000L
 private const val STREAM_WATCHDOG_TICK_MS = 5_000L
 
 private val streamWatchdogExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->

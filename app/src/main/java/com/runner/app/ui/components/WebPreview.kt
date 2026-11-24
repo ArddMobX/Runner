@@ -2,9 +2,15 @@ package com.runner.app.ui.components
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
 
+import android.net.Uri
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.io.ByteArrayInputStream
+import java.io.File
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -231,6 +237,7 @@ fun WebPreviewDialog(
     DisposableEffect(Unit) {
         onDispose {
             webView?.stopLoading()
+            webView?.loadUrl("about:blank")
             webView?.destroy()
             webView = null
         }
@@ -309,6 +316,11 @@ fun WebPreviewDialog(
                 )
 
                 Box(modifier = Modifier.weight(1f)) {
+                    val allowedDirCanonicalPath = remember(source.filePath) {
+                        source.filePath?.let { path ->
+                            runCatching { File(path).canonicalFile.parentFile?.canonicalPath }.getOrNull()
+                        }
+                    }
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { context ->
@@ -319,14 +331,55 @@ fun WebPreviewDialog(
                                 settings.loadWithOverviewMode = true
                                 settings.builtInZoomControls = true
                                 settings.displayZoomControls = false
+                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                 // Доступ к файлам нужен только когда грузим файл с диска;
-                                // для разметки из сообщения он выключен
+                                // для разметки из сообщения он выключен, а межфайловый
+                                // доступ из file:// заблокирован всегда.
                                 settings.allowFileAccess = source.filePath != null
                                 settings.allowContentAccess = false
+                                @Suppress("DEPRECATION")
+                                settings.allowFileAccessFromFileURLs = false
+                                @Suppress("DEPRECATION")
+                                settings.allowUniversalAccessFromFileURLs = false
                                 setBackgroundColor(0xFF0A0A0C.toInt())
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         loading = false
+                                    }
+
+                                    override fun shouldOverrideUrlLoading(
+                                        view: WebView?,
+                                        request: WebResourceRequest?
+                                    ): Boolean {
+                                        val uri = request?.url ?: return true
+                                        val scheme = uri.scheme?.lowercase().orEmpty()
+                                        if (scheme == "file" &&
+                                            isAllowedWebPreviewFilePath(uri.path, allowedDirCanonicalPath)
+                                        ) {
+                                            return false
+                                        }
+                                        // Блокируем все внешние URL, intent://, javascript:, content://
+                                        // и file:// за пределами папки просматриваемого файла.
+                                        return true
+                                    }
+
+                                    override fun shouldInterceptRequest(
+                                        view: WebView?,
+                                        request: WebResourceRequest?
+                                    ): WebResourceResponse? {
+                                        val uri = request?.url ?: return blockedWebPreviewResponse()
+                                        val scheme = uri.scheme?.lowercase().orEmpty()
+                                        return when (scheme) {
+                                            "file" -> {
+                                                if (isAllowedWebPreviewFilePath(uri.path, allowedDirCanonicalPath)) {
+                                                    null
+                                                } else {
+                                                    blockedWebPreviewResponse()
+                                                }
+                                            }
+                                            "about", "data", "blob" -> null
+                                            else -> blockedWebPreviewResponse()
+                                        }
                                     }
                                 }
                                 webChromeClient = WebChromeClient()
@@ -363,10 +416,28 @@ fun WebPreviewDialog(
     }
 }
 
+private fun blockedWebPreviewResponse(): WebResourceResponse =
+    WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+
+internal fun isAllowedWebPreviewFilePath(
+    uriPath: String?,
+    allowedDirCanonicalPath: String?
+): Boolean {
+    if (uriPath.isNullOrBlank() || allowedDirCanonicalPath.isNullOrBlank()) return false
+    return try {
+        val root = File(allowedDirCanonicalPath).canonicalPath.replace('\\', '/').trimEnd('/')
+        if (root.isBlank() || root == "/") return false
+        val target = File(uriPath).canonicalPath.replace('\\', '/').trimEnd('/')
+        target == root || target.startsWith("$root/")
+    } catch (_: Exception) {
+        false
+    }
+}
+
 private fun WebView.load(source: WebPreviewSource) {
     val path = source.filePath
     if (path != null) {
-        loadUrl("file://$path")
+        loadUrl(Uri.fromFile(File(path)).toString())
     } else {
         // null как baseUrl: страница получает изолированный origin и не тянет
         // относительные ресурсы с диска

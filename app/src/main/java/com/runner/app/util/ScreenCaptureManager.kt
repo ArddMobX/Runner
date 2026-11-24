@@ -14,7 +14,7 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
@@ -56,10 +56,9 @@ object ScreenCaptureManager {
     ): Uri? {
         val context = activity.applicationContext
 
-        // Android 14+ разрешает getMediaProjection только при уже работающей
-        // foreground-службе типа mediaProjection. Ждём её настоящей готовности,
-        // а не фиксированную паузу: иначе на медленном старте проекция не
-        // создаётся и захват молча возвращает null.
+        // Android 10–15 разрешает getMediaProjection только при уже работающей
+        // foreground-службе типа mediaProjection. Ждём настоящего подтверждения
+        // startForeground(), а не фиксированной паузы.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ScreenCaptureService.start(context)
             if (!ScreenCaptureService.awaitForeground()) {
@@ -68,80 +67,149 @@ object ScreenCaptureManager {
             }
         }
 
+        // Размеры окна снимаем заранее на вызывающем потоке до перехода на фоновый HandlerThread.
+        val (width, height, density) = try {
+            val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bounds = windowManager.currentWindowMetrics.bounds
+                val densityDpi = context.resources.configuration.densityDpi
+                Triple(bounds.width(), bounds.height(), densityDpi)
+            } else {
+                val metrics = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay.getRealMetrics(metrics)
+                Triple(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "не удалось получить размеры экрана", e)
+            ScreenCaptureService.stop(context)
+            return null
+        }
+
+        if (width <= 0 || height <= 0 || density <= 0) {
+            ScreenCaptureService.stop(context)
+            return null
+        }
+
         return suspendCancellableCoroutine { continuation ->
             val finished = AtomicBoolean(false)
+            val cleanupLock = Any()
             var imageReader: ImageReader? = null
             var virtualDisplay: VirtualDisplay? = null
             var mediaProjection: MediaProjection? = null
-            val mainHandler = Handler(Looper.getMainLooper())
+            var projectionCallback: MediaProjection.Callback? = null
 
-            /** Единая точка выхода: освобождает всё и резюмирует ровно один раз. */
+            // Обработка кадра, копирование пикселей и сжатие JPEG выполняются на
+            // выделенном фоновом потоке, чтобы не блокировать Main-поток UI.
+            val captureThread = HandlerThread("RunnerScreenCapture").apply { start() }
+            val captureHandler = Handler(captureThread.looper)
+
+            lateinit var timeoutRunnable: Runnable
+
+            /** Единая точка выхода: освобождает все ресурсы и резюмирует ровно один раз. */
             fun finish(result: Uri?) {
                 if (!finished.compareAndSet(false, true)) return
-                try {
-                    virtualDisplay?.release()
-                } catch (_: Exception) {}
-                try {
-                    imageReader?.close()
-                } catch (_: Exception) {}
-                try {
-                    mediaProjection?.stop()
-                } catch (_: Exception) {}
+                captureHandler.removeCallbacks(timeoutRunnable)
+                val vd: VirtualDisplay?
+                val reader: ImageReader?
+                val mp: MediaProjection?
+                val cb: MediaProjection.Callback?
+                synchronized(cleanupLock) {
+                    vd = virtualDisplay
+                    virtualDisplay = null
+                    reader = imageReader
+                    imageReader = null
+                    mp = mediaProjection
+                    mediaProjection = null
+                    cb = projectionCallback
+                    projectionCallback = null
+                }
+                runCatching { vd?.release() }
+                runCatching { reader?.close() }
+                runCatching { if (cb != null) mp?.unregisterCallback(cb) }
+                runCatching { mp?.stop() }
+                runCatching { captureThread.quitSafely() }
                 ScreenCaptureService.stop(context)
                 if (continuation.isActive) continuation.resume(result)
             }
 
+            timeoutRunnable = Runnable { finish(null) }
+
             continuation.invokeOnCancellation {
                 // Активность закрыли или повернули экран: ImageReader,
-                // VirtualDisplay и проекция обязаны быть освобождены, иначе
-                // они висят до смерти процесса, а служба остаётся в шторке.
-                // resume при этом уже не нужен — continuation отменён.
+                // VirtualDisplay, поток и проекция обязаны быть освобождены.
                 finish(null)
             }
 
-            mainHandler.post {
+            captureHandler.post {
+                if (finished.get()) return@post
                 try {
                     val mpManager =
                         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                    mediaProjection = mpManager.getMediaProjection(resultCode, data)
-                    if (mediaProjection == null) {
+                    val projection = mpManager.getMediaProjection(resultCode, data)
+                    if (projection == null) {
                         finish(null)
                         return@post
                     }
 
-                    val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                    val (width, height, density) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        val bounds = windowManager.currentWindowMetrics.bounds
-                        val densityDpi = context.resources.configuration.densityDpi
-                        Triple(bounds.width(), bounds.height(), densityDpi)
-                    } else {
-                        val metrics = DisplayMetrics()
-                        @Suppress("DEPRECATION")
-                        windowManager.defaultDisplay.getRealMetrics(metrics)
-                        Triple(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
+                    // На Android 14–15 (API 34–35) регистрация MediaProjection.Callback
+                    // ДО createVirtualDisplay() обязательна — без неё система безусловно
+                    // бросает IllegalStateException.
+                    val callback = object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            finish(null)
+                        }
                     }
+                    projection.registerCallback(callback, captureHandler)
 
                     val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-                    imageReader = reader
+
+                    val abortedEarly = synchronized(cleanupLock) {
+                        if (finished.get()) {
+                            true
+                        } else {
+                            mediaProjection = projection
+                            projectionCallback = callback
+                            imageReader = reader
+                            false
+                        }
+                    }
+                    if (abortedEarly) {
+                        runCatching { reader.close() }
+                        runCatching { projection.unregisterCallback(callback) }
+                        runCatching { projection.stop() }
+                        return@post
+                    }
 
                     reader.setOnImageAvailableListener({ source ->
+                        if (finished.get()) return@setOnImageAvailableListener
                         var image: Image? = null
                         try {
                             image = source.acquireLatestImage() ?: return@setOnImageAvailableListener
                             val planes = image.planes
+                            if (planes.isEmpty()) {
+                                finish(null)
+                                return@setOnImageAvailableListener
+                            }
                             val buffer = planes[0].buffer
                             val pixelStride = planes[0].pixelStride
                             val rowStride = planes[0].rowStride
-                            val rowPadding = rowStride - pixelStride * width
+                            val imgWidth = image.width
+                            val imgHeight = image.height
+                            if (pixelStride <= 0 || imgWidth <= 0 || imgHeight <= 0) {
+                                finish(null)
+                                return@setOnImageAvailableListener
+                            }
+                            val rowPadding = (rowStride - pixelStride * imgWidth).coerceAtLeast(0)
 
                             val bitmap = Bitmap.createBitmap(
-                                width + rowPadding / pixelStride,
-                                height,
+                                imgWidth + rowPadding / pixelStride,
+                                imgHeight,
                                 Bitmap.Config.ARGB_8888
                             )
                             bitmap.copyPixelsFromBuffer(buffer)
-                            val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                            if (cropped != bitmap) bitmap.recycle()
+                            val cropped = Bitmap.createBitmap(bitmap, 0, 0, imgWidth, imgHeight)
+                            if (cropped !== bitmap) bitmap.recycle()
 
                             val uri = saveBitmap(context, cropped)
                             cropped.recycle()
@@ -151,11 +219,11 @@ object ScreenCaptureManager {
                             Log.w(TAG, "кадр не удалось разобрать", e)
                             finish(null)
                         } finally {
-                            image?.close()
+                            runCatching { image?.close() }
                         }
-                    }, mainHandler)
+                    }, captureHandler)
 
-                    virtualDisplay = mediaProjection?.createVirtualDisplay(
+                    val display = projection.createVirtualDisplay(
                         "runner_screen_capture",
                         width,
                         height,
@@ -163,15 +231,25 @@ object ScreenCaptureManager {
                         DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                         reader.surface,
                         null,
-                        null
+                        captureHandler
                     )
 
+                    val cancelledDuringCreate = synchronized(cleanupLock) {
+                        if (finished.get()) {
+                            true
+                        } else {
+                            virtualDisplay = display
+                            false
+                        }
+                    }
+                    if (cancelledDuringCreate) {
+                        runCatching { display.release() }
+                        return@post
+                    }
+
                     // Страховка на случай, если кадр так и не придёт.
-                    mainHandler.postDelayed({ finish(null) }, CAPTURE_TIMEOUT_MS)
+                    captureHandler.postDelayed(timeoutRunnable, CAPTURE_TIMEOUT_MS)
                 } catch (e: Exception) {
-                    // Проекция не создалась (на Android 14+ это бывает, если
-                    // foreground-служба ещё не поднялась): без лога причина
-                    // выглядит как «скриншот просто не работает».
                     Log.w(TAG, "не удалось создать проекцию экрана", e)
                     finish(null)
                 }

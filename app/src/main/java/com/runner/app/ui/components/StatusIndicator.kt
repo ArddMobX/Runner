@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -55,9 +56,11 @@ fun StatusPulsingDot(
     color: Color = SecondaryMint,
     dotSize: Dp = 6.dp
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "status_dot_pulse")
-    val pulseScale = if (MotionSettings.enabled) {
-        val value by infiniteTransition.animateFloat(
+    val pulseScaleState: State<Float>?
+    val pulseAlphaState: State<Float>?
+    if (MotionSettings.enabled) {
+        val infiniteTransition = rememberInfiniteTransition(label = "status_dot_pulse")
+        pulseScaleState = infiniteTransition.animateFloat(
             initialValue = 1f,
             targetValue = 2.2f,
             animationSpec = infiniteRepeatable(
@@ -69,12 +72,7 @@ fun StatusPulsingDot(
             ),
             label = "pulse_scale"
         )
-        value
-    } else {
-        1f
-    }
-    val pulseAlpha = if (MotionSettings.enabled) {
-        val value by infiniteTransition.animateFloat(
+        pulseAlphaState = infiniteTransition.animateFloat(
             initialValue = 0.5f,
             targetValue = 0f,
             animationSpec = infiniteRepeatable(
@@ -86,26 +84,30 @@ fun StatusPulsingDot(
             ),
             label = "pulse_alpha"
         )
-        value
     } else {
-        0f
+        pulseScaleState = null
+        pulseAlphaState = null
     }
 
     Box(
         modifier = modifier.size(16.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Внешняя расходящаяся волна
-        Box(
-            modifier = Modifier
-                .size(dotSize)
-                .graphicsLayer {
-                    scaleX = pulseScale
-                    scaleY = pulseScale
-                    alpha = pulseAlpha
-                }
-                .background(color, CircleShape)
-        )
+        if (pulseScaleState != null && pulseAlphaState != null) {
+            // Внешняя расходящаяся волна: читаем State в фазе отрисовки (graphicsLayer),
+            // не вызывая рекомпозицию на каждый кадр.
+            Box(
+                modifier = Modifier
+                    .size(dotSize)
+                    .graphicsLayer {
+                        val scale = pulseScaleState.value
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = pulseAlphaState.value
+                    }
+                    .background(color, CircleShape)
+            )
+        }
         // Центральное ядро индикатора
         Box(
             modifier = Modifier

@@ -486,7 +486,17 @@ class SettingsStore(context: Context) {
         .getSharedPreferences("runner_prefs", Context.MODE_PRIVATE)
 
     fun load(): AppSettings {
-        val migratedProxy = legacyPrefs.getString("api_reverse_proxy_url", null).orEmpty()
+        val storedProxy = prefs.getString(KEY_PROXY, null)
+        val effectiveProxy = if (storedProxy != null) {
+            storedProxy
+        } else {
+            val migratedProxy = legacyPrefs.getString("api_reverse_proxy_url", null).orEmpty()
+            if (migratedProxy.isNotBlank()) {
+                prefs.edit().putString(KEY_PROXY, migratedProxy).apply()
+                legacyPrefs.edit().remove("api_reverse_proxy_url").apply()
+            }
+            migratedProxy
+        }
 
         // Миграция таймаутов
         val legacyTimeout = prefs.getInt(KEY_TIMEOUT, -1)
@@ -501,7 +511,14 @@ class SettingsStore(context: Context) {
 
         // Миграция старого дефолта maxSteps (5 -> 10)
         val rawSteps = prefs.getInt(KEY_MAX_STEPS, AppSettings.DEFAULT_MAX_STEPS)
-        val effectiveSteps = if (rawSteps == 5) AppSettings.DEFAULT_MAX_STEPS else rawSteps
+        val maxStepsMigrated = prefs.getBoolean(KEY_MIGRATED_MAX_STEPS_V2, false)
+        val effectiveSteps = resolveMaxStepsMigration(rawSteps, maxStepsMigrated)
+        if (!maxStepsMigrated) {
+            prefs.edit().apply {
+                if (effectiveSteps != rawSteps) putInt(KEY_MAX_STEPS, effectiveSteps)
+                putBoolean(KEY_MIGRATED_MAX_STEPS_V2, true)
+            }.apply()
+        }
 
         // Безопасная загрузка кастомных заголовков
         val encryptedHeaders = prefs.getString(KEY_CUSTOM_HEADERS_ENCRYPTED, null)
@@ -533,7 +550,7 @@ class SettingsStore(context: Context) {
                         InstructionProfile(
                             id = obj.getString("id"),
                             title = obj.getString("title"),
-                            instructions = obj.optString("instructions", ""),
+                            instructions = (obj.opt("instructions") as? String).orEmpty(),
                             isBuiltIn = obj.optBoolean("isBuiltIn", false)
                         )
                     )
@@ -572,7 +589,7 @@ class SettingsStore(context: Context) {
             userInstructions = effectiveUserInstructions,
             temperature = prefs.getFloat(KEY_TEMPERATURE, 0.2f),
             maxSteps = effectiveSteps,
-            reverseProxyUrl = prefs.getString(KEY_PROXY, null) ?: migratedProxy,
+            reverseProxyUrl = effectiveProxy,
             connectTimeoutSeconds = connectTimeout,
             responseTimeoutSeconds = responseTimeout,
             customHeaders = customHeaders,
@@ -639,7 +656,11 @@ class SettingsStore(context: Context) {
     }
 
     fun save(settings: AppSettings) {
-        val encryptedHeaders = SecureStore.encrypt(settings.customHeaders)
+        val encryptedHeaders = if (settings.customHeaders.isBlank()) {
+            null
+        } else {
+            SecureStore.encrypt(settings.customHeaders)
+        }
         val profilesArray = JSONArray()
         for (profile in settings.instructionProfiles) {
             val obj = JSONObject().apply {
@@ -657,6 +678,7 @@ class SettingsStore(context: Context) {
             .putString(KEY_PROMPT, settings.effectiveInstructions)
             .putFloat(KEY_TEMPERATURE, settings.temperature)
             .putInt(KEY_MAX_STEPS, settings.maxSteps)
+            .putBoolean(KEY_MIGRATED_MAX_STEPS_V2, true)
             .putString(KEY_PROXY, settings.reverseProxyUrl)
             .putInt(KEY_CONNECT_TIMEOUT, settings.connectTimeoutSeconds)
             .putInt(KEY_RESPONSE_TIMEOUT, settings.responseTimeoutSeconds)
@@ -675,7 +697,7 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_READ_ONLY_MODE, settings.readOnlyMode)
             .putBoolean(KEY_DRY_RUN_FIRST, settings.dryRunFirst)
             .putBoolean(KEY_PRUNE_TOOLS, settings.pruneTools)
-            .putStringSet(KEY_APPROVED_SIGNATURES, settings.approvedOperationSignatures)
+            .putStringSet(KEY_APPROVED_SIGNATURES, HashSet(settings.approvedOperationSignatures))
             .putBoolean(KEY_SHELL_OUTSIDE_STORAGE, settings.shellOutsideStorage)
             .putBoolean(KEY_SHELL_NO_CONFIRM, settings.shellNoConfirm)
             .putBoolean(KEY_TERMUX_ENABLED, settings.termuxEnabled)
@@ -716,7 +738,13 @@ class SettingsStore(context: Context) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
             editor.remove(KEY_CUSTOM_HEADERS) // Очищаем plain text
         } else {
-            editor.putString(KEY_CUSTOM_HEADERS, settings.customHeaders)
+            if (settings.customHeaders.isBlank()) {
+                editor.remove(KEY_CUSTOM_HEADERS)
+                editor.remove(KEY_CUSTOM_HEADERS_ENCRYPTED)
+            } else {
+                editor.putString(KEY_CUSTOM_HEADERS, settings.customHeaders)
+                editor.remove(KEY_CUSTOM_HEADERS_ENCRYPTED)
+            }
         }
 
         if (settings.webSearchApiKey.isBlank()) {
@@ -736,13 +764,21 @@ class SettingsStore(context: Context) {
         editor.apply()
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * Одноразовая миграция старого дефолта maxSteps (5 -> 10).
+         * После выставления флага миграции выбор 5 шагов пользователем сохраняется.
+         */
+        fun resolveMaxStepsMigration(rawSteps: Int, alreadyMigrated: Boolean): Int =
+            if (!alreadyMigrated && rawSteps == 5) AppSettings.DEFAULT_MAX_STEPS else rawSteps
+
         const val PREFS_NAME = "runner_settings"
         const val KEY_PROMPT = "system_prompt"
         const val KEY_ACTIVE_PROFILE_ID = "active_instruction_profile_id"
         const val KEY_INSTRUCTION_PROFILES = "instruction_profiles_json"
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_MAX_STEPS = "max_steps"
+        const val KEY_MIGRATED_MAX_STEPS_V2 = "migrated_max_steps_v2"
         const val KEY_PROXY = "reverse_proxy_url"
         const val KEY_TIMEOUT = "timeout_seconds" // legacy
         const val KEY_CONNECT_TIMEOUT = "connect_timeout_seconds"
@@ -808,7 +844,7 @@ class SettingsStore(context: Context) {
                 val arr = JSONArray(json)
                 val list = mutableListOf<String>()
                 for (i in 0 until arr.length()) {
-                    val str = arr.optString(i)
+                    val str = (arr.opt(i) as? String).orEmpty()
                     if (str.isNotBlank()) list.add(str)
                 }
                 list

@@ -531,22 +531,22 @@ private fun SessionRow(
                 val cleanModel = remember(session.lastModel) {
                     session.lastModel?.removePrefix("models/")?.removePrefix("accounts/fireworks/models/")?.trim().orEmpty()
                 }
-                if (cleanModel.isNotBlank()) {
+                if (!snippet.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = snippet,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = TypeScale.micro,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else if (cleanModel.isNotBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = cleanModel,
                         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.outline,
                         fontSize = TypeScale.micro,
                         fontFamily = RobotoMono,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                } else if (!snippet.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = snippet,
-                        color = MaterialTheme.colorScheme.outline,
-                        fontSize = TypeScale.micro,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

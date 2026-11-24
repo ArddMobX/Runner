@@ -7,6 +7,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -47,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -205,6 +208,14 @@ fun ChatInputBar(
             selectedImages.isNotEmpty() ||
             selectedFiles.isNotEmpty()
     val canSend = canSendMessage(hasContent = hasContent, isRunning = isRunning, isListening = isListening)
+    val canSubmit = canSubmitOnEnter(
+        rawText = rawText,
+        hasContent = hasContent,
+        isRunning = isRunning,
+        isListening = isListening,
+        hasCommandHandler = onCommand != null,
+        commands = commands
+    )
     var isFocused by remember { mutableStateOf(false) }
     val isActive = isFocused || hasContent || isListening
     val paletteCommands = if (onCommand == null) {
@@ -214,7 +225,8 @@ fun ChatInputBar(
     }
 
     var showAttachMenu by remember { mutableStateOf(false) }
-    var currentCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var currentCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    var currentCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
     val attachAction = {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         showAttachMenu = true
@@ -262,23 +274,35 @@ fun ChatInputBar(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success) {
-            currentCameraUri?.let { uri ->
-                inputState.addImages(listOf(uri))
+        val savedUri = currentCameraUriString?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        val savedFile = currentCameraPath?.let { File(it) }
+        if (success && savedUri != null) {
+            if (savedFile == null || (savedFile.exists() && savedFile.length() > 0L)) {
+                inputState.addImages(listOf(savedUri))
+            } else {
+                savedFile.delete()
             }
+        } else {
+            savedFile?.delete()
         }
-        currentCameraUri = null
+        currentCameraUriString = null
+        currentCameraPath = null
     }
 
     fun launchCamera() {
+        var photoFile: File? = null
         try {
             val cameraDir = File(context.cacheDir, "camera").apply { mkdirs() }
-            val photoFile = File(cameraDir, "photo_${System.currentTimeMillis()}.jpg")
+            photoFile = File(cameraDir, "photo_${System.currentTimeMillis()}.jpg")
             val authority = "${context.packageName}.fileprovider"
             val uri = FileProvider.getUriForFile(context, authority, photoFile)
-            currentCameraUri = uri
+            currentCameraUriString = uri.toString()
+            currentCameraPath = photoFile.absolutePath
             cameraLauncher.launch(uri)
         } catch (e: Exception) {
+            photoFile?.delete()
+            currentCameraUriString = null
+            currentCameraPath = null
             Toast.makeText(context, "Не удалось открыть камеру: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -301,7 +325,7 @@ fun ChatInputBar(
             isLiveMode -> MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
             else -> MaterialTheme.colorScheme.outlineVariant
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "input_border"
     )
 
@@ -401,7 +425,11 @@ fun ChatInputBar(
             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)
     ) {
         // Полоса выбранных изображений над полем ввода
-        if (selectedImages.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = selectedImages.isNotEmpty(),
+            enter = MotionTokens.expandSectionEnter(expandFrom = Alignment.Bottom),
+            exit = MotionTokens.expandSectionExit(shrinkTowards = Alignment.Bottom)
+        ) {
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -418,7 +446,11 @@ fun ChatInputBar(
             }
         }
 
-        if (selectedFiles.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = selectedFiles.isNotEmpty(),
+            enter = MotionTokens.expandSectionEnter(expandFrom = Alignment.Bottom),
+            exit = MotionTokens.expandSectionExit(shrinkTowards = Alignment.Bottom)
+        ) {
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -435,9 +467,17 @@ fun ChatInputBar(
             }
         }
 
+        var lastPaletteCommands by remember { mutableStateOf(paletteCommands) }
         if (paletteCommands.isNotEmpty()) {
+            lastPaletteCommands = paletteCommands
+        }
+        AnimatedVisibility(
+            visible = paletteCommands.isNotEmpty(),
+            enter = MotionTokens.expandSectionEnter(expandFrom = Alignment.Bottom),
+            exit = MotionTokens.expandSectionExit(shrinkTowards = Alignment.Bottom)
+        ) {
             SlashCommandPalette(
-                commands = paletteCommands,
+                commands = lastPaletteCommands,
                 isRunning = isRunning,
                 onPick = { pickPaletteCommand(it) },
                 modifier = Modifier.padding(bottom = 7.dp)
@@ -572,7 +612,7 @@ fun ChatInputBar(
                     .onFocusChanged { isFocused = it.isFocused }
                     .onKeyEvent { keyEvent ->
                         if (sendOnEnter && keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Enter && !keyEvent.isShiftPressed) {
-                            if (canSend) {
+                            if (canSubmit) {
                                 handleSend()
                             }
                             true
@@ -595,7 +635,7 @@ fun ChatInputBar(
                 ),
                 keyboardActions = KeyboardActions(
                     onSend = {
-                        if (sendOnEnter && canSend) {
+                        if (sendOnEnter && canSubmit) {
                             handleSend()
                         }
                     }
@@ -686,7 +726,7 @@ private fun InputModeChip(
             active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
             else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "mode_chip_background"
     )
     val contentColor by animateColorAsState(
@@ -695,7 +735,7 @@ private fun InputModeChip(
             active -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "mode_chip_content"
     )
     Row(
@@ -795,6 +835,12 @@ private fun SelectedFileChip(
     }
 }
 
+private sealed interface SelectedImageLoadState {
+    data object Loading : SelectedImageLoadState
+    data class Ready(val bitmap: ImageBitmap) : SelectedImageLoadState
+    data object Failed : SelectedImageLoadState
+}
+
 /**
  * Превью прикреплённого изображения с кнопкой удаления.
  */
@@ -804,12 +850,18 @@ private fun SelectedImageThumbnail(
     onRemove: () -> Unit
 ) {
     val context = LocalContext.current
-    val bitmapState = produceState<ImageBitmap?>(initialValue = null, key1 = uri) {
+    val imageState = produceState<SelectedImageLoadState>(
+        initialValue = SelectedImageLoadState.Loading,
+        key1 = uri
+    ) {
         value = withContext(Dispatchers.IO) {
             try {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 context.contentResolver.openInputStream(uri)?.use {
                     BitmapFactory.decodeStream(it, null, options)
+                }
+                if (options.outWidth <= 0 || options.outHeight <= 0) {
+                    return@withContext SelectedImageLoadState.Failed
                 }
                 var sampleSize = 1
                 while (options.outWidth / sampleSize > 250 || options.outHeight / sampleSize > 250) {
@@ -817,11 +869,16 @@ private fun SelectedImageThumbnail(
                 }
                 options.inJustDecodeBounds = false
                 options.inSampleSize = sampleSize
-                context.contentResolver.openInputStream(uri)?.use {
+                val decoded = context.contentResolver.openInputStream(uri)?.use {
                     BitmapFactory.decodeStream(it, null, options)?.asImageBitmap()
                 }
-            } catch (e: Exception) {
-                null
+                if (decoded != null) {
+                    SelectedImageLoadState.Ready(decoded)
+                } else {
+                    SelectedImageLoadState.Failed
+                }
+            } catch (_: Exception) {
+                SelectedImageLoadState.Failed
             }
         }
     }
@@ -832,24 +889,39 @@ private fun SelectedImageThumbnail(
             .clip(RunnerShapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        val bitmap = bitmapState.value
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = "Прикрепленное фото",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary
+        when (val state = imageState.value) {
+            is SelectedImageLoadState.Ready -> {
+                Image(
+                    bitmap = state.bitmap,
+                    contentDescription = "Прикрепленное фото",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
+            }
+            SelectedImageLoadState.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            SelectedImageLoadState.Failed -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = RunnerIcons.BrokenImage,
+                        contentDescription = "Изображение недоступно",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
@@ -896,6 +968,34 @@ internal enum class ActionButtonMode {
 internal fun canSendMessage(hasContent: Boolean, isRunning: Boolean, isListening: Boolean): Boolean =
     hasContent && !isRunning && !isListening
 
+/**
+ * Определяет, можно ли выполнить действие по нажатию Enter / IME Send.
+ * Во время работы агента разрешаем slash-команды с [SlashCommand.availableWhileRunning]
+ * (например, `/stop` и `/help`), не разблокируя отправку обычных сообщений.
+ */
+internal fun canSubmitOnEnter(
+    rawText: String,
+    hasContent: Boolean,
+    isRunning: Boolean,
+    isListening: Boolean,
+    hasCommandHandler: Boolean,
+    commands: List<SlashCommand> = SlashCommands.all
+): Boolean {
+    if (canSendMessage(hasContent = hasContent, isRunning = isRunning, isListening = isListening)) {
+        return true
+    }
+    if (!isRunning || isListening || !hasCommandHandler) return false
+    val trimmed = rawText.trim()
+    if (!trimmed.startsWith("/")) return false
+    val parsed = SlashCommandParser.parse(trimmed, commands)
+    if (parsed != null) return parsed.command.availableWhileRunning
+    if (trimmed.none { it.isWhitespace() }) {
+        val matches = SlashCommandParser.paletteMatches(trimmed, commands)
+        return matches.size == 1 && matches.first().availableWhileRunning
+    }
+    return false
+}
+
 internal fun resolveActionButtonMode(
     isRunning: Boolean,
     isListening: Boolean,
@@ -927,7 +1027,7 @@ private fun SendMicStopButton(
             ActionButtonMode.SEND -> MaterialTheme.colorScheme.primary
             ActionButtonMode.MIC -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f)
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "send_background"
     )
 
@@ -937,7 +1037,7 @@ private fun SendMicStopButton(
             ActionButtonMode.SEND -> MaterialTheme.colorScheme.onPrimary
             ActionButtonMode.MIC -> MaterialTheme.colorScheme.primary
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "send_tint"
     )
 
@@ -949,7 +1049,7 @@ private fun SendMicStopButton(
 
     val buttonScale by animateFloatAsState(
         targetValue = baseScale,
-        animationSpec = MotionTokens.fluidSpring(),
+        animationSpec = MotionTokens.spatialFast(),
         label = "send_scale"
     )
 
@@ -988,17 +1088,22 @@ private fun SendMicStopButton(
             },
         contentAlignment = Alignment.Center
     ) {
-        val icon = when (mode) {
-            ActionButtonMode.STOP -> RunnerIcons.StopFilled
-            ActionButtonMode.RECORDING, ActionButtonMode.MIC -> RunnerIcons.Mic
-            ActionButtonMode.SEND -> RunnerIcons.ArrowUpward
+        AnimatedContent(
+            targetState = mode,
+            transitionSpec = { MotionTokens.iconSwapTransition() },
+            label = "send_action_icon"
+        ) { targetMode ->
+            val icon = when (targetMode) {
+                ActionButtonMode.STOP -> RunnerIcons.StopFilled
+                ActionButtonMode.RECORDING, ActionButtonMode.MIC -> RunnerIcons.Mic
+                ActionButtonMode.SEND -> RunnerIcons.ArrowUpward
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = actionLabel,
+                tint = iconTint,
+                modifier = Modifier.size(19.dp)
+            )
         }
-
-        Icon(
-            imageVector = icon,
-            contentDescription = actionLabel,
-            tint = iconTint,
-            modifier = Modifier.size(19.dp)
-        )
     }
 }

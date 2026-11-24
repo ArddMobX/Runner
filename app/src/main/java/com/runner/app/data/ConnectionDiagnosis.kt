@@ -17,32 +17,60 @@ data class ConnectionDiagnosis(
             val code = result.statusCode
             val message = result.message.lowercase()
 
+            // Если HTTP-код получен от сервера, классифицируем строго по нему —
+            // иначе цифры задержки вроде «404 мс» при HTTP 503 ложно давали 404.
+            if (code != null) {
+                return when {
+                    code == 401 ->
+                        ConnectionDiagnosis(
+                            title = "Ключ не подошёл",
+                            detail = "Проверьте, что ключ от этого провайдера и Base URL совпадает."
+                        )
+                    code == 402 ->
+                        ConnectionDiagnosis(
+                            title = "Недостаточно средств",
+                            detail = "Пополните баланс аккаунта у провайдера или выберите бесплатную модель."
+                        )
+                    code == 403 ->
+                        ConnectionDiagnosis(
+                            title = "Доступ ограничен",
+                            detail = "Проверьте права ключа и баланс. Если провайдер блокирует регион, включите VPN.",
+                            vpnSuspected = true
+                        )
+                    code == 404 || code == 405 ->
+                        ConnectionDiagnosis(
+                            title = "Неверный адрес API",
+                            detail = "Проверьте Base URL. Обычно он заканчивается на /v1."
+                        )
+                    code == 429 ->
+                        ConnectionDiagnosis(
+                            title = "Лимит запросов",
+                            detail = "Подождите немного или выберите другую модель."
+                        )
+                    code == 451 ->
+                        ConnectionDiagnosis(
+                            title = "Доступ ограничен по региону",
+                            detail = "Провайдер блокирует запросы из вашего региона. Включите VPN или используйте прокси.",
+                            vpnSuspected = true
+                        )
+                    code >= 500 ->
+                        ConnectionDiagnosis(
+                            title = "Провайдер недоступен",
+                            detail = "Сервис временно не отвечает. Повторите проверку позже."
+                        )
+                    else ->
+                        ConnectionDiagnosis(
+                            title = "Провайдер ответил ошибкой",
+                            detail = "Проверьте ключ, модель и адрес API."
+                        )
+                }
+            }
+
             return when {
-                code == 401 || "401" in result.message ->
+                "некорректный адрес" in message || "адрес не указан" in message || "заголовк" in message ->
                     ConnectionDiagnosis(
-                        title = "Ключ не подошёл",
-                        detail = "Проверьте, что ключ от этого провайдера и Base URL совпадает."
-                    )
-                code == 403 || "403" in result.message ->
-                    ConnectionDiagnosis(
-                        title = "Доступ ограничен",
-                        detail = "Проверьте права ключа и баланс. Если провайдер блокирует регион, включите VPN.",
-                        vpnSuspected = true
-                    )
-                code == 404 || code == 405 || "404" in result.message || "405" in result.message ->
-                    ConnectionDiagnosis(
-                        title = "Неверный адрес API",
-                        detail = "Проверьте Base URL. Обычно он заканчивается на /v1."
-                    )
-                code == 429 || "429" in result.message ->
-                    ConnectionDiagnosis(
-                        title = "Лимит запросов",
-                        detail = "Подождите немного или выберите другую модель."
-                    )
-                code != null && code >= 500 ->
-                    ConnectionDiagnosis(
-                        title = "Провайдер недоступен",
-                        detail = "Сервис временно не отвечает. Повторите проверку позже."
+                        title = "Неверный адрес или заголовки",
+                        detail = "Проверьте формат Base URL (должен начинаться с https://) и кастомные заголовки."
                     )
                 "таймаут" in message || "timeout" in message ->
                     ConnectionDiagnosis(

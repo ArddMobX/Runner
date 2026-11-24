@@ -39,7 +39,7 @@ val signingProps = Properties().apply {
     val path = findProperty("signingPropertiesFile")?.toString()
     if (!path.isNullOrBlank()) {
         val f = File(path)
-        if (f.exists()) f.inputStream().use { load(it) }
+        if (f.exists()) f.bufferedReader(Charsets.UTF_8).use { load(it) }
         else println("::warning::Файл свойств подписи не найден: $path")
     }
 }
@@ -175,7 +175,7 @@ fun signingDiagnostics(): String = buildString {
     append(" keyFileExists=").append(File(keystorePath).exists())
     append(" storePassLen=").append(keystorePassword.length)
     append(" keyPassLen=").append(keyPassword.length)
-    append(" keyAlias=").append(if (keyAlias.isBlank()) "ПУСТО" else keyAlias)
+    append(" keyAliasLen=").append(keyAlias.length)
     append(" hasSigningConfig=").append(hasSigningConfig)
 }
 
@@ -183,7 +183,7 @@ gradle.taskGraph.whenReady {
     // Именно задачи сборки APK, а не любая с «Release» в имени.
     val wantsRelease = allTasks.any { it.name == "assembleRelease" || it.name == "packageRelease" }
     if (wantsRelease) {
-        // Пароли показываются только длиной. Строка видна в логе сборки.
+        // Все секреты (включая alias) показываются только длиной, чтобы не утекали в build.log.
         println("::notice::Подпись release: ${signingDiagnostics()}")
     }
     if (wantsRelease && !hasSigningConfig) {
@@ -193,7 +193,7 @@ gradle.taskGraph.whenReady {
             appendLine("RUNNER_KEYSTORE_PATH    = '${keystorePath.ifBlank { "<пусто>" }}'")
             appendLine("  файл существует       : ${keystorePath.isNotBlank() && File(keystorePath).exists()}")
             appendLine("RUNNER_KEYSTORE_PASSWORD: ${if (keystorePassword.isBlank()) "ПУСТО" else "задан (" + keystorePassword.length + " симв.)"}")
-            appendLine("RUNNER_KEY_ALIAS        : ${if (keyAlias.isBlank()) "ПУСТО" else "'$keyAlias'"}")
+            appendLine("RUNNER_KEY_ALIAS        : ${if (keyAlias.isBlank()) "ПУСТО" else "задан (" + keyAlias.length + " симв.)"}")
             appendLine("RUNNER_KEY_PASSWORD     : ${if (keyPassword.isBlank()) "ПУСТО" else "задан (" + keyPassword.length + " симв.)"}")
             append("рабочий каталог         : ${project.projectDir}")
         }

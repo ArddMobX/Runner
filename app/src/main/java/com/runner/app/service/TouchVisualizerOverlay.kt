@@ -87,6 +87,7 @@ object TouchVisualizerOverlay {
     fun dismiss() {
         mainHandler.post {
             visualizerView?.let { view ->
+                view.cancelAnimations()
                 try {
                     windowManager?.removeView(view)
                 } catch (_: Exception) {}
@@ -128,6 +129,13 @@ object TouchVisualizerOverlay {
 
         private var rippleAnimator: ValueAnimator? = null
         private var highlightAnimator: ValueAnimator? = null
+
+        fun cancelAnimations() {
+            rippleAnimator?.cancel()
+            rippleAnimator = null
+            highlightAnimator?.cancel()
+            highlightAnimator = null
+        }
 
         fun startTouchAnimation(x: Float, y: Float, bounds: Rect?) {
             touchX = x

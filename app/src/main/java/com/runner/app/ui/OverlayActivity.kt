@@ -1,4 +1,6 @@
 package com.runner.app.ui
+import com.runner.app.ui.theme.MotionSettings
+import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.TypeScale
 
@@ -10,6 +12,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -20,10 +23,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -96,7 +95,6 @@ import com.runner.app.ui.theme.RunnerTheme
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.ScreenCaptureManager
-import kotlinx.coroutines.launch
 import com.runner.app.ui.components.RunnerIcons
 
 /**
@@ -108,23 +106,70 @@ class OverlayActivity : ComponentActivity() {
     companion object {
         const val EXTRA_AUTO_SCREENSHOT = "extra_auto_screenshot"
         const val EXTRA_SCREENSHOT_URI = "extra_screenshot_uri"
+        private const val EXTRA_INTERNAL_TOKEN = "extra_internal_token"
+
+        // Случайный токен процесса: Activity экспортируется для ACTION_ASSIST,
+        // поэтому внутренние extras принимаются только от своих компонентов.
+        private val INTERNAL_TOKEN: String = java.util.UUID.randomUUID().toString()
+
+        fun markInternalIntent(intent: Intent): Intent =
+            intent.putExtra(EXTRA_INTERNAL_TOKEN, INTERNAL_TOKEN)
+
+        internal fun isTrustedInternalIntent(intent: Intent?): Boolean {
+            val token = intent?.getStringExtra(EXTRA_INTERNAL_TOKEN) ?: return false
+            return token == INTERNAL_TOKEN
+        }
+
+        internal fun isAllowedInternalCachePath(
+            filePath: String?,
+            cacheDirCanonicalPath: String
+        ): Boolean {
+            if (filePath.isNullOrBlank() || cacheDirCanonicalPath.isBlank()) return false
+            return try {
+                val cacheRoot = java.io.File(cacheDirCanonicalPath).canonicalPath
+                    .replace('\\', '/')
+                    .trimEnd('/')
+                if (cacheRoot.isBlank() || cacheRoot == "/") return false
+                val target = java.io.File(filePath).canonicalPath
+                    .replace('\\', '/')
+                    .trimEnd('/')
+                target.startsWith("$cacheRoot/")
+            } catch (_: Exception) {
+                false
+            }
+        }
     }
 
     private val viewModel: MainViewModel by viewModels()
     private val pendingScreenshotUri = mutableStateOf<Uri?>(null)
+    private val pendingAutoVoice = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+
         viewModel.startAssistantSession()
-        extractScreenshotUri(intent)
-        val isAssist = intent?.action == Intent.ACTION_ASSIST
-        val autoScreenshot = isAssist || (intent?.getBooleanExtra(EXTRA_AUTO_SCREENSHOT, false) ?: false)
+        val trustedInternal = isTrustedInternalIntent(intent)
+        if (trustedInternal) {
+            extractScreenshotUri(intent)
+        }
+        // Автоматический диалог MediaProjection запускаем только по явному
+        // EXTRA_AUTO_SCREENSHOT=true (плитка быстрых настроек). Системный
+        // ассистент (RunnerVoiceInteractionSession) передаёт EXTRA_AUTO_SCREENSHOT=false
+        // и присылает бесплатный снимок через onHandleScreenshot -> onNewIntent.
+        val autoScreenshot = trustedInternal &&
+                (intent?.getBooleanExtra(EXTRA_AUTO_SCREENSHOT, false) ?: false)
+        pendingAutoVoice.value = intent?.action == Intent.ACTION_VOICE_COMMAND
 
         setContent {
             val themeConfig by viewModel.themeConfig.collectAsState()
             val appSettings by viewModel.settings.collectAsState()
             val screenshotUri by pendingScreenshotUri
+            val autoVoice by pendingAutoVoice
 
             ApplyMotionSetting(appSettings.motionEnabled)
             ApplyAccessibilitySetting(appSettings.accessibilityEnhanced)
@@ -143,6 +188,8 @@ class OverlayActivity : ComponentActivity() {
                     viewModel = viewModel,
                     initialAutoScreenshot = autoScreenshot && screenshotUri == null,
                     initialScreenshotUri = screenshotUri,
+                    initialAutoVoice = autoVoice,
+                    onAutoVoiceConsumed = { pendingAutoVoice.value = false },
                     onOpenInFullChat = { sessionId ->
                         val fullIntent = Intent(this, MainActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -173,8 +220,19 @@ class OverlayActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        extractScreenshotUri(intent)
-        if (intent.action == Intent.ACTION_ASSIST) {
+        val trusted = isTrustedInternalIntent(intent)
+        if (trusted) {
+            extractScreenshotUri(intent)
+        }
+        if (intent.action == Intent.ACTION_VOICE_COMMAND) {
+            pendingAutoVoice.value = true
+        }
+        // Не сбрасываем сессию, когда RunnerVoiceInteractionSession просто
+        // прислала отложенный скриншот для уже открытого окна.
+        val isScreenshotFollowUp = trusted && !intent.getStringExtra(EXTRA_SCREENSHOT_URI).isNullOrBlank()
+        if ((intent.action == Intent.ACTION_ASSIST || intent.action == Intent.ACTION_VOICE_COMMAND) &&
+            !isScreenshotFollowUp
+        ) {
             viewModel.startAssistantSession()
         }
     }
@@ -185,10 +243,20 @@ class OverlayActivity : ComponentActivity() {
     }
 
     private fun extractScreenshotUri(intent: Intent?) {
+        if (!isTrustedInternalIntent(intent)) return
         val uriStr = intent?.getStringExtra(EXTRA_SCREENSHOT_URI)
         if (!uriStr.isNullOrBlank()) {
             try {
-                pendingScreenshotUri.value = Uri.parse(uriStr)
+                val parsed = Uri.parse(uriStr)
+                val scheme = parsed.scheme?.lowercase()
+                val allowed = when (scheme) {
+                    "file" -> isAllowedInternalCachePath(parsed.path, cacheDir.canonicalPath)
+                    "content" -> parsed.authority == "$packageName.fileprovider"
+                    else -> false
+                }
+                if (allowed) {
+                    pendingScreenshotUri.value = parsed
+                }
             } catch (_: Exception) {}
         }
     }
@@ -199,6 +267,8 @@ private fun OverlayScreen(
     viewModel: MainViewModel,
     initialAutoScreenshot: Boolean,
     initialScreenshotUri: Uri?,
+    initialAutoVoice: Boolean,
+    onAutoVoiceConsumed: () -> Unit,
     onOpenInFullChat: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -283,6 +353,21 @@ private fun OverlayScreen(
         }
     }
 
+    LaunchedEffect(initialAutoVoice) {
+        if (initialAutoVoice) {
+            onAutoVoiceConsumed()
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                viewModel.startVoiceInput(
+                    onPartialResult = { inputState.setText(it) },
+                    onFinalResult = { inputState.setText(it) },
+                    onError = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                )
+            } else {
+                micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
     val density = androidx.compose.ui.platform.LocalDensity.current
     val dismissThresholdPx = remember(density) { density.density * 120f }
     val offsetY = remember { Animatable(0f) }
@@ -292,25 +377,34 @@ private fun OverlayScreen(
             onDragEnd = {
                 scope.launch {
                     if (offsetY.value > dismissThresholdPx) {
-                        offsetY.animateTo(
-                            targetValue = 1200f,
-                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
-                        )
+                        if (MotionSettings.enabled) {
+                            offsetY.animateTo(
+                                targetValue = 1200f,
+                                animationSpec = MotionTokens.spatialFast()
+                            )
+                        } else {
+                            offsetY.snapTo(1200f)
+                        }
                         onDismiss()
                     } else {
-                        offsetY.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMediumLow
+                        if (MotionSettings.enabled) {
+                            offsetY.animateTo(
+                                targetValue = 0f,
+                                animationSpec = MotionTokens.spatialDefault()
                             )
-                        )
+                        } else {
+                            offsetY.snapTo(0f)
+                        }
                     }
                 }
             },
             onDragCancel = {
                 scope.launch {
-                    offsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                    if (MotionSettings.enabled) {
+                        offsetY.animateTo(0f, MotionTokens.spatialDefault())
+                    } else {
+                        offsetY.snapTo(0f)
+                    }
                 }
             },
             onVerticalDrag = { change, dragAmount ->
@@ -515,7 +609,16 @@ private fun OverlayScreen(
                         items(quickPrompts) { prompt ->
                             QuickPromptChip(label = prompt) {
                                 val images = inputState.selectedImages
-                                viewModel.sendMessage(prompt, images)
+                                val files = inputState.selectedFiles
+                                val forceSearch = inputState.webSearch
+                                val forceThinking = inputState.think
+                                viewModel.sendMessage(
+                                    prompt = prompt,
+                                    images = images,
+                                    forceSearch = forceSearch,
+                                    forceThinking = forceThinking,
+                                    files = files
+                                )
                                 inputState.clear()
                                 capturedScreenshotUri = null
                             }
@@ -523,9 +626,21 @@ private fun OverlayScreen(
                     }
                 }
 
-                // Область ответов (если есть стрим или последнее сообщение)
-                val lastAssistant = messages.lastOrNull { it.role == MessageRole.ASSISTANT }
-                val hasResponseContent = streamingText.isNotBlank() || (lastAssistant != null)
+                // Область ответов: показываем стрим, ответ ассистента, шаги инструментов
+                // и системные сообщения (ошибки ключа, 401, сети и т.д.).
+                val lastUserIdx = messages.indexOfLast { it.role == MessageRole.USER }
+                val currentTurnMessages = if (lastUserIdx >= 0) messages.drop(lastUserIdx + 1) else messages
+                val lastAssistant = currentTurnMessages.lastOrNull { it.role == MessageRole.ASSISTANT }
+                    ?: messages.lastOrNull { it.role == MessageRole.ASSISTANT }
+                val latestSystemInfo = currentTurnMessages.lastOrNull { it.role == MessageRole.SYSTEM_INFO }
+                val recentTools = currentTurnMessages
+                    .filter { it.role == MessageRole.TOOL_EXECUTION }
+                    .takeLast(3)
+                val hasResponseContent = isRunning ||
+                        streamingText.isNotBlank() ||
+                        lastAssistant != null ||
+                        latestSystemInfo != null ||
+                        recentTools.isNotEmpty()
 
                 if (hasResponseContent) {
                     Surface(
@@ -535,7 +650,7 @@ private fun OverlayScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .heightIn(max = 240.dp)
+                            .heightIn(max = 260.dp)
                     ) {
                         Column(
                             modifier = Modifier
@@ -555,8 +670,54 @@ private fun OverlayScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
 
-                            val displayText = if (streamingText.isNotBlank()) streamingText else lastAssistant?.content.orEmpty()
-                            MarkdownView(text = displayText, isStreaming = streamingText.isNotBlank())
+                            if (recentTools.isNotEmpty()) {
+                                recentTools.forEach { toolMsg ->
+                                    val label = toolMsg.content.ifBlank { toolMsg.toolName.orEmpty() }
+                                    val summary = toolMsg.toolSummary?.takeIf { it.isNotBlank() }
+                                    val line = if (summary != null) "$label · $summary" else label
+                                    if (line.isNotBlank()) {
+                                        Text(
+                                            text = line,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (toolMsg.isError || toolMsg.isDeclined) {
+                                                MaterialTheme.colorScheme.error
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(bottom = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            val displayText = if (streamingText.isNotBlank()) {
+                                streamingText
+                            } else {
+                                lastAssistant?.content.orEmpty()
+                            }
+                            if (displayText.isNotBlank()) {
+                                MarkdownView(text = displayText, isStreaming = streamingText.isNotBlank())
+                            }
+
+                            if (latestSystemInfo != null && latestSystemInfo.content.isNotBlank()) {
+                                if (displayText.isNotBlank() || recentTools.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                                Surface(
+                                    shape = RunnerShapes.small,
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = latestSystemInfo.content,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
 
                             if (!isRunning && lastAssistant != null) {
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -607,7 +768,13 @@ private fun OverlayScreen(
                     isListening = isListening,
                     rmsLevel = rmsLevel,
                     onSend = { text, images, files ->
-                        viewModel.sendMessage(text, images, files = files)
+                        viewModel.sendMessage(
+                            prompt = text,
+                            images = images,
+                            forceSearch = inputState.webSearch,
+                            forceThinking = inputState.think,
+                            files = files
+                        )
                         capturedScreenshotUri = null
                     },
                     onStop = { viewModel.stopGeneration() },

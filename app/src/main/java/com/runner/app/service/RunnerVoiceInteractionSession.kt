@@ -9,6 +9,12 @@ import android.os.Bundle
 import android.service.voice.VoiceInteractionSession
 import com.runner.app.ui.OverlayActivity
 import com.runner.app.util.ScreenCaptureManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Сессия системного ассистента Runner.
@@ -21,16 +27,19 @@ class RunnerVoiceInteractionSession(context: Context) : VoiceInteractionSession(
         var activeSession: RunnerVoiceInteractionSession? = null
     }
 
+    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
     override fun onCreate() {
         super.onCreate()
         activeSession = this
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        sessionScope.cancel()
         if (activeSession == this) {
             activeSession = null
         }
+        super.onDestroy()
     }
 
     override fun onPrepareShow(args: Bundle?, showFlags: Int) {
@@ -51,16 +60,34 @@ class RunnerVoiceInteractionSession(context: Context) : VoiceInteractionSession(
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
-        // Сразу открываем оверлей для мгновенного отклика на жест пользователя
+        // Сразу открываем оверлей для мгновенного отклика на жест пользователя.
+        // EXTRA_AUTO_SCREENSHOT = false: не открываем лишний системный диалог
+        // MediaProjection, так как ОС сама передаст бесплатный снимок в onHandleScreenshot.
         launchOverlay(null)
     }
 
     override fun onHandleScreenshot(screenshot: Bitmap?) {
         super.onHandleScreenshot(screenshot)
-        if (screenshot != null) {
+        if (screenshot == null || screenshot.isRecycled) return
+        // Копируем Bitmap до возврата из колбэка (система может освободить оригинал)
+        // и сохраняем JPEG на Dispatchers.IO, не блокируя Main-поток.
+        val bitmapCopy = try {
+            screenshot.copy(screenshot.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (_: Exception) {
+            null
+        } ?: return
+
+        sessionScope.launch {
             val uri = try {
-                ScreenCaptureManager.saveBitmap(context, screenshot)
+                withContext(Dispatchers.IO) {
+                    try {
+                        ScreenCaptureManager.saveBitmap(context, bitmapCopy)
+                    } finally {
+                        if (!bitmapCopy.isRecycled) bitmapCopy.recycle()
+                    }
+                }
             } catch (_: Exception) {
+                if (!bitmapCopy.isRecycled) bitmapCopy.recycle()
                 null
             }
             if (uri != null) {
@@ -73,10 +100,12 @@ class RunnerVoiceInteractionSession(context: Context) : VoiceInteractionSession(
         val intent = Intent(context, OverlayActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             action = Intent.ACTION_ASSIST
+            putExtra(OverlayActivity.EXTRA_AUTO_SCREENSHOT, false)
             if (!screenshotUriString.isNullOrBlank()) {
                 putExtra(OverlayActivity.EXTRA_SCREENSHOT_URI, screenshotUriString)
             }
         }
+        OverlayActivity.markInternalIntent(intent)
 
         val optionsBundle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ActivityOptions.makeBasic().apply {

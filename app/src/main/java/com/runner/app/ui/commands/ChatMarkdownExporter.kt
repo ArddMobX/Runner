@@ -25,27 +25,32 @@ object ChatMarkdownExporter {
         if (visible.isEmpty()) return ""
 
         val markdown = buildString {
-            append("# ").append(title.ifBlank { "Чат Runner" }).append("\n\n")
+            append("# ").append(escapeHeadingLine(title.ifBlank { "Чат Runner" })).append("\n\n")
             if (providerName.isNotBlank() || modelName.isNotBlank()) {
-                append("Провайдер: ").append(providerName.ifBlank { "не выбран" }).append("  \n")
-                append("Модель: ").append(modelName.ifBlank { "не выбрана" }).append("\n\n")
+                append("Провайдер: ").append(escapeMarkdownText(providerName.ifBlank { "не выбран" })).append("  \n")
+                append("Модель: ").append(escapeMarkdownText(modelName.ifBlank { "не выбрана" })).append("\n\n")
             }
             append("---\n")
 
             visible.forEach { message ->
                 when (message.role) {
                     MessageRole.USER -> {
-                        if (message.content.isNotBlank()) {
-                            append("\n## Пользователь\n\n")
-                            append(message.content.trim()).append("\n")
-                        }
-                        if (message.imageUris.isNotEmpty()) {
-                            append("\nВложения: ${message.imageUris.size} изображений.\n")
-                        }
-                        if (message.attachments.isNotEmpty()) {
-                            append("\nФайлы:\n")
-                            message.attachments.forEach { attachment ->
-                                append("- ").append(attachment.name).append('\n')
+                        val hasUserContent = message.content.isNotBlank() ||
+                            message.imageUris.isNotEmpty() ||
+                            message.attachments.isNotEmpty()
+                        if (hasUserContent) {
+                            append("\n## Пользователь\n")
+                            if (message.content.isNotBlank()) {
+                                append("\n").append(message.content.trim()).append("\n")
+                            }
+                            if (message.imageUris.isNotEmpty()) {
+                                append("\nВложения: ${message.imageUris.size} изображений.\n")
+                            }
+                            if (message.attachments.isNotEmpty()) {
+                                append("\nФайлы:\n")
+                                message.attachments.forEach { attachment ->
+                                    append("- ").append(escapeMarkdownText(attachment.name)).append('\n')
+                                }
                             }
                         }
                     }
@@ -77,7 +82,7 @@ object ChatMarkdownExporter {
                             ?.substringAfterLast(':')
                             ?.takeIf { it.isNotBlank() }
                         if (toolName != null) {
-                            append("\n### Инструмент `").append(toolName).append("`\n\n")
+                            append("\n### Инструмент ").append(inlineCodeSpan(toolName)).append("\n\n")
                             val body = message.toolSummary
                                 ?.takeIf { it.isNotBlank() }
                                 ?: message.content.takeIf { it.isNotBlank() }
@@ -96,7 +101,7 @@ object ChatMarkdownExporter {
             if (changes.isNotEmpty()) {
                 append("\n## Файлы\n\n")
                 changes.forEach { change ->
-                    append("- `").append(change.displayPath).append("`: ")
+                    append("- ").append(inlineCodeSpan(change.displayPath)).append(": ")
                     append(changeAction(change.kind))
                     if (change.itemCount > 1) {
                         append(" (").append(change.itemCount).append(" файлов)")
@@ -125,11 +130,58 @@ object ChatMarkdownExporter {
         if (sources.isEmpty()) return
         append("\nИсточники:\n")
         sources.forEach { source ->
+            val label = source.title.ifBlank { source.domain.ifBlank { source.url } }
             append("- [")
-            append(source.title.ifBlank { source.domain.ifBlank { source.url } })
+            append(escapeMarkdownLinkLabel(label))
             append("](")
-            append(source.url)
+            append(escapeMarkdownLinkUrl(source.url))
             append(")\n")
         }
+    }
+
+    private fun escapeHeadingLine(raw: String): String =
+        escapeMarkdownText(raw.replace(Regex("[\r\n]+"), " ").trim())
+
+    private fun escapeMarkdownText(raw: String): String {
+        val singleLine = raw.replace(Regex("[\r\n]+"), " ")
+        val sb = StringBuilder(singleLine.length + 8)
+        for (ch in singleLine) {
+            when (ch) {
+                '\\', '*', '_', '`', '[', ']', '<', '>' -> {
+                    sb.append('\\').append(ch)
+                }
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun escapeMarkdownLinkLabel(raw: String): String =
+        escapeMarkdownText(raw)
+
+    private fun escapeMarkdownLinkUrl(raw: String): String =
+        raw.trim()
+            .replace(" ", "%20")
+            .replace("\r", "")
+            .replace("\n", "")
+            .replace("(", "%28")
+            .replace(")", "%29")
+
+    private fun inlineCodeSpan(raw: String): String {
+        val singleLine = raw.replace(Regex("[\r\n]+"), " ")
+        var maxRun = 0
+        var run = 0
+        for (ch in singleLine) {
+            if (ch == '`') {
+                run++
+                if (run > maxRun) maxRun = run
+            } else {
+                run = 0
+            }
+        }
+        val fence = "`".repeat(maxRun + 1)
+        val needsPadding = singleLine.startsWith('`') || singleLine.endsWith('`') ||
+            (singleLine.startsWith(' ') && singleLine.endsWith(' ') && singleLine.isNotBlank())
+        return if (needsPadding) "$fence $singleLine $fence" else "$fence$singleLine$fence"
     }
 }

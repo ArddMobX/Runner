@@ -73,6 +73,10 @@ object TrashStore {
     private const val KIND_MOVE = "move"
     private const val KIND_OVERWRITE = "overwrite"
 
+    /** Подмена корня корзины для JVM unit-тестов (в продакшене всегда null). */
+    @Volatile
+    internal var rootOverrideForTest: File? = null
+
     /** Вид записи: удаление (объект в корзине), перемещение или перезапись. */
     enum class EntryKind { DELETE, MOVE, OVERWRITE }
 
@@ -137,33 +141,44 @@ object TrashStore {
         val isOverwrite: Boolean get() = kind == EntryKind.OVERWRITE
     }
 
-    /** Корень корзины. Всегда внутри общей памяти, иначе файловые тулы до него не дойдут. */
-    fun root(): File = File(Environment.getExternalStorageDirectory(), DIR_NAME)
+    private sealed interface ManifestRead {
+        data class Ok(val entries: MutableList<TrashEntry>) : ManifestRead
+        data object ReadError : ManifestRead
+    }
 
-    /** Путь ведёт внутрь корзины? Нужно, чтобы не «удалить» саму корзину. */
+    /** Корень корзины. Всегда внутри общей памяти, иначе файловые тулы до него не дойдут. */
+    fun root(): File = rootOverrideForTest ?: File(Environment.getExternalStorageDirectory(), DIR_NAME)
+
+    /** Путь ведёт внутрь корзины? Нужно, чтобы не трогать файлы самой корзины. */
     fun isTrashPath(file: File): Boolean {
         val rootPath = try {
             root().canonicalPath
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             root().absolutePath
         }
         val path = try {
             file.canonicalPath
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             file.absolutePath
         }
-        return path == rootPath || path.startsWith("$rootPath/")
+        return path == rootPath || path.startsWith("$rootPath${File.separator}") || path.startsWith("$rootPath/")
     }
 
     // --- Чтение состояния ---
 
     /** Записи журнала, новые сверху. */
     @Synchronized
-    fun list(): List<TrashEntry> = readManifest().sortedByDescending { it.at }
+    fun list(): List<TrashEntry> = when (val res = readManifestResult()) {
+        is ManifestRead.Ok -> res.entries.sortedByDescending { it.at }
+        ManifestRead.ReadError -> emptyList()
+    }
 
     /** Сколько места занимает корзина. Записи о перемещениях не считаются. */
     @Synchronized
-    fun totalBytes(): Long = readManifest().sumOf { it.totalBytes }
+    fun totalBytes(): Long = when (val res = readManifestResult()) {
+        is ManifestRead.Ok -> res.entries.sumOf { it.totalBytes }
+        ManifestRead.ReadError -> 0L
+    }
 
     // --- Запись операций ---
 
@@ -176,10 +191,25 @@ object TrashStore {
      */
     @Synchronized
     fun moveToTrash(files: List<File>): TrashResult {
-        val failed = files.filterNot { it.exists() }.map { it.name }.toMutableList()
-        val candidates = files.filter { it.exists() }
+        val failed = mutableListOf<String>()
+        val candidates = mutableListOf<File>()
+        files.forEach { file ->
+            when {
+                !file.exists() -> failed += file.name
+                isTrashPath(file) -> failed += file.name
+                else -> candidates += file
+            }
+        }
         if (candidates.isEmpty()) {
             return TrashResult(null, emptyList(), failed)
+        }
+
+        // Проверяем читаемость журнала ДО переноса файлов: если manifest.json
+        // временно недоступен или повреждён, не перезаписываем его пустым списком.
+        val manifest = when (val read = readManifestResult()) {
+            is ManifestRead.Ok -> read.entries
+            ManifestRead.ReadError ->
+                return TrashResult(null, emptyList(), failed + candidates.map { it.name })
         }
 
         val id = newEntryId()
@@ -200,8 +230,11 @@ object TrashStore {
 
             val destination = File(slot, source.name)
             if (!moveFile(source, destination)) {
-                // Слот не понадобился: убираем, чтобы не оставлять пустых папок.
-                slot.deleteRecursively()
+                // Удаляем слот только если копия там не единственная уцелевшая версия:
+                // если исходник исчез или оказался частично удалён, резерв оставляем.
+                if (source.exists() && (!source.isDirectory || !destination.exists())) {
+                    slot.deleteRecursively()
+                }
                 failed += source.name
                 return@forEachIndexed
             }
@@ -219,7 +252,9 @@ object TrashStore {
         }
 
         if (items.isEmpty()) {
-            entryRoot.deleteRecursively()
+            if (entryRoot.walkTopDown().none { it.isFile }) {
+                entryRoot.deleteRecursively()
+            }
             return TrashResult(null, emptyList(), failed)
         }
 
@@ -230,18 +265,23 @@ object TrashStore {
             totalBytes = items.sumOf { it.sizeBytes }
         )
 
-        val manifest = readManifest()
         manifest.add(0, entry)
         if (!writeManifest(manifest)) {
-            // Журнал не записался — возвращаем объекты на исходные места.
-            // Оставить их в items/ без записи нельзя: подметание сирот сочло бы
-            // их мусором, и данные пропали бы молча. Лучше честно провалить
-            // удаление, чем сделать вид, что оно прошло.
+            // Журнал не записался — пробуем вернуть объекты на исходные места.
+            // Удаляем каталог items/<id> ТОЛЬКО если каждый объект действительно
+            // вернулся обратно: иначе удалили бы единственную копию файла.
+            var allRolledBack = true
             entry.items.forEach { item ->
                 val payload = File(item.currentPath)
-                if (payload.exists()) moveFile(payload, File(item.originalPath))
+                if (payload.exists()) {
+                    if (!moveFile(payload, File(item.originalPath))) {
+                        allRolledBack = false
+                    }
+                }
             }
-            File(File(root(), ITEMS_DIR), id).deleteRecursively()
+            if (allRolledBack) {
+                entryRoot.deleteRecursively()
+            }
             return TrashResult(null, emptyList(), failed + candidates.map { it.name })
         }
 
@@ -266,6 +306,11 @@ object TrashStore {
         }
         if (landed.isEmpty()) return null
 
+        val manifest = when (val read = readManifestResult()) {
+            is ManifestRead.Ok -> read.entries
+            ManifestRead.ReadError -> return null
+        }
+
         val items = landed.map { (source, destination) ->
             TrashItem(
                 originalPath = source.absolutePath,
@@ -288,7 +333,6 @@ object TrashStore {
             totalBytes = 0L
         )
 
-        val manifest = readManifest()
         manifest.add(0, entry)
         if (!writeManifest(manifest)) return null
         return entry
@@ -307,8 +351,13 @@ object TrashStore {
      */
     @Synchronized
     fun recordOverwrite(file: File): TrashEntry? {
-        if (!file.isFile) return null
+        if (!file.isFile || isTrashPath(file)) return null
         if (file.length() > OVERWRITE_BACKUP_LIMIT_BYTES) return null
+
+        val manifest = when (val read = readManifestResult()) {
+            is ManifestRead.Ok -> read.entries
+            ManifestRead.ReadError -> return null
+        }
 
         val id = newEntryId()
         val entryRoot = File(File(root(), ITEMS_DIR), id)
@@ -320,7 +369,7 @@ object TrashStore {
             file.inputStream().use { input ->
                 copy.outputStream().use { output -> input.copyTo(output) }
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             entryRoot.deleteRecursively()
             return null
         }
@@ -342,7 +391,6 @@ object TrashStore {
             declaredKind = EntryKind.OVERWRITE
         )
 
-        val manifest = readManifest()
         manifest.add(0, entry)
         if (!writeManifest(manifest)) {
             entryRoot.deleteRecursively()
@@ -356,7 +404,10 @@ object TrashStore {
     /** Возвращает объекты записи на исходные места. */
     @Synchronized
     fun restore(entryId: String): RestoreOutcome {
-        val manifest = readManifest()
+        val manifest = when (val read = readManifestResult()) {
+            is ManifestRead.Ok -> read.entries
+            ManifestRead.ReadError -> return RestoreOutcome(0, 0, emptyList())
+        }
         val entry = manifest.firstOrNull { it.id == entryId }
             ?: return RestoreOutcome(0, 0, emptyList())
 
@@ -443,7 +494,7 @@ object TrashStore {
                     }
                     true
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 false
             }
             if (ok) restored++ else {
@@ -517,8 +568,11 @@ object TrashStore {
         sweepOrphans()
         if (retentionDays <= 0) return 0
 
+        val manifest = when (val read = readManifestResult()) {
+            is ManifestRead.Ok -> read.entries
+            ManifestRead.ReadError -> return 0
+        }
         val cutoff = System.currentTimeMillis() - retentionDays * 24L * 60L * 60L * 1000L
-        val manifest = readManifest()
         val expired = manifest.filter { it.at in 1L until cutoff }
         if (expired.isEmpty()) return 0
 
@@ -547,9 +601,13 @@ object TrashStore {
      */
     @Synchronized
     fun sweepOrphans(): Int {
+        val manifest = when (val read = readManifestResult()) {
+            is ManifestRead.Ok -> read.entries
+            ManifestRead.ReadError -> return 0
+        }
         val itemsDir = File(root(), ITEMS_DIR)
         val dirs = itemsDir.listFiles()?.filter { it.isDirectory } ?: return 0
-        val known = readManifest().map { it.id }.toSet()
+        val known = manifest.map { it.id }.toSet()
         var removed = 0
         dirs.forEach { dir ->
             if (dir.name in known) return@forEach
@@ -570,10 +628,11 @@ object TrashStore {
         EntryKind.DELETE -> "$ID_PREFIX $entryId"
     }
 
-    /** Запись, которую можно откатить, если маркер есть в выводе инструмента. */
+    /** Запись, которую можно откатить, если маркер есть в доверенной части вывода инструмента. */
     fun undoRefFromOutput(output: String?): UndoRef? {
         if (output.isNullOrBlank()) return null
-        val match = MARKER_REGEX.find(output) ?: return null
+        val trustedOutput = stripUntrustedBlocks(output)
+        val match = MARKER_REGEX.find(trustedOutput) ?: return null
         val id = match.groupValues[1]
         if (id.isEmpty()) return null
         val kind = when (match.groupValues[2]) {
@@ -582,6 +641,32 @@ object TrashStore {
             else -> EntryKind.DELETE
         }
         return UndoRef(entryId = id, kind = kind)
+    }
+
+    /**
+     * Вырезает блоки внутри конверта недоверенных данных, чтобы содержимое
+     * прочитанного файла или веб-страницы не могло подделать строку `trash_id:`.
+     */
+    private fun stripUntrustedBlocks(output: String): String {
+        if (!output.contains(ToolDispatcher.UNTRUSTED_OPEN)) return output
+        val trusted = StringBuilder()
+        var insideUntrusted = false
+        for (line in output.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith(ToolDispatcher.UNTRUSTED_OPEN)) {
+                insideUntrusted = true
+                continue
+            }
+            if (trimmed == ToolDispatcher.UNTRUSTED_CLOSE) {
+                insideUntrusted = false
+                continue
+            }
+            if (!insideUntrusted) {
+                if (trusted.isNotEmpty()) trusted.append('\n')
+                trusted.append(line)
+            }
+        }
+        return trusted.toString()
     }
 
     /** Только id записи. Нужен там, где вид операции неважен. */
@@ -600,7 +685,7 @@ object TrashStore {
     /** Дата и время записи для списка журнала. */
     fun formatDate(millis: Long): String = try {
         SimpleDateFormat("d MMMM, HH:mm", Locale("ru")).format(Date(millis))
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         ""
     }
 
@@ -614,23 +699,49 @@ object TrashStore {
         return "$stamp-$suffix"
     }
 
-    /** Сначала rename (быстро и атомарно в пределах тома), иначе копирование. */
+    /**
+     * Сначала rename (быстро и атомарно в пределах тома), иначе копирование.
+     *
+     * Важно: при сбое этапа копирования чистим неполный [destination], но если
+     * копия уже полностью записана, а удаление [source] провалилось/упало на
+     * середине каталога — полную копию [destination] НЕ удаляем, чтобы не
+     * уничтожить единственную целую версию данных.
+     */
     private fun moveFile(source: File, destination: File): Boolean {
         if (source.renameTo(destination)) return true
-        return try {
+
+        val copied = try {
             if (source.isDirectory) {
-                if (!copyDirectory(source, destination)) return false
+                copyDirectory(source, destination)
             } else {
                 destination.parentFile?.mkdirs()
                 source.inputStream().use { input ->
                     destination.outputStream().use { output -> input.copyTo(output) }
                 }
+                true
             }
-            source.deleteRecursively()
-        } catch (e: Exception) {
-            destination.deleteRecursively()
+        } catch (_: Exception) {
             false
         }
+        if (!copied) {
+            destination.deleteRecursively()
+            return false
+        }
+
+        val deleted = try {
+            if (source.isDirectory) source.deleteRecursively() else source.delete()
+        } catch (_: Exception) {
+            false
+        }
+        if (!deleted) {
+            // Для одиночного файла, если исходник полностью цел, можно безопасно убрать дубль.
+            // Для каталога deleteRecursively() мог успеть удалить часть файлов — копию сохраняем!
+            if (!source.isDirectory && source.exists()) {
+                destination.delete()
+            }
+            return false
+        }
+        return true
     }
 
     private fun copyDirectory(source: File, destination: File): Boolean {
@@ -682,36 +793,39 @@ object TrashStore {
         else -> 0
     }
 
-    private fun readManifest(): MutableList<TrashEntry> {
+    private fun JSONObject.optStringSafe(key: String, fallback: String = ""): String =
+        (opt(key) as? String) ?: fallback
+
+    private fun readManifestResult(): ManifestRead {
         val file = File(root(), MANIFEST)
-        if (!file.exists()) return mutableListOf<TrashEntry>()
+        if (!file.exists()) return ManifestRead.Ok(mutableListOf())
         return try {
             val array = JSONArray(file.readText())
-            (0 until array.length()).mapNotNull entryLoop@{ index ->
+            val entries = (0 until array.length()).mapNotNull entryLoop@{ index ->
                 val obj = array.optJSONObject(index) ?: return@entryLoop null
-                val id = obj.optString("id", "").trim()
+                val id = obj.optStringSafe("id").trim()
                 if (id.isEmpty()) return@entryLoop null
 
                 val rawItems = obj.optJSONArray("items") ?: JSONArray()
                 val items = (0 until rawItems.length()).mapNotNull itemLoop@{ itemIndex ->
                     val itemObj = rawItems.optJSONObject(itemIndex) ?: return@itemLoop null
-                    val originalPath = itemObj.optString("originalPath", "").trim()
+                    val originalPath = itemObj.optStringSafe("originalPath").trim()
                     if (originalPath.isEmpty()) return@itemLoop null
 
                     // currentPath появился, когда журнал научился хранить ещё и
                     // перемещения. Старые записи (и сборки, где поле называлось
                     // payloadPath) читаем по прежнему виду, чтобы уже лежащая
                     // корзина не осиротела после обновления.
-                    val legacyPayload = itemObj.optString("payloadPath", "").trim()
+                    val legacyPayload = itemObj.optStringSafe("payloadPath").trim()
                     val stored = itemObj.optBoolean("storedInTrash", legacyPayload.isNotEmpty())
-                    val currentPath = itemObj.optString("currentPath", "").trim().ifEmpty {
+                    val currentPath = itemObj.optStringSafe("currentPath").trim().ifEmpty {
                         if (legacyPayload.isEmpty()) "" else File(root(), legacyPayload).absolutePath
                     }
                     if (currentPath.isEmpty()) return@itemLoop null
 
                     TrashItem(
                         originalPath = originalPath,
-                        name = itemObj.optString("name", File(originalPath).name),
+                        name = itemObj.optStringSafe("name", File(originalPath).name),
                         isDirectory = itemObj.optBoolean("isDirectory", false),
                         sizeBytes = itemObj.optLong("sizeBytes", 0L),
                         fileCount = itemObj.optInt("fileCount", 1),
@@ -730,7 +844,7 @@ object TrashStore {
                     totalBytes = obj.optLong("totalBytes", 0L),
                     // Поле появилось вместе с перезаписью. Старые записи его
                     // не имеют — вид у них и так выводится из расположения.
-                    declaredKind = when (obj.optString("op", "").lowercase()) {
+                    declaredKind = when (obj.optStringSafe("op").lowercase()) {
                         "delete" -> EntryKind.DELETE
                         "move" -> EntryKind.MOVE
                         "overwrite" -> EntryKind.OVERWRITE
@@ -738,10 +852,12 @@ object TrashStore {
                     }
                 )
             }.toMutableList()
-        } catch (e: Exception) {
-            // Битого журнала быть не должно, но падать из-за него нельзя:
-            // пустой список означает «откатывать нечего», и это безопасно.
-            mutableListOf<TrashEntry>()
+            ManifestRead.Ok(entries)
+        } catch (_: Exception) {
+            // При ошибке чтения/разбора существующего manifest.json НЕ возвращаем
+            // пустой список под видом «корзина пуста», чтобы мутирующие методы
+            // не затёрли журнал с предыдущими записями.
+            ManifestRead.ReadError
         }
     }
 
@@ -800,7 +916,7 @@ object TrashStore {
                 )
             }
             true
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }

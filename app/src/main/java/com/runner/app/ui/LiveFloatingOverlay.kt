@@ -97,10 +97,25 @@ object LiveFloatingOverlay {
     private val isExpandedState = mutableStateOf(false)
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    @Volatile
+    private var overlayActive: Boolean = false
+
+    /** true, если плавающий оверлей показан или запланирован к показу с выданным правом. */
+    fun isAvailableForConfirmation(): Boolean = overlayActive
+
     fun show(context: Context) {
+        if (!Settings.canDrawOverlays(context)) {
+            overlayActive = false
+            return
+        }
+        overlayActive = true
         mainHandler.post {
             if (composeView != null) return@post
-            if (!Settings.canDrawOverlays(context)) return@post
+            if (!Settings.canDrawOverlays(context)) {
+                overlayActive = false
+                LiveAgentManager.confirmPendingAction(false)
+                return@post
+            }
 
             TouchVisualizerOverlay.initialize(context)
 
@@ -291,8 +306,11 @@ object LiveFloatingOverlay {
             try {
                 wm.addView(view, params)
             } catch (_: Exception) {
+                overlayActive = false
                 composeView = null
+                owner.destroy()
                 lifecycleOwner = null
+                LiveAgentManager.confirmPendingAction(false)
             }
         }
     }
@@ -359,6 +377,8 @@ object LiveFloatingOverlay {
     }
 
     fun dismiss() {
+        overlayActive = false
+        LiveAgentManager.confirmPendingAction(false)
         mainHandler.post {
             composeView?.let { view ->
                 try {

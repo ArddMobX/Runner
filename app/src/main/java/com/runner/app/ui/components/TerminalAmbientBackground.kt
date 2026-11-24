@@ -39,7 +39,7 @@ fun TerminalAmbientBackground(
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
 
     val activeGlyphs = if (isLiveMode) LIVE_GLYPHS else GLYPHS
-    val particles = remember(isLiveMode) {
+    val particles = remember(isLiveMode, density) {
         val list = ArrayList<AmbientParticle>(PARTICLE_COUNT)
         val rnd = Random(if (isLiveMode) 77 else 42)
         repeat(PARTICLE_COUNT) {
@@ -67,7 +67,7 @@ fun TerminalAmbientBackground(
         mutableLongStateOf(if (MotionSettings.enabled) 0L else 1L)
     }
 
-    LaunchedEffect(enabled, MotionSettings.enabled) {
+    LaunchedEffect(enabled, MotionSettings.enabled, particles) {
         if (!MotionSettings.enabled) {
             // Без анимаций фон остаётся статичным, но не исчезает.
             animTick = 1L

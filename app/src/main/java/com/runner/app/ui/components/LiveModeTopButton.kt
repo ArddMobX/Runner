@@ -3,7 +3,6 @@ package com.runner.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -14,12 +13,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.runner.app.ui.theme.MotionTokens
 import com.runner.app.ui.theme.accessibleTouchSize
+import com.runner.app.ui.theme.bounceClick
 
 /**
  * Кнопка переключения Live-режима (автопилот по экрану) в верхнем правом углу.
@@ -38,7 +35,7 @@ fun LiveModeTopButton(
         } else {
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "live_border"
     )
 
@@ -48,7 +45,7 @@ fun LiveModeTopButton(
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f)
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "live_bg"
     )
 
@@ -58,7 +55,7 @@ fun LiveModeTopButton(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         },
-        animationSpec = MotionTokens.fluidTween(MotionTokens.DurationFast),
+        animationSpec = MotionTokens.effectsFast(),
         label = "live_icon"
     )
 
@@ -68,8 +65,7 @@ fun LiveModeTopButton(
             .clip(CircleShape)
             .background(backgroundColor)
             .border(if (isActive) 1.2.dp else 0.8.dp, borderColor, CircleShape)
-            .semantics(mergeDescendants = true) { role = Role.Button }
-            .clickable { onClick() },
+            .bounceClick(scaleDown = 0.92f) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(

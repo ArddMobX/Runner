@@ -50,7 +50,10 @@ data class SessionEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("sessionId")]
+    indices = [
+        Index("sessionId"),
+        Index(value = ["sessionId", "createdAt"], name = "index_messages_sessionId_createdAt")
+    ]
 )
 data class MessageEntity(
     @PrimaryKey val id: String,
@@ -119,7 +122,7 @@ interface ChatDao {
 
     @Query("""
         SELECT s.* FROM sessions s
-        WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
+        WHERE EXISTS (SELECT 1 FROM messages m WHERE m.sessionId = s.id)
         ORDER BY s.isPinned DESC, s.updatedAt DESC
     """)
     fun observeSessions(): Flow<List<SessionEntity>>
@@ -139,7 +142,7 @@ interface ChatDao {
      */
     @Query("""
         SELECT s.* FROM sessions s
-        WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) > 0
+        WHERE EXISTS (SELECT 1 FROM messages m WHERE m.sessionId = s.id)
           AND (
             s.title LIKE '%' || :query || '%' ESCAPE '\'
             OR EXISTS (
@@ -162,13 +165,22 @@ interface ChatDao {
 
     @Query("""
         SELECT s.* FROM sessions s
-        WHERE (SELECT COUNT(*) FROM messages m WHERE m.sessionId = s.id) = 0
+        WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.sessionId = s.id)
         ORDER BY s.updatedAt DESC LIMIT 1
     """)
     suspend fun getRecentEmptySession(): SessionEntity?
 
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     suspend fun loadMessages(sessionId: String): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND createdAt > :timestamp")
+    suspend fun loadMessagesAfter(sessionId: String, timestamp: Long): List<MessageEntity>
+
+    @Query("SELECT imageUris FROM messages WHERE imageUris IS NOT NULL AND imageUris != ''")
+    suspend fun loadAllImageUris(): List<String?>
+
+    @Query("SELECT attachmentsJson FROM messages WHERE attachmentsJson IS NOT NULL AND attachmentsJson != ''")
+    suspend fun loadAllAttachmentsJson(): List<String?>
 
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     suspend fun getSession(id: String): SessionEntity?
@@ -183,6 +195,9 @@ interface ChatDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessages(messages: List<MessageEntity>)
 
     @Query("UPDATE sessions SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateSessionTitle(id: String, title: String, updatedAt: Long)
@@ -210,9 +225,40 @@ interface ChatDao {
     suspend fun deleteSession(id: String)
 
     @Transaction
+    suspend fun saveMessageAndTouch(message: MessageEntity, updatedAt: Long): Boolean {
+        if (getSession(message.sessionId) == null) return false
+        insertMessage(message)
+        touchSession(message.sessionId, updatedAt)
+        return true
+    }
+
+    @Transaction
+    suspend fun insertSessionWithMessages(session: SessionEntity, messages: List<MessageEntity>) {
+        insertSession(session)
+        if (messages.isNotEmpty()) {
+            insertMessages(messages)
+        }
+    }
+
+    @Transaction
     suspend fun deleteSessionCascade(id: String) {
         deleteMessagesOf(id)
         deleteSession(id)
+    }
+
+    @Transaction
+    suspend fun deleteSessionReturningMessages(id: String): List<MessageEntity> {
+        val removed = loadMessages(id)
+        deleteMessagesOf(id)
+        deleteSession(id)
+        return removed
+    }
+
+    @Transaction
+    suspend fun deleteMessagesAfterReturning(sessionId: String, timestamp: Long): List<MessageEntity> {
+        val removed = loadMessagesAfter(sessionId, timestamp)
+        deleteMessagesAfter(sessionId, timestamp)
+        return removed
     }
 
     // --- Свои команды ---
@@ -235,7 +281,7 @@ interface ChatDao {
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, CustomCommandEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class ChatDatabase : RoomDatabase() {
@@ -328,6 +374,19 @@ abstract class ChatDatabase : RoomDatabase() {
         }
 
         /**
+         * v10 -> v11: составной индекс (sessionId, createdAt) для быстрой загрузки
+         * и обрезки хвоста сообщений сессии.
+         */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_messages_sessionId_createdAt " +
+                            "ON messages (sessionId, createdAt)"
+                )
+            }
+        }
+
+        /**
          * v7 -> v8: свои команды. Таблица новая, история чатов не меняется.
          */
         private val MIGRATION_7_8 = object : Migration(7, 8) {
@@ -369,7 +428,8 @@ abstract class ChatDatabase : RoomDatabase() {
                         MIGRATION_6_7,
                         MIGRATION_7_8,
                         MIGRATION_8_9,
-                        MIGRATION_9_10
+                        MIGRATION_9_10,
+                        MIGRATION_10_11
                     )
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()

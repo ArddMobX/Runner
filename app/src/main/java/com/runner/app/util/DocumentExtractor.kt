@@ -16,11 +16,13 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import org.jsoup.Jsoup
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.Collections
 import java.util.Locale
 import java.util.UUID
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 
 /**
@@ -36,9 +38,14 @@ object DocumentExtractor {
     const val MAX_TEXT_CHARS: Int = 40_000
 
     private const val MAX_TEXT_READ_BYTES = 4 * 1024 * 1024
+    private const val MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES = 10 * 1024 * 1024
+    private const val MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
     private const val MAX_PDF_PAGES = 80
     private const val MAX_PDF_IMAGE_PAGES = 6
+    private const val MAX_PDF_RENDER_DIM = 1400
     private const val MAX_CACHED_FILE_BYTES: Long = 30L * 1024 * 1024
+
+    private val XLSX_CELL_REGEX = Regex("""<c\b([^>]*?)(?:/>|>([\s\S]*?)</c>)""")
 
     private val TEXT_EXTENSIONS = setOf(
         "txt", "text", "md", "markdown", "csv", "tsv", "json", "jsonl",
@@ -79,6 +86,11 @@ object DocumentExtractor {
         val text: String = "",
         val pageImages: List<String> = emptyList(),
         val note: String? = null
+    )
+
+    private data class CappedBytes(
+        val bytes: ByteArray,
+        val truncated: Boolean
     )
 
     fun extensionOf(name: String, mime: String = ""): String {
@@ -282,6 +294,12 @@ object DocumentExtractor {
                     note = "Формат .$ext не поддерживается."
                 )
             }
+        } catch (e: OutOfMemoryError) {
+            Extraction(
+                text = "",
+                pageImages = emptyList(),
+                note = "Недостаточно памяти для чтения файла."
+            )
         } catch (e: Exception) {
             Extraction(
                 text = "",
@@ -305,38 +323,87 @@ object DocumentExtractor {
         return Extraction(text = clipped, note = note)
     }
 
-    private fun readTextFile(file: File): String {
-        val bytes = readBytesCapped(file, MAX_TEXT_READ_BYTES)
-        if (bytes.isEmpty()) return ""
-        val text = decodeText(bytes)
+    internal fun readTextFile(file: File, maxBytes: Int = MAX_TEXT_READ_BYTES): String {
+        val capped = file.inputStream().use { readStreamCapped(it, maxBytes) }
+        if (capped.bytes.isEmpty()) return ""
+        val text = decodeTextBytes(capped.bytes, capped.truncated)
         return text.removePrefix("\uFEFF")
     }
 
-    private fun readBytesCapped(file: File, maxBytes: Int): ByteArray {
-        val out = ByteArrayOutputStream()
-        file.inputStream().use { input ->
-            val buffer = ByteArray(16 * 1024)
-            var total = 0
-            while (total < maxBytes) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                val allowed = minOf(read, maxBytes - total)
-                out.write(buffer, 0, allowed)
-                total += allowed
+    private fun readStreamCapped(input: InputStream, maxBytes: Int): CappedBytes {
+        val limit = maxBytes.coerceAtLeast(0)
+        if (limit == 0) return CappedBytes(ByteArray(0), truncated = false)
+        val out = ByteArrayOutputStream(minOf(limit, 64 * 1024))
+        val buffer = ByteArray(16 * 1024)
+        var total = 0
+        var truncated = false
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            val remaining = limit - total
+            if (read > remaining) {
+                if (remaining > 0) {
+                    out.write(buffer, 0, remaining)
+                    total += remaining
+                }
+                truncated = true
+                break
+            }
+            out.write(buffer, 0, read)
+            total += read
+            if (total >= limit) {
+                // Проверяем, остались ли ещё байты, чтобы точно знать, был ли обрыв.
+                if (input.read() != -1) {
+                    truncated = true
+                }
+                break
             }
         }
-        return out.toByteArray()
+        return CappedBytes(out.toByteArray(), truncated)
     }
 
-    private fun decodeText(bytes: ByteArray): String {
+    /**
+     * Срезает незавершённую многобайтовую UTF-8 последовательность на конце буфера,
+     * если чтение остановилось по лимиту байт — иначе строгий UTF-8 декодер
+     * падал бы на последнем байте и превращал весь UTF-8 файл в windows-1251.
+     */
+    internal fun trimIncompleteTrailingUtf8(bytes: ByteArray): ByteArray {
+        if (bytes.isEmpty()) return bytes
+        val scanStart = (bytes.size - 4).coerceAtLeast(0)
+        var leadIdx = bytes.size - 1
+        while (leadIdx >= scanStart && (bytes[leadIdx].toInt() and 0xC0) == 0x80) {
+            leadIdx--
+        }
+        if (leadIdx < scanStart) return bytes
+        val lead = bytes[leadIdx].toInt() and 0xFF
+        val expectedLen = when {
+            (lead and 0x80) == 0 -> 1
+            (lead and 0xE0) == 0xC0 -> 2
+            (lead and 0xF0) == 0xE0 -> 3
+            (lead and 0xF8) == 0xF0 -> 4
+            else -> return bytes
+        }
+        val available = bytes.size - leadIdx
+        return if (available < expectedLen) bytes.copyOf(leadIdx) else bytes
+    }
+
+    internal fun decodeTextBytes(bytes: ByteArray, truncated: Boolean = false): String {
+        val candidate = if (truncated) trimIncompleteTrailingUtf8(bytes) else bytes
         return try {
             val decoder = Charsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
-            decoder.decode(ByteBuffer.wrap(bytes)).toString()
+            decoder.decode(ByteBuffer.wrap(candidate)).toString()
         } catch (_: Exception) {
             String(bytes, charset("windows-1251"))
         }
+    }
+
+    private fun readZipEntryTextCapped(zip: ZipFile, entry: ZipEntry, maxBytes: Int): Pair<String, Int> {
+        if (maxBytes <= 0) return "" to 0
+        val capped = zip.getInputStream(entry).use { readStreamCapped(it, maxBytes) }
+        val safeBytes = if (capped.truncated) trimIncompleteTrailingUtf8(capped.bytes) else capped.bytes
+        return String(safeBytes, Charsets.UTF_8) to capped.bytes.size
     }
 
     private fun extractPdf(context: Context, file: File): Extraction {
@@ -385,6 +452,19 @@ object DocumentExtractor {
         }
     }
 
+    /**
+     * Вычисляет безопасный размер растра PDF-страницы: большая сторона
+     * гарантированно не превышает [MAX_PDF_RENDER_DIM] (без OOM на гигантских чертежах).
+     */
+    internal fun renderPdfTargetSize(pageWidth: Int, pageHeight: Int): Pair<Int, Int> {
+        val safeW = pageWidth.coerceAtLeast(1)
+        val safeH = pageHeight.coerceAtLeast(1)
+        val scale = minOf(1.6f, MAX_PDF_RENDER_DIM.toFloat() / maxOf(safeW, safeH))
+        val width = (safeW * scale).toInt().coerceIn(1, MAX_PDF_RENDER_DIM)
+        val height = (safeH * scale).toInt().coerceIn(1, MAX_PDF_RENDER_DIM)
+        return width to height
+    }
+
     private fun renderPdfPages(file: File): List<String> {
         val result = mutableListOf<String>()
         var descriptor: ParcelFileDescriptor? = null
@@ -394,22 +474,20 @@ object DocumentExtractor {
                 val count = minOf(renderer.pageCount, MAX_PDF_IMAGE_PAGES)
                 for (index in 0 until count) {
                     val page = renderer.openPage(index)
+                    var bitmap: Bitmap? = null
                     try {
-                        val scale = minOf(
-                            1.6f,
-                            1400f / maxOf(page.width, page.height).coerceAtLeast(1)
-                        ).coerceAtLeast(0.6f)
-                        val width = (page.width * scale).toInt().coerceAtLeast(1)
-                        val height = (page.height * scale).toInt().coerceAtLeast(1)
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        val (width, height) = renderPdfTargetSize(page.width, page.height)
+                        bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         bitmap.eraseColor(Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         val stream = ByteArrayOutputStream()
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 72, stream)
-                        bitmap.recycle()
                         result += "data:image/jpeg;base64," +
                                 Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                    } catch (_: OutOfMemoryError) {
+                        break
                     } finally {
+                        bitmap?.recycle()
                         page.close()
                     }
                 }
@@ -422,10 +500,10 @@ object DocumentExtractor {
         return result
     }
 
-    internal fun extractDocx(file: File): String {
+    internal fun extractDocx(file: File, maxEntryBytes: Int = MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES): String {
         ZipFile(file).use { zip ->
             val entry = zip.getEntry("word/document.xml") ?: return ""
-            val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+            val (xml, _) = readZipEntryTextCapped(zip, entry, maxEntryBytes)
             return xml
                 .replace(Regex("</w:p>"), "\n")
                 .replace(Regex("<w:tab[^>]*/>"), "\t")
@@ -435,10 +513,10 @@ object DocumentExtractor {
         }
     }
 
-    internal fun extractOdt(file: File): String {
+    internal fun extractOdt(file: File, maxEntryBytes: Int = MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES): String {
         ZipFile(file).use { zip ->
             val entry = zip.getEntry("content.xml") ?: return ""
-            val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+            val (xml, _) = readZipEntryTextCapped(zip, entry, maxEntryBytes)
             return xml
                 .replace(Regex("</text:p>|</text:h>"), "\n")
                 .replace(Regex("<text:tab[^>]*/>"), "\t")
@@ -447,16 +525,20 @@ object DocumentExtractor {
         }
     }
 
-    internal fun extractPptx(file: File): String {
+    internal fun extractPptx(file: File, maxTotalBytes: Int = MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES): String {
         ZipFile(file).use { zip ->
             val slides = Collections.list(zip.entries())
                 .filter { it.name.matches(Regex("""ppt/slides/slide\d+\.xml""")) }
                 .sortedBy { it.name.filter { ch -> ch.isDigit() }.toIntOrNull() ?: 0 }
                 .take(40)
             if (slides.isEmpty()) return ""
+            var remainingBudget = maxTotalBytes
             return buildString {
                 slides.forEachIndexed { index, entry ->
-                    val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                    if (remainingBudget <= 0) return@forEachIndexed
+                    val limit = minOf(remainingBudget, MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES)
+                    val (xml, bytesRead) = readZipEntryTextCapped(zip, entry, limit)
+                    remainingBudget -= bytesRead
                     val texts = Regex("""<a:t>([\s\S]*?)</a:t>""").findAll(xml)
                         .map { unescapeXml(it.groupValues[1]).trim() }
                         .filter { it.isNotEmpty() }
@@ -471,11 +553,14 @@ object DocumentExtractor {
         }
     }
 
-    internal fun extractXlsx(file: File): String {
+    internal fun extractXlsx(file: File, maxTotalBytes: Int = MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES): String {
         ZipFile(file).use { zip ->
+            var remainingBudget = maxTotalBytes
             val shared = mutableListOf<String>()
             zip.getEntry("xl/sharedStrings.xml")?.let { entry ->
-                val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                val limit = minOf(remainingBudget, MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES)
+                val (xml, bytesRead) = readZipEntryTextCapped(zip, entry, limit)
+                remainingBudget -= bytesRead
                 Regex("""<si>([\s\S]*?)</si>""").findAll(xml).forEach { match ->
                     val text = Regex("""<t[^>]*>([\s\S]*?)</t>""")
                         .findAll(match.groupValues[1])
@@ -492,16 +577,20 @@ object DocumentExtractor {
 
             return buildString {
                 sheets.forEachIndexed { sheetIndex, entry ->
-                    val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                    if (remainingBudget <= 0) return@forEachIndexed
+                    val limit = minOf(remainingBudget, MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES)
+                    val (xml, bytesRead) = readZipEntryTextCapped(zip, entry, limit)
+                    remainingBudget -= bytesRead
                     append("\nЛист ${sheetIndex + 1}\n")
                     var rowCount = 0
                     for (row in Regex("""<row[^>]*>([\s\S]*?)</row>""").findAll(xml)) {
                         if (rowCount >= 200) break
                         val cells = mutableListOf<String>()
-                        for (cell in Regex("""<c([^>]*)>([\s\S]*?)</c>""").findAll(row.groupValues[1])) {
+                        for (cell in XLSX_CELL_REGEX.findAll(row.groupValues[1])) {
                             if (cells.size >= 30) break
                             val attrs = cell.groupValues[1]
                             val body = cell.groupValues[2]
+                            if (body.isEmpty()) continue
                             val type = Regex("t=\"([^\"]+)\"").find(attrs)?.groupValues?.get(1)
                             val raw = when (type) {
                                 "s" -> Regex("""<v>([\s\S]*?)</v>""")
@@ -548,22 +637,29 @@ object DocumentExtractor {
         .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
 
-    private fun unescapeXml(raw: String): String {
-        var value = raw
+    internal fun unescapeXml(raw: String): String {
+        var value = Regex("""&#x([0-9a-fA-F]{1,8});""").replace(raw) { match ->
+            val code = match.groupValues[1].toIntOrNull(16)
+            if (code != null && Character.isValidCodePoint(code) && code !in 0xD800..0xDFFF) {
+                String(Character.toChars(code))
+            } else {
+                match.value
+            }
+        }
+        value = Regex("""&#(\d{1,8});""").replace(value) { match ->
+            val code = match.groupValues[1].toIntOrNull()
+            if (code != null && Character.isValidCodePoint(code) && code !in 0xD800..0xDFFF) {
+                String(Character.toChars(code))
+            } else {
+                match.value
+            }
+        }
+        return value
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&apos;", "'")
             .replace("&amp;", "&")
-        value = Regex("""&#x([0-9a-fA-F]+);""").replace(value) { match ->
-            val code = match.groupValues[1].toIntOrNull(16)
-            if (code != null) String(Character.toChars(code)) else match.value
-        }
-        value = Regex("""&#(\d+);""").replace(value) { match ->
-            val code = match.groupValues[1].toIntOrNull()
-            if (code != null) String(Character.toChars(code)) else match.value
-        }
-        return value
     }
 
     private fun sanitizeFileName(name: String): String = name
