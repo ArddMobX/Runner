@@ -10,6 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.net.InetAddress
 import java.net.URI
 import java.net.URLEncoder
 import java.net.UnknownHostException
@@ -47,25 +48,27 @@ object WebTools {
      * [java.net.InetAddress], которые прошли проверку [WebPageParser.isPrivateAddress],
      * без повторного резолва DNS между проверкой и соединением.
      */
-    private val safeDns = Dns { hostname ->
-        val normalized = hostname.trim().trimEnd('.').lowercase(Locale.ROOT)
-        if (normalized.isEmpty() ||
-            normalized == "localhost" ||
-            normalized.endsWith(".localhost") ||
-            normalized.endsWith(".local") ||
-            normalized.endsWith(".internal") ||
-            normalized.endsWith(".home")
-        ) {
-            throw UnknownHostException("локальные адреса не открываются")
+    private val safeDns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val normalized = hostname.trim().trimEnd('.').lowercase(Locale.ROOT)
+            if (normalized.isEmpty() ||
+                normalized == "localhost" ||
+                normalized.endsWith(".localhost") ||
+                normalized.endsWith(".local") ||
+                normalized.endsWith(".internal") ||
+                normalized.endsWith(".home")
+            ) {
+                throw UnknownHostException("локальные адреса не открываются")
+            }
+            val addresses = Dns.SYSTEM.lookup(hostname)
+            if (addresses.isEmpty()) {
+                throw UnknownHostException("не удалось найти сайт $normalized")
+            }
+            if (addresses.any { WebPageParser.isPrivateAddress(it) }) {
+                throw UnknownHostException("адрес ведёт во внутреннюю сеть")
+            }
+            return addresses
         }
-        val addresses = Dns.SYSTEM.lookup(hostname)
-        if (addresses.isEmpty()) {
-            throw UnknownHostException("не удалось найти сайт $normalized")
-        }
-        if (addresses.any { WebPageParser.isPrivateAddress(it) }) {
-            throw UnknownHostException("адрес ведёт во внутреннюю сеть")
-        }
-        addresses
     }
 
     private val client = OkHttpClient.Builder()

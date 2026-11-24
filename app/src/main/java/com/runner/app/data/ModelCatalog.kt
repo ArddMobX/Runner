@@ -226,8 +226,8 @@ object ModelCatalog {
                     val displayName = rawDisplayName.removePrefix("models/")
 
                     val methodsJson = item.optJSONArray("supportedGenerationMethods")
-                    val supportedMethods = if (methodsJson != null) {
-                        buildList {
+                    val supportedMethods: List<String>? = if (methodsJson != null) {
+                        buildList<String> {
                             for (i in 0 until methodsJson.length()) {
                                 (methodsJson.opt(i) as? String)?.takeIf { it.isNotBlank() }?.let { add(it) }
                             }

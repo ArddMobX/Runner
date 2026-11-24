@@ -1141,7 +1141,7 @@ fun ChatScreen(
                                 Spacer(modifier = Modifier.height(1.dp))
                             }
                         }
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = !stickToBottom && chatItems.isNotEmpty() && !appSettings.chatClassicLook,
                             enter = MotionTokens.floatingRevealEnter(),
                             exit = MotionTokens.floatingRevealExit(),
