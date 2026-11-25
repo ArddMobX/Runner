@@ -61,6 +61,8 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.data.ModelCatalog
 import com.runner.app.data.ModelInfo
 import com.runner.app.data.Provider
+import com.runner.app.data.ReasoningEffort
+import com.runner.app.data.ReasoningEffortPolicy
 import com.runner.app.ui.theme.RunnerShapes
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.ui.theme.TypeScale
@@ -72,7 +74,8 @@ const val FAVORITES_PROVIDER_ID = "__FAVORITES__"
 private data class DisplayModel(
     val model: ModelInfo,
     val providerId: String,
-    val providerName: String
+    val providerName: String,
+    val providerBaseUrl: String = ""
 )
 
 /**
@@ -91,7 +94,9 @@ fun ModelPickerSheet(
     onSelectModel: (providerId: String, model: String) -> Unit,
     onRefresh: (providerId: String) -> Unit,
     onOpenProviderSettings: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    reasoningEffort: String = "",
+    onSelectReasoningEffort: ((ReasoningEffort) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -104,6 +109,9 @@ fun ModelPickerSheet(
     val isFavoritesSelected = selectedProviderId == FAVORITES_PROVIDER_ID
     val isAllSelected = selectedProviderId == ALL_PROVIDERS_ID
     val activeProvider = providers.firstOrNull { it.id == activeProviderId } ?: providers.firstOrNull()
+    val activeEffort = remember(activeProvider, reasoningEffort) {
+        ReasoningEffortPolicy.resolve(provider = activeProvider, savedEffort = reasoningEffort)
+    }
     val currentProvider = if (isAllSelected || isFavoritesSelected) null else (providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull())
     val isLoading = if (isAllSelected || isFavoritesSelected) {
         loadingProviderId != null
@@ -118,7 +126,7 @@ fun ModelPickerSheet(
                     .filter { model ->
                         favoriteModels.contains("${prov.id}:${model.id}") || favoriteModels.contains(model.id)
                     }
-                    .map { DisplayModel(model = it, providerId = prov.id, providerName = prov.name) }
+                    .map { DisplayModel(model = it, providerId = prov.id, providerName = prov.name, providerBaseUrl = prov.baseUrl) }
             }.filter { item ->
                 if (query.isBlank()) true else {
                     val q = query.trim()
@@ -133,7 +141,7 @@ fun ModelPickerSheet(
             sourceProviders.flatMap { prov ->
                 prov.models
                     .filter { ModelCatalog.isChatAndToolModel(it.id, it.name) }
-                    .map { DisplayModel(model = it, providerId = prov.id, providerName = prov.name) }
+                    .map { DisplayModel(model = it, providerId = prov.id, providerName = prov.name, providerBaseUrl = prov.baseUrl) }
             }.filter { item ->
                 if (query.isBlank()) true else {
                     val q = query.trim()
@@ -155,7 +163,7 @@ fun ModelPickerSheet(
                                 model.name.contains(q, ignoreCase = true)
                     }
                 }
-                .map { DisplayModel(model = it, providerId = provider.id, providerName = provider.name) }
+                .map { DisplayModel(model = it, providerId = provider.id, providerName = provider.name, providerBaseUrl = provider.baseUrl) }
         } else {
             emptyList()
         }
@@ -342,8 +350,8 @@ fun ModelPickerSheet(
 
                 providers.forEach { item ->
                     val isSelected = !isAllSelected && item.id == currentProvider?.id
-                    val providerLogo = remember(item.id, item.name) {
-                        ProviderLogos.forProvider(item.id, item.name)
+                    val providerLogo = remember(item.id, item.name, item.baseUrl) {
+                        ProviderLogos.forProvider(item.id, item.name, item.baseUrl)
                     }
 
                     Box(
@@ -455,6 +463,14 @@ fun ModelPickerSheet(
                 Text(text = "Ввести ID вручную", color = MaterialTheme.colorScheme.primary, fontSize = TypeScale.label)
             }
 
+            if (onSelectReasoningEffort != null && activeEffort.isSupported) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
+                ReasoningEffortStrip(
+                    resolved = activeEffort,
+                    onSelect = onSelectReasoningEffort
+                )
+            }
+
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), thickness = 0.5.dp)
 
             when {
@@ -499,6 +515,7 @@ fun ModelPickerSheet(
                             model = item.model,
                             providerId = item.providerId,
                             providerName = item.providerName,
+                            providerBaseUrl = item.providerBaseUrl,
                             isActive = isActive,
                             isFavorite = isFavorite,
                             showProviderBadge = isAllSelected || isFavoritesSelected,
@@ -523,6 +540,7 @@ private fun ModelRow(
     model: ModelInfo,
     providerId: String,
     providerName: String,
+    providerBaseUrl: String = "",
     isActive: Boolean,
     isFavorite: Boolean = false,
     showProviderBadge: Boolean = false,
@@ -531,11 +549,19 @@ private fun ModelRow(
     onCopy: () -> Unit
 ) {
     val hasReadableName = model.name.isNotBlank() || model.label != model.id
-    val modelLogo = remember(model.id, providerId, providerName) {
+    val modelLogo = remember(model.id, providerId, providerName, providerBaseUrl) {
         ProviderLogos.forModelOrProvider(
             modelId = model.id,
             providerId = providerId,
-            providerName = providerName
+            providerName = providerName,
+            baseUrl = providerBaseUrl
+        )
+    }
+    val modelMonogram = remember(model.id, providerName, providerBaseUrl) {
+        ProviderLogos.monogramFor(
+            modelId = model.id,
+            providerName = providerName,
+            baseUrl = providerBaseUrl
         )
     }
 
@@ -567,11 +593,12 @@ private fun ModelRow(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = modelLogo ?: RunnerIcons.SmartToy,
-                contentDescription = null,
+            BrandLogoOrMonogram(
+                logo = modelLogo,
+                monogram = modelMonogram,
                 tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
+                iconSize = 16.dp,
+                fontSize = 10.sp
             )
         }
 

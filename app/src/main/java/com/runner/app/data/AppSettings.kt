@@ -214,7 +214,12 @@ data class AppSettings(
     /** Полный доступ в Live-режиме: выполнять действия без подтверждения на карточке. */
     val liveFullAccess: Boolean = false,
     /** Live: подтверждать каждое действие, а не только рискованные. */
-    val liveConfirmEveryStep: Boolean = false
+    val liveConfirmEveryStep: Boolean = false,
+    /**
+     * Уровень размышлений (Reasoning Effort) для моделей с его поддержкой.
+     * Пусто = автоматический выбор по умолчанию модели; иначе apiValue (none/minimal/low/medium/high/xhigh/max).
+     */
+    val reasoningEffort: String = ""
 ) {
     /** Для обратной совместимости старых вызовов. */
     val timeoutSeconds: Int get() = responseTimeoutSeconds
@@ -651,7 +656,8 @@ class SettingsStore(context: Context) {
             liveModeEnabled = prefs.getBoolean(KEY_LIVE_MODE_ENABLED, false),
             liveMaxSteps = prefs.getInt(KEY_LIVE_MAX_STEPS, 0).coerceAtLeast(0),
             liveFullAccess = prefs.getBoolean(KEY_LIVE_FULL_ACCESS, false),
-            liveConfirmEveryStep = prefs.getBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, false)
+            liveConfirmEveryStep = prefs.getBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, false),
+            reasoningEffort = prefs.getString(KEY_REASONING_EFFORT, "").orEmpty()
         )
     }
 
@@ -733,6 +739,7 @@ class SettingsStore(context: Context) {
             .putInt(KEY_LIVE_MAX_STEPS, settings.liveMaxSteps)
             .putBoolean(KEY_LIVE_FULL_ACCESS, settings.liveFullAccess)
             .putBoolean(KEY_LIVE_CONFIRM_EVERY_STEP, settings.liveConfirmEveryStep)
+            .putString(KEY_REASONING_EFFORT, settings.reasoningEffort)
 
         if (encryptedHeaders != null) {
             editor.putString(KEY_CUSTOM_HEADERS_ENCRYPTED, encryptedHeaders)
@@ -837,6 +844,7 @@ class SettingsStore(context: Context) {
         const val KEY_LIVE_MAX_STEPS = "live_max_steps"
         const val KEY_LIVE_FULL_ACCESS = "live_full_access"
         const val KEY_LIVE_CONFIRM_EVERY_STEP = "live_confirm_every_step"
+        const val KEY_REASONING_EFFORT = "reasoning_effort"
 
         private fun parseCustomSuggestions(json: String?): List<String> {
             if (json.isNullOrBlank()) return emptyList()

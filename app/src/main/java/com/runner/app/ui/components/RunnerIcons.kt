@@ -53,6 +53,7 @@ object RunnerIcons {
     val KeyboardArrowDown: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_keyboard_arrow_down)
     val KeyboardArrowRight: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_keyboard_arrow_right)
     val Layers: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_layers)
+    val Lightbulb: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_lightbulb)
     val Menu: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_menu)
     val Mic: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_mic)
     val MoreVert: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_more_vert)
@@ -63,11 +64,13 @@ object RunnerIcons {
     val PauseCircle: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_pause_circle)
     val PlayArrow: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_play_arrow)
     val PlayCircle: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_play_circle)
-    val Psychology: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_psychology)
+    /** Совместимость со старым именем: вместо «головы с шестерёнкой» используется Lightbulb. */
+    val Psychology: ImageVector @Composable get() = Lightbulb
     val Public: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_public)
     val PushPin: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_push_pin)
     val Refresh: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_refresh)
     val RestartAlt: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_restart_alt)
+    val Schedule: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_schedule)
     val Search: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_search)
     val Security: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_security)
     val Settings: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_ms_settings)

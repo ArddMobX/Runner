@@ -15,7 +15,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -133,6 +139,9 @@ import androidx.compose.ui.unit.sp
 import com.runner.app.data.AppSettings
 import com.runner.app.data.FileChange
 import com.runner.app.data.FileChangeKind
+import com.runner.app.data.ReasoningEffort
+import com.runner.app.data.ReasoningEffortPolicy
+import com.runner.app.data.ResolvedReasoningEffort
 import com.runner.app.data.WebSource
 import com.runner.app.tools.ToolDispatcher
 import com.runner.app.tools.TrashStore
@@ -158,7 +167,11 @@ import com.runner.app.ui.components.LiveModeTopButton
 import com.runner.app.ui.components.LivePermissionSheet
 import com.runner.app.ui.components.ModelPickerSheet
 import com.runner.app.ui.components.PreviewButton
+import com.runner.app.ui.components.BrandLogoOrMonogram
+import com.runner.app.ui.components.EffortLevelBars
 import com.runner.app.ui.components.ProviderLogos
+import com.runner.app.ui.components.ReasoningEffortMenu
+import com.runner.app.ui.components.effortTintColor
 import com.runner.app.ui.components.SlashCommandHelpSheet
 import com.runner.app.ui.components.StatusPulsingDot
 import com.runner.app.ui.components.ToolOutputView
@@ -283,6 +296,13 @@ fun ChatScreen(
     var statusSheet by remember { mutableStateOf<CommandStatusInfo?>(null) }
     var toolsSheet by remember { mutableStateOf<CommandToolsInfo?>(null) }
     var showConnectionCheck by remember { mutableStateOf(false) }
+    var showInputEffortMenu by remember { mutableStateOf(false) }
+    val effortState = remember(provider, appSettings.reasoningEffort) {
+        ReasoningEffortPolicy.resolve(
+            provider = provider,
+            savedEffort = appSettings.reasoningEffort
+        )
+    }
 
     val isEmptyChat = messages.none { it.role != MessageRole.SYSTEM_INFO }
     val scope = rememberCoroutineScope()
@@ -298,7 +318,13 @@ fun ChatScreen(
             if (appSettings.readOnlyMode) add("Только чтение")
             if (appSettings.dryRunFirst) add("Сухой прогон")
             if (inputState.webSearch) add("Поиск")
-            if (inputState.think) add("Думать")
+            if (effortState.isSupported) {
+                effortState.activeEffort?.takeIf { it.isActive }?.let {
+                    add("Думать (${it.shortLabel})")
+                }
+            } else if (inputState.think) {
+                add("Думать")
+            }
         }.ifEmpty { listOf("Обычный") }.joinToString(", ")
         val lastStats = messages.lastOrNull {
             it.role == MessageRole.ASSISTANT &&
@@ -336,7 +362,7 @@ fun ChatScreen(
             prompt = request.prompt,
             images = inputState.selectedImages,
             forceSearch = request.forceSearch || inputState.webSearch,
-            forceThinking = inputState.think,
+            forceThinking = if (effortState.isSupported) false else inputState.think,
             forcePlan = request.forcePlan,
             files = inputState.selectedFiles
         )
@@ -693,7 +719,9 @@ fun ChatScreen(
                 showModelPicker = false
                 onOpenSettings()
             },
-            onDismiss = { showModelPicker = false }
+            onDismiss = { showModelPicker = false },
+            reasoningEffort = appSettings.reasoningEffort,
+            onSelectReasoningEffort = { viewModel.setReasoningEffort(it) }
         )
     }
 
@@ -887,10 +915,13 @@ fun ChatScreen(
                     ModelChip(
                         providerId = provider?.id.orEmpty(),
                         providerName = provider?.name ?: "Провайдер",
+                        providerBaseUrl = provider?.baseUrl.orEmpty(),
                         modelName = activeModelId.ifBlank { "модель не выбрана" },
                         displayName = activeModelLabel.orEmpty(),
                         hasKey = provider?.apiKey?.isNotBlank() == true,
                         isLoading = modelsLoadingFor != null,
+                        effortState = effortState,
+                        onSelectEffort = { viewModel.setReasoningEffort(it) },
                         onClick = { showModelPicker = true }
                     )
                 },
@@ -1085,7 +1116,7 @@ fun ChatScreen(
                                                 viewModel.retryFromUserMessage(
                                                     it,
                                                     forceSearch = inputState.webSearch,
-                                                    forceThinking = inputState.think
+                                                    forceThinking = if (effortState.isSupported) false else inputState.think
                                                 )
                                             },
                                             onUndoTrash = { viewModel.restoreFromTrash(it) },
@@ -1296,11 +1327,45 @@ fun ChatScreen(
                         text,
                         images,
                         forceSearch = inputState.webSearch,
-                        forceThinking = inputState.think,
+                        forceThinking = if (effortState.isSupported) false else inputState.think,
                         files = files
                     )
                 },
                 onStop = { viewModel.stopGeneration() },
+                thinkActiveOverride = if (effortState.isSupported) effortState.showPill else null,
+                onToggleThinkOverride = if (effortState.isSupported) {
+                    {
+                        when {
+                            !effortState.showPill -> viewModel.enableReasoningEffort()
+                            effortState.canDisable -> viewModel.setReasoningEffort(ReasoningEffort.NONE)
+                            else -> showInputEffortMenu = true
+                        }
+                    }
+                } else {
+                    null
+                },
+                onLongClickThink = if (effortState.isSupported) {
+                    { showInputEffortMenu = true }
+                } else {
+                    null
+                },
+                thinkMenu = if (effortState.isSupported) {
+                    {
+                        ReasoningEffortMenu(
+                            expanded = showInputEffortMenu,
+                            supportedEfforts = effortState.supportedEfforts,
+                            activeEffort = effortState.activeEffort,
+                            isMandatory = effortState.isMandatory,
+                            onSelect = { selected ->
+                                showInputEffortMenu = false
+                                viewModel.setReasoningEffort(selected)
+                            },
+                            onDismiss = { showInputEffortMenu = false }
+                        )
+                    }
+                } else {
+                    null
+                },
                 commands = allCommands,
                 onCommand = { command, args -> runSlashCommand(command, args) },
                 onStartListening = {
@@ -1367,7 +1432,11 @@ fun formatModelName(raw: String): String {
     return formatted.ifBlank { raw }
 }
 
-/** Компактный чип-селектор модели в шапке: фирменный логотип + форматированное имя + шеврон. */
+/**
+ * Компактный чип-селектор модели в шапке в стиле Codex:
+ * [логотип + имя модели ⌄] и (только если модель поддерживает Effort и уровень != None)
+ * интегрированный правый сегмент [полоски + High] с быстрым меню уровней.
+ */
 @Composable
 private fun ModelChip(
     providerId: String,
@@ -1377,18 +1446,39 @@ private fun ModelChip(
     isLoading: Boolean,
     onClick: () -> Unit,
     /** Готовое название из списка провайдера; пусто — форматируем modelName. */
-    displayName: String = ""
+    displayName: String = "",
+    providerBaseUrl: String = "",
+    effortState: ResolvedReasoningEffort = ResolvedReasoningEffort.Unsupported,
+    onSelectEffort: (ReasoningEffort) -> Unit = {}
 ) {
     val cleanModel = remember(displayName, modelName) {
         val raw = displayName.ifBlank { modelName }
         formatModelName(raw)
     }
-    val brandLogo = remember(modelName, providerId, providerName) {
+    val brandLogo = remember(modelName, providerId, providerName, providerBaseUrl) {
         ProviderLogos.forModelOrProvider(
             modelId = modelName,
             providerId = providerId,
-            providerName = providerName
+            providerName = providerName,
+            baseUrl = providerBaseUrl
         )
+    }
+    val brandMonogram = remember(modelName, providerName, providerBaseUrl) {
+        ProviderLogos.monogramFor(
+            modelId = modelName,
+            providerName = providerName,
+            baseUrl = providerBaseUrl
+        )
+    }
+
+    val showEffort = effortState.showPill
+    var showEffortMenu by remember { mutableStateOf(false) }
+    var lastVisibleEffort by remember { mutableStateOf<ReasoningEffort?>(null) }
+    if (effortState.activeEffort != null && effortState.activeEffort != ReasoningEffort.NONE) {
+        lastVisibleEffort = effortState.activeEffort
+    }
+    if (!showEffort && showEffortMenu) {
+        showEffortMenu = false
     }
 
     Row(
@@ -1402,45 +1492,120 @@ private fun ModelChip(
                 ),
                 RunnerShapes.pill
             )
-            .heightIn(min = accessibleMinHeight())
-            .semantics(mergeDescendants = true) { role = Role.Button }
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .heightIn(min = accessibleMinHeight()),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = brandLogo ?: RunnerIcons.SmartToy,
-            contentDescription = null,
-            tint = when {
-                !hasKey -> StatusWarning
-                brandLogo != null -> MaterialTheme.colorScheme.onSurface
-                else -> MaterialTheme.colorScheme.primary
+        Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .semantics(mergeDescendants = true) { role = Role.Button }
+                .clickable(onClick = onClick)
+                .padding(
+                    start = 11.dp,
+                    end = if (showEffort) 7.dp else 11.dp,
+                    top = 6.dp,
+                    bottom = 6.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BrandLogoOrMonogram(
+                logo = brandLogo,
+                monogram = brandMonogram,
+                tint = when {
+                    !hasKey -> StatusWarning
+                    brandLogo != null -> MaterialTheme.colorScheme.onSurface
+                    else -> MaterialTheme.colorScheme.primary
+                },
+                iconSize = 15.dp,
+                fontSize = 9.5.sp
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = cleanModel,
+                color = if (hasKey) MaterialTheme.colorScheme.onSurface else StatusWarning,
+                fontSize = TypeScale.label,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 1.6.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Icon(
+                    imageVector = RunnerIcons.KeyboardArrowDown,
+                    contentDescription = "Выбрать модель",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showEffort,
+            enter = if (MotionSettings.enabled) {
+                fadeIn(MotionTokens.effectsFast()) + expandHorizontally(MotionTokens.spatialFast())
+            } else {
+                EnterTransition.None
             },
-            modifier = Modifier.size(15.dp)
-        )
-        Spacer(modifier = Modifier.width(7.dp))
-        Text(
-            text = cleanModel,
-            color = if (hasKey) MaterialTheme.colorScheme.onSurface else StatusWarning,
-            fontSize = TypeScale.label,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(12.dp),
-                strokeWidth = 1.6.dp,
-                color = MaterialTheme.colorScheme.primary
-            )
-        } else {
-            Icon(
-                imageVector = RunnerIcons.KeyboardArrowDown,
-                contentDescription = "Выбрать модель",
-                tint = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(16.dp)
-            )
+            exit = if (MotionSettings.enabled) {
+                fadeOut(MotionTokens.effectsFast()) + shrinkHorizontally(MotionTokens.spatialFast())
+            } else {
+                ExitTransition.None
+            }
+        ) {
+            val effort = effortState.activeEffort?.takeIf { it.isActive }
+                ?: lastVisibleEffort
+                ?: return@AnimatedVisibility
+            val effortTint = effortTintColor(effort)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .width(0.8.dp)
+                        .height(14.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                )
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .semantics(mergeDescendants = true) { role = Role.Button }
+                            .clickable { showEffortMenu = true }
+                            .padding(start = 8.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        EffortLevelBars(
+                            activeBars = effort.bars,
+                            activeColor = effortTint,
+                            inactiveColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = effort.shortLabel,
+                            color = effortTint,
+                            fontSize = TypeScale.caption,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    ReasoningEffortMenu(
+                        expanded = showEffortMenu,
+                        supportedEfforts = effortState.supportedEfforts,
+                        activeEffort = effortState.activeEffort,
+                        isMandatory = effortState.isMandatory,
+                        onSelect = { selected ->
+                            showEffortMenu = false
+                            onSelectEffort(selected)
+                        },
+                        onDismiss = { showEffortMenu = false }
+                    )
+                }
+            }
         }
     }
 }
@@ -1494,7 +1659,7 @@ private fun EmptyChatState(
             prompt = "Открой настройки телефона и проверь статус сети"
         ),
         EmptyStateSuggestion(
-            icon = RunnerIcons.Psychology,
+            icon = RunnerIcons.Telegram,
             title = "Поиск в Telegram",
             prompt = "Открой Telegram и найди последний чат"
         ),
@@ -1769,7 +1934,7 @@ private fun ClassicEmptyChatState(
             prompt = "Открой настройки телефона и проверь статус сети"
         ),
         EmptyStateSuggestion(
-            icon = RunnerIcons.Psychology,
+            icon = RunnerIcons.Telegram,
             title = "Поиск в Telegram",
             prompt = "Открой Telegram и найди последний чат",
             isMint = true
@@ -2770,7 +2935,7 @@ private fun LiveReasoningBlock(reasoning: String, classicLook: Boolean = false) 
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = RunnerIcons.Psychology,
+                    imageVector = RunnerIcons.Lightbulb,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(14.dp)
@@ -2846,7 +3011,11 @@ private fun ReasoningBlock(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = RunnerIcons.Psychology,
+                imageVector = if (reasoningMs != null && reasoningMs > 0) {
+                    RunnerIcons.Schedule
+                } else {
+                    RunnerIcons.Lightbulb
+                },
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(15.dp)

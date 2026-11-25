@@ -19,7 +19,13 @@ import kotlin.coroutines.coroutineContext
 data class ModelInfo(
     val id: String,
     val name: String = "",
-    val contextLength: Int? = null
+    val contextLength: Int? = null,
+    /** Уровни reasoning effort, заявленные провайдером (в каноническом порядке). */
+    val supportedReasoningEfforts: List<ReasoningEffort> = emptyList(),
+    /** Уровень по умолчанию от провайдера (если отдал, например OpenRouter reasoning.default_effort). */
+    val defaultReasoningEffort: ReasoningEffort? = null,
+    /** Провайдер явно вернул метаданные параметров/reasoning (отличает «не умеет» от «не обновлялось»). */
+    val reasoningMetadataKnown: Boolean = false
 ) {
     /** Что показывать в списке: человекочитаемое имя, если оно есть, без технического префикса models/. */
     val label: String get() = (name.ifBlank { id }).removePrefix("models/")
@@ -138,6 +144,96 @@ object ModelCatalog {
         }
 
         return true
+    }
+
+    internal data class ModelReasoningSpec(
+        val supportedEfforts: List<ReasoningEffort>,
+        val defaultEffort: ReasoningEffort?,
+        val metadataKnown: Boolean
+    )
+
+    internal fun parseReasoningSpec(
+        supportedParameters: Set<String>?,
+        hasReasoningField: Boolean,
+        hasReasoningObject: Boolean,
+        reasoningMandatory: Boolean = false,
+        reasoningDefaultEnabled: Boolean? = null,
+        rawSupportedEfforts: List<String>? = null,
+        rawDefaultEffort: String? = null
+    ): ModelReasoningSpec {
+        val metadataKnown = supportedParameters != null || hasReasoningField
+        val normalizedParams = supportedParameters
+            ?.map { it.trim().lowercase() }
+            ?.toSet()
+            .orEmpty()
+        val supportsParam = "reasoning_effort" in normalizedParams || "reasoning" in normalizedParams
+
+        if (hasReasoningObject) {
+            val parsedEfforts = rawSupportedEfforts
+                .orEmpty()
+                .mapNotNull { ReasoningEffort.fromApiValue(it) }
+                .distinct()
+                .sortedBy { it.ordinal }
+            val parsedDefault = ReasoningEffort.fromApiValue(rawDefaultEffort)
+
+            if (parsedEfforts.isNotEmpty()) {
+                val resolvedDefault = when {
+                    parsedDefault != null && parsedDefault in parsedEfforts -> parsedDefault
+                    reasoningDefaultEnabled == false && ReasoningEffort.NONE in parsedEfforts -> ReasoningEffort.NONE
+                    reasoningMandatory -> parsedEfforts.firstOrNull { it == ReasoningEffort.MEDIUM }
+                        ?: parsedEfforts.first()
+                    else -> parsedDefault
+                }
+                return ModelReasoningSpec(
+                    supportedEfforts = parsedEfforts,
+                    defaultEffort = resolvedDefault,
+                    metadataKnown = true
+                )
+            }
+
+            if (supportsParam) {
+                val fallbackEfforts = if (reasoningMandatory) {
+                    listOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+                } else {
+                    listOf(
+                        ReasoningEffort.NONE,
+                        ReasoningEffort.LOW,
+                        ReasoningEffort.MEDIUM,
+                        ReasoningEffort.HIGH
+                    )
+                }
+                val resolvedDefault = when {
+                    parsedDefault != null && parsedDefault in fallbackEfforts -> parsedDefault
+                    reasoningDefaultEnabled == false && !reasoningMandatory -> ReasoningEffort.NONE
+                    reasoningDefaultEnabled == true || reasoningMandatory -> ReasoningEffort.MEDIUM
+                    else -> ReasoningEffort.NONE
+                }
+                return ModelReasoningSpec(
+                    supportedEfforts = fallbackEfforts,
+                    defaultEffort = resolvedDefault,
+                    metadataKnown = true
+                )
+            }
+        }
+
+        if (supportsParam) {
+            return ModelReasoningSpec(
+                supportedEfforts = listOf(
+                    ReasoningEffort.NONE,
+                    ReasoningEffort.LOW,
+                    ReasoningEffort.MEDIUM,
+                    ReasoningEffort.HIGH
+                ),
+                defaultEffort = ReasoningEffort.NONE,
+                metadataKnown = true
+            )
+        }
+
+        return ModelReasoningSpec(
+            supportedEfforts = emptyList(),
+            defaultEffort = null,
+            metadataKnown = metadataKnown
+        )
     }
 
     internal fun resolveModelsEndpoint(target: String): String {
@@ -261,12 +357,47 @@ object ModelCatalog {
                             ?.optInt("context_length", 0)
                             ?.takeIf { it > 0 }
 
+                    val supportedParamsJson = item.optJSONArray("supported_parameters")
+                    val supportedParams: Set<String>? = if (supportedParamsJson != null) {
+                        buildSet<String> {
+                            for (i in 0 until supportedParamsJson.length()) {
+                                (supportedParamsJson.opt(i) as? String)?.takeIf { it.isNotBlank() }?.let { add(it) }
+                            }
+                        }
+                    } else null
+
+                    val hasReasoningField = item.has("reasoning")
+                    val reasoningObj = item.optJSONObject("reasoning")
+                    val rawEfforts: List<String>? = reasoningObj?.optJSONArray("supported_efforts")?.let { arr ->
+                        buildList<String> {
+                            for (i in 0 until arr.length()) {
+                                (arr.opt(i) as? String)?.takeIf { it.isNotBlank() }?.let { add(it) }
+                            }
+                        }
+                    }
+                    val reasoningSpec = parseReasoningSpec(
+                        supportedParameters = supportedParams,
+                        hasReasoningField = hasReasoningField,
+                        hasReasoningObject = reasoningObj != null,
+                        reasoningMandatory = reasoningObj?.optBoolean("mandatory", false) == true,
+                        reasoningDefaultEnabled = if (reasoningObj != null && reasoningObj.has("default_enabled")) {
+                            reasoningObj.optBoolean("default_enabled", true)
+                        } else {
+                            null
+                        },
+                        rawSupportedEfforts = rawEfforts,
+                        rawDefaultEffort = reasoningObj?.optNullableString("default_effort")
+                    )
+
                     val cleanName = displayName.takeIf { it.isNotBlank() && it != id }.orEmpty()
 
                     models[id] = ModelInfo(
                         id = id,
                         name = cleanName,
-                        contextLength = contextLength
+                        contextLength = contextLength,
+                        supportedReasoningEfforts = reasoningSpec.supportedEfforts,
+                        defaultReasoningEffort = reasoningSpec.defaultEffort,
+                        reasoningMetadataKnown = reasoningSpec.metadataKnown
                     )
                 }
 

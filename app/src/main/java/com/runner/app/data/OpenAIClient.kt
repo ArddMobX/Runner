@@ -233,42 +233,11 @@ class OpenAIClient {
         }
     }
 
-    /**
-     * Модель понимает reasoning_effort. Проверка по имени, а не по провайдеру:
-     * один и тот же GPT приходит и с OpenAI, и через прокси/агрегаторы.
-     */
-    private fun supportsReasoningEffort(model: String): Boolean {
-        val name = model.substringAfterLast('/').lowercase()
-        return name.startsWith("gpt-5") ||
-                name.startsWith("gpt-6") ||
-                name.startsWith("o1") ||
-                name.startsWith("o3") ||
-                name.startsWith("o4")
-    }
+    private fun supportsReasoningEffort(model: String): Boolean =
+        OpenAIClient.supportsReasoningEffort(model)
 
-    /**
-     * Модель через OpenRouter умеет reasoning. Список по именам, а не по
-     * провайдеру: OpenRouter отдаёт десятки чужих моделей.
-     */
-    private fun supportsOpenRouterReasoning(model: String): Boolean {
-        val name = model.substringAfterLast('/').lowercase()
-        return name.startsWith("deepseek") ||
-                name.startsWith("gpt-5") ||
-                name.startsWith("gpt-6") ||
-                name.startsWith("o1") ||
-                name.startsWith("o3") ||
-                name.startsWith("o4") ||
-                name.startsWith("gemini-3") ||
-                name.startsWith("gemini-4") ||
-                name.startsWith("claude") ||
-                name.startsWith("grok") ||
-                name.startsWith("qwen3") ||
-                name.startsWith("qwen4") ||
-                name.startsWith("glm-5") ||
-                name.startsWith("nemotron-3") ||
-                name.startsWith("kimi-k3") ||
-                name.startsWith("minimax-m3")
-    }
+    private fun supportsOpenRouterReasoning(model: String): Boolean =
+        OpenAIClient.supportsOpenRouterReasoning(model)
 
     /**
      * Достаёт текст размышлений в разных форматах:
@@ -387,7 +356,12 @@ class OpenAIClient {
          * Режим «Думать»: включить thinking у DeepSeek и reasoning_effort
          * у моделей OpenAI, если они это поддерживают.
          */
-        forceThinking: Boolean = false
+        forceThinking: Boolean = false,
+        /**
+         * Явный уровень Reasoning Effort для моделей с его поддержкой.
+         * null — использовать прежнее поведение (forceThinking / liveMode / дефолт провайдера).
+         */
+        reasoningEffort: ReasoningEffort? = null
     ): AIResponseResult = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             return@withContext AIResponseResult.Error(
@@ -480,60 +454,30 @@ class OpenAIClient {
                         sentOptionalParams += "stream_options"
                     }
                 }
-                if (allowThinking) {
-                    put(
-                        "thinking",
-                        JSONObject().put("type", if (forceThinking) "enabled" else "disabled")
-                    )
+                val reasoningDecision = resolveRequestReasoning(
+                    isDirectOfficialDeepSeek = isDirectOfficialDeepSeek,
+                    allowThinking = allowThinking,
+                    isOpenRouterHost = isOpenRouterHost,
+                    allowReasoning = allowReasoning,
+                    allowReasoningEffort = allowReasoningEffort,
+                    endpointHost = endpointHost,
+                    effectiveModel = effectiveModel,
+                    allowTools = allowTools,
+                    liveMode = liveMode,
+                    forceThinking = forceThinking,
+                    reasoningEffort = reasoningEffort
+                )
+                reasoningDecision.deepSeekThinkingEnabled?.let { enabled ->
+                    put("thinking", JSONObject().put("type", if (enabled) "enabled" else "disabled"))
                     sentOptionalParams += "thinking"
                 }
-                when {
-                    forceThinking -> {
-                        when {
-                            isOpenRouterHost -> {
-                                if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
-                                    put("reasoning", JSONObject().put("effort", "high"))
-                                    sentOptionalParams += "reasoning"
-                                }
-                            }
-                            allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
-                                put("reasoning_effort", "high")
-                                sentOptionalParams += "reasoning_effort"
-                            }
-                        }
-                    }
-                    liveMode -> {
-                        when {
-                            isOpenRouterHost -> {
-                                if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
-                                    put("reasoning", JSONObject().put("effort", "low"))
-                                    sentOptionalParams += "reasoning"
-                                }
-                            }
-                            allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
-                                val normalized = effectiveModel.substringAfterLast('/').lowercase()
-                                val effort = if (endpointHost == "api.openai.com" &&
-                                    allowTools &&
-                                    (normalized == "gpt-6-luna" || normalized == "gpt-6-sol")
-                                ) {
-                                    "none"
-                                } else {
-                                    "low"
-                                }
-                                put("reasoning_effort", effort)
-                                sentOptionalParams += "reasoning_effort"
-                            }
-                        }
-                    }
-                    // По официальной документации OpenAI gpt-6-luna и gpt-6-sol поддерживают
-                    // function calling в /v1/chat/completions только с reasoning_effort = "none".
-                    endpointHost == "api.openai.com" && allowTools && allowReasoningEffort -> {
-                        val normalized = effectiveModel.substringAfterLast('/').lowercase()
-                        if (normalized == "gpt-6-luna" || normalized == "gpt-6-sol") {
-                            put("reasoning_effort", "none")
-                            sentOptionalParams += "reasoning_effort"
-                        }
-                    }
+                reasoningDecision.openRouterEffort?.let { effort ->
+                    put("reasoning", JSONObject().put("effort", effort))
+                    sentOptionalParams += "reasoning"
+                }
+                reasoningDecision.reasoningEffort?.let { effort ->
+                    put("reasoning_effort", effort)
+                    sentOptionalParams += "reasoning_effort"
                 }
             }
 
@@ -1924,6 +1868,151 @@ class OpenAIClient {
 
             return OPTIONAL_PARAM_NAMES.firstOrNull { param ->
                 param in sentOptionalParams && lowered.contains(param)
+            }
+        }
+
+        internal data class RequestReasoningDecision(
+            val deepSeekThinkingEnabled: Boolean? = null,
+            val openRouterEffort: String? = null,
+            val reasoningEffort: String? = null
+        )
+
+        private val OPENAI_O_SERIES_PREFIX = Regex("""^o[134](?:$|[-._])""")
+
+        /**
+         * Модель понимает reasoning_effort. Проверка по имени, а не по провайдеру:
+         * один и тот же GPT приходит и с OpenAI, и через прокси/агрегаторы.
+         */
+        internal fun supportsReasoningEffort(model: String): Boolean {
+            val name = model.substringAfterLast('/').lowercase()
+            return name.startsWith("gpt-5") ||
+                name.startsWith("gpt-6") ||
+                OPENAI_O_SERIES_PREFIX.containsMatchIn(name)
+        }
+
+        /**
+         * Модель через OpenRouter умеет reasoning. Список по именам, а не по
+         * провайдеру: OpenRouter отдаёт десятки чужих моделей.
+         */
+        internal fun supportsOpenRouterReasoning(model: String): Boolean {
+            val name = model.substringAfterLast('/').lowercase()
+            return name.startsWith("deepseek") ||
+                name.startsWith("gpt-5") ||
+                name.startsWith("gpt-6") ||
+                OPENAI_O_SERIES_PREFIX.containsMatchIn(name) ||
+                name.startsWith("gemini-2.5") ||
+                name.startsWith("gemini-3") ||
+                name.startsWith("gemini-4") ||
+                name.startsWith("claude") ||
+                name.startsWith("grok") ||
+                name.startsWith("qwen3") ||
+                name.startsWith("qwen4") ||
+                name.startsWith("glm-4.5") ||
+                name.startsWith("glm-4.6") ||
+                name.startsWith("glm-4.7") ||
+                name.startsWith("glm-5") ||
+                name.startsWith("nemotron-3") ||
+                name.startsWith("kimi-k2") ||
+                name.startsWith("kimi-k3") ||
+                name.startsWith("minimax-m")
+        }
+
+        /**
+         * Чистая функция расчёта полей reasoning / reasoning_effort / thinking для тела запроса.
+         */
+        internal fun resolveRequestReasoning(
+            isDirectOfficialDeepSeek: Boolean,
+            allowThinking: Boolean,
+            isOpenRouterHost: Boolean,
+            allowReasoning: Boolean,
+            allowReasoningEffort: Boolean,
+            endpointHost: String,
+            effectiveModel: String,
+            allowTools: Boolean,
+            liveMode: Boolean,
+            forceThinking: Boolean,
+            reasoningEffort: ReasoningEffort?
+        ): RequestReasoningDecision {
+            val deepSeekThinking = if (isDirectOfficialDeepSeek && allowThinking) {
+                forceThinking || (reasoningEffort != null && reasoningEffort != ReasoningEffort.NONE)
+            } else {
+                null
+            }
+
+            val normalized = effectiveModel.substringAfterLast('/').lowercase()
+            val isOpenAiGpt6WithTools = endpointHost == "api.openai.com" &&
+                allowTools &&
+                (normalized == "gpt-6-luna" || normalized == "gpt-6-sol")
+
+            if (reasoningEffort != null) {
+                return when {
+                    isOpenRouterHost -> {
+                        if (allowReasoning) {
+                            RequestReasoningDecision(
+                                deepSeekThinkingEnabled = deepSeekThinking,
+                                openRouterEffort = reasoningEffort.apiValue
+                            )
+                        } else {
+                            RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
+                        }
+                    }
+                    allowReasoningEffort && !isDirectOfficialDeepSeek -> {
+                        val effectiveApiValue = if (isOpenAiGpt6WithTools) {
+                            ReasoningEffort.NONE.apiValue
+                        } else {
+                            reasoningEffort.apiValue
+                        }
+                        RequestReasoningDecision(
+                            deepSeekThinkingEnabled = deepSeekThinking,
+                            reasoningEffort = effectiveApiValue
+                        )
+                    }
+                    else -> RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
+                }
+            }
+
+            return when {
+                forceThinking -> when {
+                    isOpenRouterHost -> if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
+                        RequestReasoningDecision(
+                            deepSeekThinkingEnabled = deepSeekThinking,
+                            openRouterEffort = "high"
+                        )
+                    } else {
+                        RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
+                    }
+                    allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
+                        val effort = if (isOpenAiGpt6WithTools) "none" else "high"
+                        RequestReasoningDecision(
+                            deepSeekThinkingEnabled = deepSeekThinking,
+                            reasoningEffort = effort
+                        )
+                    }
+                    else -> RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
+                }
+                liveMode -> when {
+                    isOpenRouterHost -> if (allowReasoning && supportsOpenRouterReasoning(effectiveModel)) {
+                        RequestReasoningDecision(
+                            deepSeekThinkingEnabled = deepSeekThinking,
+                            openRouterEffort = "low"
+                        )
+                    } else {
+                        RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
+                    }
+                    allowReasoningEffort && supportsReasoningEffort(effectiveModel) -> {
+                        val effort = if (isOpenAiGpt6WithTools) "none" else "low"
+                        RequestReasoningDecision(
+                            deepSeekThinkingEnabled = deepSeekThinking,
+                            reasoningEffort = effort
+                        )
+                    }
+                    else -> RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
+                }
+                isOpenAiGpt6WithTools && allowReasoningEffort -> RequestReasoningDecision(
+                    deepSeekThinkingEnabled = deepSeekThinking,
+                    reasoningEffort = "none"
+                )
+                else -> RequestReasoningDecision(deepSeekThinkingEnabled = deepSeekThinking)
             }
         }
 

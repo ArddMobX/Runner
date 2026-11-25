@@ -299,6 +299,20 @@ class ProviderStore(context: Context) {
                                         put("id", model.id)
                                         if (model.name.isNotBlank()) put("name", model.name)
                                         model.contextLength?.let { put("contextLength", it) }
+                                        if (model.supportedReasoningEfforts.isNotEmpty()) {
+                                            put(
+                                                "reasoningEfforts",
+                                                JSONArray().apply {
+                                                    model.supportedReasoningEfforts.forEach { put(it.apiValue) }
+                                                }
+                                            )
+                                        }
+                                        model.defaultReasoningEffort?.let {
+                                            put("defaultReasoningEffort", it.apiValue)
+                                        }
+                                        if (model.reasoningMetadataKnown) {
+                                            put("reasoningMetadataKnown", true)
+                                        }
                                     }
                                 )
                             }
@@ -341,10 +355,25 @@ class ProviderStore(context: Context) {
                 is JSONObject -> {
                     val id = raw.optStringOrEmpty("id")
                     if (id.isBlank()) continue
+                    val effortsJson = raw.optJSONArray("reasoningEfforts")
+                    val supportedEfforts = if (effortsJson != null) {
+                        buildList<ReasoningEffort> {
+                            for (i in 0 until effortsJson.length()) {
+                                ReasoningEffort.fromApiValue(effortsJson.opt(i) as? String)?.let { add(it) }
+                            }
+                        }.distinct().sortedBy { it.ordinal }
+                    } else {
+                        emptyList()
+                    }
+                    val defaultEffort = ReasoningEffort.fromApiValue(raw.optStringOrEmpty("defaultReasoningEffort"))
+                    val metadataKnown = raw.optBoolean("reasoningMetadataKnown", supportedEfforts.isNotEmpty())
                     result[id] = ModelInfo(
                         id = id,
                         name = raw.optStringOrEmpty("name"),
-                        contextLength = raw.optInt("contextLength", 0).takeIf { it > 0 }
+                        contextLength = raw.optInt("contextLength", 0).takeIf { it > 0 },
+                        supportedReasoningEfforts = supportedEfforts,
+                        defaultReasoningEffort = defaultEffort,
+                        reasoningMetadataKnown = metadataKnown
                     )
                 }
                 else -> Unit

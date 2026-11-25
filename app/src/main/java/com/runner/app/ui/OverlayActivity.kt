@@ -95,6 +95,8 @@ import com.runner.app.ui.theme.RunnerTheme
 import com.runner.app.ui.theme.SecondaryMint
 import com.runner.app.ui.theme.bounceClick
 import com.runner.app.util.ScreenCaptureManager
+import com.runner.app.ui.components.BrandLogoOrMonogram
+import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 
 /**
@@ -473,11 +475,38 @@ private fun OverlayScreen(
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = RunnerIcons.SmartToy,
-                        contentDescription = null,
+                    val activeLogo = remember(
+                        activeProvider?.activeModel,
+                        activeProvider?.id,
+                        activeProvider?.name,
+                        activeProvider?.baseUrl
+                    ) {
+                        activeProvider?.let { p ->
+                            ProviderLogos.forModelOrProvider(
+                                modelId = p.activeModel,
+                                providerId = p.id,
+                                providerName = p.name,
+                                baseUrl = p.baseUrl
+                            )
+                        }
+                    }
+                    val activeMonogram = remember(
+                        activeProvider?.activeModel,
+                        activeProvider?.name,
+                        activeProvider?.baseUrl
+                    ) {
+                        ProviderLogos.monogramFor(
+                            modelId = activeProvider?.activeModel.orEmpty(),
+                            providerName = activeProvider?.name.orEmpty(),
+                            baseUrl = activeProvider?.baseUrl.orEmpty()
+                        )
+                    }
+                    BrandLogoOrMonogram(
+                        logo = activeLogo,
+                        monogram = activeMonogram,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        iconSize = 18.dp,
+                        fontSize = 10.sp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(

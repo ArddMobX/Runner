@@ -945,7 +945,11 @@ internal fun InlineThoughtDisclosure(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = RunnerIcons.Psychology,
+                imageVector = if (reasoningMs != null && reasoningMs > 0L) {
+                    RunnerIcons.Schedule
+                } else {
+                    RunnerIcons.Lightbulb
+                },
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(14.dp)

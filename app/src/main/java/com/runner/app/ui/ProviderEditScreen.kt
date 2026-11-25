@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.runner.app.data.ProviderStore
+import com.runner.app.ui.components.BrandLogoOrMonogram
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.theme.StatusSuccess
 import com.runner.app.util.PluralUtils
@@ -113,8 +114,11 @@ fun ProviderEditScreen(
         return cleanUrl to cleanKey
     }
 
-    val providerLogo = remember(provider.id, name) {
-        ProviderLogos.forProvider(provider.id, name)
+    val providerLogo = remember(provider.id, name, baseUrl) {
+        ProviderLogos.forProvider(provider.id, name, baseUrl)
+    }
+    val providerMonogram = remember(name, baseUrl) {
+        ProviderLogos.monogramFor(providerName = name, baseUrl = baseUrl)
     }
 
     Column(
@@ -150,11 +154,12 @@ fun ProviderEditScreen(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = providerLogo ?: RunnerIcons.SmartToy,
-                            contentDescription = null,
+                        BrandLogoOrMonogram(
+                            logo = providerLogo,
+                            monogram = providerMonogram,
                             tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(19.dp)
+                            iconSize = 19.dp,
+                            fontSize = 11.sp
                         )
                     }
 

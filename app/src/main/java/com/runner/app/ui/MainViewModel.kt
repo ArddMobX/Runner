@@ -40,6 +40,8 @@ import com.runner.app.data.UsageStore
 import com.runner.app.data.OpenAIClient
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
+import com.runner.app.data.ReasoningEffort
+import com.runner.app.data.ReasoningEffortPolicy
 import com.runner.app.data.SelectedFile
 import com.runner.app.data.SettingsStore
 import com.runner.app.data.ThemeConfig
@@ -2261,6 +2263,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Настройки ---
 
+    private var lastNonNoneEffort: ReasoningEffort? = null
+
+    fun setReasoningEffort(effort: ReasoningEffort) {
+        val previous = ReasoningEffort.fromApiValue(_settings.value.reasoningEffort)
+        if (effort.isActive) {
+            lastNonNoneEffort = effort
+        } else if (previous != null && previous.isActive) {
+            lastNonNoneEffort = previous
+        }
+        updateAppSettings { copy(reasoningEffort = effort.apiValue) }
+    }
+
+    fun enableReasoningEffort() {
+        val resolved = ReasoningEffortPolicy.resolve(
+            provider = activeProvider.value,
+            savedEffort = _settings.value.reasoningEffort
+        )
+        val target = ReasoningEffortPolicy.preferredEnableEffort(resolved, lastNonNoneEffort) ?: return
+        setReasoningEffort(target)
+    }
+
+    private fun resolveTurnReasoningEffort(
+        provider: Provider,
+        model: String,
+        forceThinking: Boolean
+    ): ReasoningEffort? {
+        val currentSettings = _settings.value
+        val resolved = ReasoningEffortPolicy.resolve(
+            provider = provider,
+            savedEffort = currentSettings.reasoningEffort,
+            modelIdOverride = model
+        )
+        if (!resolved.isSupported) return null
+        return when {
+            forceThinking && resolved.activeEffort == ReasoningEffort.NONE ->
+                ReasoningEffortPolicy.preferredEnableEffort(resolved, lastNonNoneEffort)
+            currentSettings.liveModeEnabled && currentSettings.reasoningEffort.isBlank() && !forceThinking ->
+                ReasoningEffortPolicy.clampToSupported(
+                    ReasoningEffort.LOW,
+                    resolved.supportedEfforts,
+                    resolved.defaultEffort
+                )
+            else -> resolved.activeEffort
+        }
+    }
+
     fun updateAppSettings(transform: AppSettings.() -> AppSettings) {
         updateSettings(_settings.value.transform())
     }
@@ -2655,7 +2703,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Системный промпт пересобираем перед каждым ходом: настройки
                 // могли измениться посреди сессии, а контекст хранится в базе.
-                refreshSystemPrompt(if (forceThinking) THINKING_TURN_NOTE else "")
+                val turnEffort = resolveTurnReasoningEffort(provider, model, forceThinking)
+                val addThinkingNote = forceThinking || (turnEffort?.isDeep == true)
+                refreshSystemPrompt(if (addThinkingNote) THINKING_TURN_NOTE else "")
 
                 val pdfPageImages = preparedFiles.flatMap { it.pageImages }
                 if (cachedImagePaths.isNotEmpty() || pdfPageImages.isNotEmpty()) {
@@ -2751,7 +2801,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Состав инструментов известен только после утверждения плана.
                 updateToolScope()
                 if (activeToolScope != null) {
-                    refreshSystemPrompt(if (forceThinking) THINKING_TURN_NOTE else "")
+                    refreshSystemPrompt(if (addThinkingNote) THINKING_TURN_NOTE else "")
                 }
 
                 runAgentLoop(
@@ -2887,7 +2937,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val retryContext = buildAttachmentContext(retryFiles)
                 trimContextToUser(withAttachmentContext(target.content, retryContext))
-                refreshSystemPrompt(if (forceThinking) THINKING_TURN_NOTE else "")
+                val retryEffort = resolveTurnReasoningEffort(provider, model, forceThinking)
+                val addThinkingNote = forceThinking || (retryEffort?.isDeep == true)
+                refreshSystemPrompt(if (addThinkingNote) THINKING_TURN_NOTE else "")
                 persistContext(sessionId)
                 repository.updateSessionModel(sessionId, model)
                 if (forceSearch) {
@@ -3270,7 +3322,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Стоп должен работать и во время паузы между ретраями,
                 // иначе кнопка «висит», а запрос всё равно уходит повторно.
                 shouldStop = { stopRequested },
-                forceThinking = forceThinking
+                forceThinking = forceThinking,
+                reasoningEffort = resolveTurnReasoningEffort(provider, model, forceThinking)
             )
 
             if (currentSettings.liveModeEnabled) {

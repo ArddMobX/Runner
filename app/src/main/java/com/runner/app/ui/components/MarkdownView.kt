@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -104,9 +106,18 @@ sealed class MarkdownElement {
         val alignments: List<TableAlignment> = emptyList()
     ) : MarkdownElement()
     data class ListBlock(val items: List<MarkdownElement>) : MarkdownElement()
-    data class BulletItem(val text: String) : MarkdownElement()
-    data class NumberedItem(val number: String, val text: String) : MarkdownElement()
+    data class BulletItem(
+        val text: String,
+        val indentLevel: Int = 0,
+        val checked: Boolean? = null
+    ) : MarkdownElement()
+    data class NumberedItem(
+        val number: String,
+        val text: String,
+        val indentLevel: Int = 0
+    ) : MarkdownElement()
     data class Blockquote(val text: String) : MarkdownElement()
+    data object HorizontalRule : MarkdownElement()
     data class Paragraph(val text: String) : MarkdownElement()
 
     /**
@@ -116,7 +127,8 @@ sealed class MarkdownElement {
      */
     data class LinkCard(
         val url: String,
-        val title: String? = null
+        val title: String? = null,
+        val isImage: Boolean = false
     ) : MarkdownElement()
 }
 
@@ -237,6 +249,7 @@ fun MarkdownView(
                         is MarkdownElement.NumberedItem -> NumberedElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.Table -> TableElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.Blockquote -> BlockquoteElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
+                        is MarkdownElement.HorizontalRule -> HorizontalRuleElement()
                         is MarkdownElement.Paragraph -> ParagraphElement(element, isStreaming = elementStreaming, exitAlpha = exitAlpha)
                         is MarkdownElement.LinkCard -> LinkCardElement(element)
                     }
@@ -337,66 +350,6 @@ private fun LinkAwareText(
             }
         }
     )
-}
-
-private val SYNTAX_TOKEN_REGEX = Regex(
-    // 1: Comments (// ... or # ... or /* ... */)
-    "((?://|#)[^\\n]*|/\\*[\\s\\S]*?\\*/)" +
-    // 2: Strings ("..." or '...' or """...""")
-    "|(\"\"\"[\\s\\S]*?\"\"\"|\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*')" +
-    // 3: Numbers (0x..., 123, 3.14, 100L, 10f)
-    "|(\\b(?:0x[0-9a-fA-F]+|\\d+(?:\\.\\d+)?(?:[fFLuU]|px|dp|sp)?)\\b)" +
-    // 4: Keywords
-    "|(\\b(?:val|var|fun|class|interface|object|import|package|return|if|else|when|for|while|do|try|catch|finally|throw|new|public|private|protected|internal|override|suspend|data|sealed|enum|null|true|false|this|super|def|elif|except|raise|with|yield|lambda|async|await|None|True|False|in|is|not|and|or|pass|break|continue|function|const|let|export|default|switch|case|undefined|typeof|instanceof|echo|sudo|chmod|chown|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|TABLE|CREATE|DROP|ALTER|GROUP|ORDER|BY|LIMIT|HAVING)\\b)" +
-    // 5: Function calls
-    "|(\\b[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\())"
-)
-
-/**
- * Быстрая и плавная подсветка синтаксиса для блоков кода.
- * Раскрашивает ключевые слова, строки, числа, комментарии и вызовы функций.
- */
-internal fun highlightCodeSyntax(
-    code: String,
-    keywordColor: Color = Color(0xFFCF85DE),  // Soft Magenta / Purple
-    stringColor: Color = Color(0xFFA8DF8E),   // Soft Mint Green
-    commentColor: Color = Color(0xFF8E92A4),  // Cool Muted Slate Gray
-    numberColor: Color = Color(0xFFFFB74D),   // Warm Amber Orange
-    functionColor: Color = Color(0xFF64B5F6)  // Sky Blue
-): AnnotatedString {
-    return buildAnnotatedString {
-        append(code)
-        SYNTAX_TOKEN_REGEX.findAll(code).forEach { match ->
-            val range = match.range
-            when {
-                match.groups[1] != null -> addStyle(
-                    SpanStyle(color = commentColor, fontStyle = FontStyle.Italic),
-                    range.first,
-                    range.last + 1
-                )
-                match.groups[2] != null -> addStyle(
-                    SpanStyle(color = stringColor),
-                    range.first,
-                    range.last + 1
-                )
-                match.groups[3] != null -> addStyle(
-                    SpanStyle(color = numberColor),
-                    range.first,
-                    range.last + 1
-                )
-                match.groups[4] != null -> addStyle(
-                    SpanStyle(color = keywordColor, fontWeight = FontWeight.SemiBold),
-                    range.first,
-                    range.last + 1
-                )
-                match.groups[5] != null -> addStyle(
-                    SpanStyle(color = functionColor),
-                    range.first,
-                    range.last + 1
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -509,9 +462,12 @@ private fun CodeBlockElement(
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     val primaryColor = MaterialTheme.colorScheme.primary
-                    val codeAnnotated = remember(element.code, isStreaming) {
+                    val isDarkSurface = MaterialTheme.colorScheme.surfaceContainerHigh.luminance() < 0.5f
+                    val codeAnnotated = remember(element.code, element.language, isDarkSurface, isStreaming) {
                         val highlighted = highlightCodeSyntax(
-                            code = element.code
+                            code = element.code,
+                            language = element.language,
+                            isDarkTheme = isDarkSurface
                         )
                         if (isStreaming) {
                             buildAnnotatedString {
@@ -542,145 +498,270 @@ private fun MathBlockElement(
     isStreaming: Boolean = false,
     exitAlpha: () -> Float = { 1f }
 ) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    var copied by remember { mutableStateOf(false) }
+
+    LaunchedEffect(copied) {
+        if (copied) {
+            kotlinx.coroutines.delay(2000)
+            copied = false
+        }
+    }
+
+    val fallbackMath = remember(element.latex) { formatMathFallback(element.latex) }
+    var katexFailed by remember(element.latex) { mutableStateOf(false) }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
         shape = RunnerShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = RunnerIcons.Functions,
-                    contentDescription = "LaTeX Formula",
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "LaTeX Formula",
-                    fontSize = TypeScale.caption,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // KaTeX WebView Renderer
-            val textColorHex = String.format(
-                java.util.Locale.US,
-                "#%06X",
-                0xFFFFFF and MaterialTheme.colorScheme.onSurface.toArgb()
-            )
-            var mathWebView by remember { mutableStateOf<WebView?>(null) }
-            DisposableEffect(Unit) {
-                onDispose {
-                    mathWebView?.stopLoading()
-                    mathWebView?.loadUrl("about:blank")
-                    mathWebView?.destroy()
-                    mathWebView = null
-                }
-            }
-            AndroidView(
+        Column {
+            // Заголовок карточки формулы в едином стиле с CodeBlockElement
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 40.dp, max = 200.dp),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = false
-                        settings.allowFileAccess = false
-                        settings.allowContentAccess = false
-                        @Suppress("DEPRECATION")
-                        settings.allowFileAccessFromFileURLs = false
-                        @Suppress("DEPRECATION")
-                        settings.allowUniversalAccessFromFileURLs = false
-                        setBackgroundColor(0) // Transparent
-                        isVerticalScrollBarEnabled = false
-                        isHorizontalScrollBarEnabled = false
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?
-                            ): Boolean = true
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.7f))
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = RunnerIcons.Functions,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Формула",
+                        fontSize = TypeScale.caption,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
 
-                            override fun shouldInterceptRequest(
-                                view: WebView?,
-                                request: WebResourceRequest?
-                            ): WebResourceResponse? {
-                                val url = request?.url?.toString().orEmpty()
-                                val allowed = url.startsWith("https://cdn.jsdelivr.net/npm/katex@0.16.9/")
-                                return if (allowed) {
-                                    null
-                                } else {
-                                    WebResourceResponse(
-                                        "text/plain",
-                                        "UTF-8",
-                                        ByteArrayInputStream(ByteArray(0))
-                                    )
-                                }
-                            }
+                Row(
+                    modifier = Modifier
+                        .clip(RunnerShapes.small)
+                        .background(
+                            if (copied) StatusSuccess.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)
+                        )
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Formula", element.latex))
+                            copied = true
+                            Toast.makeText(context, "Формула скопирована", Toast.LENGTH_SHORT).show()
                         }
-                        mathWebView = this
-                    }
-                },
-                update = { webView ->
-                    val renderKey = "$textColorHex|${element.latex}"
-                    if (webView.tag != renderKey) {
-                        webView.tag = renderKey
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (copied) RunnerIcons.Check else RunnerIcons.ContentCopy,
+                        contentDescription = null,
+                        tint = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (copied) "Скопировано" else "Копировать",
+                        fontSize = TypeScale.caption,
+                        fontWeight = FontWeight.Medium,
+                        color = if (copied) StatusSuccess else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
-                        val safeLatexLiteral = safeJsonStringForHtmlScript(element.latex)
-
-                        val html = """
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-                            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-                            <style>
-                              body {
-                                background-color: transparent;
-                                color: $textColorHex;
-                                margin: 0;
-                                padding: 6px;
-                                display: flex;
-                                justify-content: center;
-                                font-size: 16px;
-                              }
-                              .katex { color: $textColorHex; }
-                            </style>
-                            </head>
-                            <body>
-                            <div id="math"></div>
-                            <script>
-                              const latex = $safeLatexLiteral;
-                              try {
-                                katex.render(latex, document.getElementById("math"), {
-                                  displayMode: true,
-                                  throwOnError: false,
-                                  trust: false
-                                });
-                              } catch (e) {
-                                document.getElementById("math").textContent = latex;
-                              }
-                            </script>
-                            </body>
-                            </html>
-                        """.trimIndent()
-
-                        webView.loadDataWithBaseURL("https://cdn.jsdelivr.net", html, "text/html", "UTF-8", null)
+            if (isStreaming || katexFailed) {
+                // Во время стрима не создаём WebView на каждый токен; в офлайне показываем
+                // нативный выделяемый Unicode-рендер формулы.
+                val primaryColor = MaterialTheme.colorScheme.primary
+                val fallbackAnnotated = remember(fallbackMath, isStreaming) {
+                    if (isStreaming) {
+                        buildAnnotatedString {
+                            append(fallbackMath)
+                            appendInlineContent(CURSOR_INLINE_ID, "▋")
+                        }
+                    } else {
+                        AnnotatedString(fallbackMath)
                     }
                 }
-            )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = fallbackAnnotated,
+                        fontFamily = RobotoMono,
+                        fontSize = TypeScale.body,
+                        lineHeight = 22.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        inlineContent = if (isStreaming) {
+                            cursorInlineContent(
+                                primaryColor,
+                                cursorWidth = 5.5.dp,
+                                cursorHeight = 14.dp,
+                                exitAlpha = exitAlpha
+                            )
+                        } else {
+                            emptyMap()
+                        }
+                    )
+                }
+            } else {
+                // KaTeX WebView Renderer (строго изолированный, с автоматическим фолбэком при ошибке сети)
+                val textColorHex = String.format(
+                    java.util.Locale.US,
+                    "#%06X",
+                    0xFFFFFF and MaterialTheme.colorScheme.onSurface.toArgb()
+                )
+                var mathWebView by remember { mutableStateOf<WebView?>(null) }
+                DisposableEffect(Unit) {
+                    onDispose {
+                        mathWebView?.stopLoading()
+                        mathWebView?.loadUrl("about:blank")
+                        mathWebView?.destroy()
+                        mathWebView = null
+                    }
+                }
+                AndroidView(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp, max = 220.dp),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = false
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            @Suppress("DEPRECATION")
+                            settings.allowFileAccessFromFileURLs = false
+                            @Suppress("DEPRECATION")
+                            settings.allowUniversalAccessFromFileURLs = false
+                            setBackgroundColor(0) // Transparent
+                            isVerticalScrollBarEnabled = false
+                            isHorizontalScrollBarEnabled = false
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): Boolean = true
+
+                                override fun shouldInterceptRequest(
+                                    view: WebView?,
+                                    request: WebResourceRequest?
+                                ): WebResourceResponse? {
+                                    val url = request?.url?.toString().orEmpty()
+                                    val allowed = url.startsWith("https://cdn.jsdelivr.net/npm/katex@0.16.9/")
+                                    return if (allowed) {
+                                        null
+                                    } else {
+                                        WebResourceResponse(
+                                            "text/plain",
+                                            "UTF-8",
+                                            ByteArrayInputStream(ByteArray(0))
+                                        )
+                                    }
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    val url = request?.url?.toString().orEmpty()
+                                    if (url.contains("katex", ignoreCase = true) || request?.isForMainFrame == true) {
+                                        view?.post { katexFailed = true }
+                                    }
+                                }
+
+                                override fun onReceivedHttpError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    errorResponse: WebResourceResponse?
+                                ) {
+                                    val url = request?.url?.toString().orEmpty()
+                                    val statusCode = errorResponse?.statusCode ?: 0
+                                    if (statusCode >= 400 && (url.contains("katex", ignoreCase = true) || request?.isForMainFrame == true)) {
+                                        view?.post { katexFailed = true }
+                                    }
+                                }
+                            }
+                            mathWebView = this
+                        }
+                    },
+                    update = { webView ->
+                        val renderKey = "$textColorHex|${element.latex}"
+                        if (webView.tag != renderKey) {
+                            webView.tag = renderKey
+
+                            val safeLatexLiteral = safeJsonStringForHtmlScript(element.latex)
+                            val safeFallbackLiteral = safeJsonStringForHtmlScript(fallbackMath)
+
+                            val html = """
+                                <!DOCTYPE html>
+                                <html>
+                                <head>
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+                                <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+                                <style>
+                                  body {
+                                    background-color: transparent;
+                                    color: $textColorHex;
+                                    margin: 0;
+                                    padding: 10px 14px;
+                                    display: flex;
+                                    justify-content: center;
+                                    font-size: 16px;
+                                    overflow-x: auto;
+                                  }
+                                  #math {
+                                    max-width: 100%;
+                                    overflow-x: auto;
+                                  }
+                                  .katex { color: $textColorHex; }
+                                </style>
+                                </head>
+                                <body>
+                                <div id="math"></div>
+                                <script>
+                                  const latex = $safeLatexLiteral;
+                                  const fallback = $safeFallbackLiteral;
+                                  const target = document.getElementById("math");
+                                  target.textContent = fallback;
+                                  try {
+                                    if (typeof katex !== "undefined") {
+                                      katex.render(latex, target, {
+                                        displayMode: true,
+                                        throwOnError: false,
+                                        trust: false
+                                      });
+                                    }
+                                  } catch (e) {
+                                    target.textContent = fallback;
+                                  }
+                                </script>
+                                </body>
+                                </html>
+                            """.trimIndent()
+
+                            webView.loadDataWithBaseURL("https://cdn.jsdelivr.net", html, "text/html", "UTF-8", null)
+                        }
+                    }
+                )
+            }
         }
-    }
-    if (isStreaming) {
-        Spacer(modifier = Modifier.height(4.dp))
-        StreamingCursor(exitAlpha = exitAlpha)
     }
 }
 
@@ -711,24 +792,72 @@ private fun BulletElement(
     isStreaming: Boolean = false,
     exitAlpha: () -> Float = { 1f }
 ) {
+    val indentPadding = (4 + element.indentLevel.coerceIn(0, 4) * 16).dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, top = 1.dp, bottom = 1.dp),
+            .padding(start = indentPadding, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Увеличенный маркер с выравниванием по строке текста
-        Text(
-            text = "•",
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-            fontSize = TypeScale.headline,
-            lineHeight = 22.sp,
-            modifier = Modifier.padding(end = 8.dp)
-        )
+        val checked = element.checked
+        if (checked != null) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 3.dp, end = 8.dp)
+                    .size(16.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        else Color.Transparent
+                    )
+                    .border(
+                        BorderStroke(
+                            1.2.dp,
+                            if (checked) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.65f)
+                        ),
+                        RoundedCornerShape(4.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (checked) {
+                    Icon(
+                        imageVector = RunnerIcons.Check,
+                        contentDescription = "Выполнено",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(11.dp)
+                    )
+                }
+            }
+        } else {
+            val bulletGlyph = when {
+                element.indentLevel <= 0 -> "•"
+                element.indentLevel == 1 -> "◦"
+                else -> "▪"
+            }
+            val bulletColor = if (element.indentLevel <= 0) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outline
+            }
+            Text(
+                text = bulletGlyph,
+                color = bulletColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (element.indentLevel <= 0) TypeScale.headline else TypeScale.body,
+                lineHeight = 22.sp,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+        }
+        val textColor = if (checked == true) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
         MarkdownText(
             text = element.text,
             style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+            color = textColor,
             modifier = Modifier.weight(1f),
             isStreaming = isStreaming,
             exitAlpha = exitAlpha
@@ -742,10 +871,11 @@ private fun NumberedElement(
     isStreaming: Boolean = false,
     exitAlpha: () -> Float = { 1f }
 ) {
+    val indentPadding = (4 + element.indentLevel.coerceIn(0, 4) * 16).dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, top = 1.dp, bottom = 1.dp),
+            .padding(start = indentPadding, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.Top
     ) {
         Text(
@@ -755,8 +885,8 @@ private fun NumberedElement(
             fontSize = TypeScale.body,
             lineHeight = 22.sp,
             modifier = Modifier
-                .width(22.dp)
-                .padding(end = 4.dp)
+                .widthIn(min = 22.dp)
+                .padding(end = 6.dp)
         )
         MarkdownText(
             text = element.text,
@@ -766,6 +896,17 @@ private fun NumberedElement(
             exitAlpha = exitAlpha
         )
     }
+}
+
+@Composable
+private fun HorizontalRuleElement() {
+    HorizontalDivider(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        thickness = 0.8.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    )
 }
 
 @Composable
@@ -787,23 +928,33 @@ private fun BlockquoteElement(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f),
-                RunnerShapes.tiny
-            )
-            .border(
-                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                RunnerShapes.tiny
-            )
-            .padding(10.dp)
+            .padding(vertical = 3.dp)
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.30f))
     ) {
-        LinkAwareText(
-            text = annotated,
-            style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            inlineContent = if (isStreaming) cursorInlineContent(primaryColor, exitAlpha = exitAlpha) else emptyMap()
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(2.dp))
+                .background(primaryColor.copy(alpha = 0.65f))
         )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp, end = 10.dp, top = 7.dp, bottom = 7.dp)
+        ) {
+            LinkAwareText(
+                text = annotated,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontStyle = FontStyle.Italic,
+                    lineHeight = 21.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                inlineContent = if (isStreaming) cursorInlineContent(primaryColor, exitAlpha = exitAlpha) else emptyMap()
+            )
+        }
     }
 }
 
@@ -831,17 +982,18 @@ private fun splitInline(text: String): List<InlineSegment> {
 }
 
 private val PLAIN_MARKDOWN_OR_LINK = Regex(
-    """(\*\*|__|~~|\*[^*\s]|\[[^\]]+\]\(|https?://|\\text\{|\$)""",
+    """(\*\*|__|~~|\*[^*\s]|(?:^|[^A-Za-zА-Яа-яЁё0-9])_[^_\s]|!?\[[^\]]*\]\(|https?://|\\text\{|\$)""",
     RegexOption.IGNORE_CASE
 )
 
 /**
- * Чипсы уместны только в коротких строках-перечислениях вида
- * «`Download` `DCIM` `Pictures`». В обычном абзаце с одним словом в коде
+ * Чипсы уместны только в коротких однострочных перечислениях вида
+ * «`Download` `DCIM` `Pictures`». В обычном абзаце с переносами строк
  * либо если в текстовой части есть Markdown-разметка или ссылки,
  * разбивать поток на чипсы нельзя — там остаётся цельный [LinkAwareText].
  */
-private fun shouldUseChips(segments: List<InlineSegment>): Boolean {
+private fun shouldUseChips(text: String, segments: List<InlineSegment>): Boolean {
+    if (text.contains('\n') || text.contains("``")) return false
     if (segments.none { it is InlineSegment.Code }) return false
     if (segments.size > 9) return false
     return segments.filterIsInstance<InlineSegment.Plain>()
@@ -851,7 +1003,7 @@ private fun shouldUseChips(segments: List<InlineSegment>): Boolean {
         }
 }
 
-internal fun shouldUseInlineChips(text: String): Boolean = shouldUseChips(splitInline(text))
+internal fun shouldUseInlineChips(text: String): Boolean = shouldUseChips(text, splitInline(text))
 
 /**
  * Текст с инлайн-кодом. Если код есть и строка короткая — код рендерится
@@ -871,7 +1023,7 @@ private fun MarkdownText(
     val secondaryColor = MaterialTheme.colorScheme.secondary
     val segments = remember(text) { splitInline(text) }
 
-    if (!shouldUseChips(segments)) {
+    if (!shouldUseChips(text, segments)) {
         val annotated = remember(text, primaryColor, secondaryColor, isStreaming) {
             renderInlineMarkdown(
                 text = text,
@@ -999,7 +1151,7 @@ private fun LinkCardElement(element: MarkdownElement.LinkCard) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = RunnerIcons.Public,
+                    imageVector = if (element.isImage) RunnerIcons.Image else RunnerIcons.Public,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(19.dp)
@@ -1289,12 +1441,19 @@ private fun TableElement(
                                         TableAlignment.START -> Alignment.CenterStart
                                     }
                                 ) {
+                                    val headerAnnotated = remember(header, primaryColor, secondaryColor) {
+                                        renderInlineMarkdown(
+                                            text = header,
+                                            primaryColor = primaryColor,
+                                            secondaryColor = secondaryColor
+                                        )
+                                    }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(
-                                            text = header,
+                                            text = headerAnnotated,
                                             fontSize = TypeScale.label,
                                             fontWeight = FontWeight.SemiBold,
                                             color = if (isSorted) primaryColor else MaterialTheme.colorScheme.onSurface
@@ -1548,15 +1707,27 @@ fun sanitizeMarkdown(text: String): String {
     }
 
     while (i < len) {
-        // 1. Fenced code block: ```...```
-        if (text.startsWith("```", i)) {
-            flushPlain(i)
-            val closeIdx = text.indexOf("```", i + 3)
-            val end = if (closeIdx >= 0) closeIdx + 3 else len
-            out.append(text, i, end)
-            i = end
-            plainStart = end
-            continue
+        // 1. Fenced code block: ``` / ```` / ~~~ (только в начале строки)
+        if (i == 0 || text[i - 1] == '\n') {
+            val lineEnd = text.indexOf('\n', i).let { if (it < 0) len else it }
+            val fence = parseFenceOpen(text.substring(i, lineEnd).trim())
+            if (fence != null) {
+                flushPlain(i)
+                var scan = if (lineEnd < len) lineEnd + 1 else len
+                var blockEnd = len
+                while (scan < len) {
+                    val nextEnd = text.indexOf('\n', scan).let { if (it < 0) len else it }
+                    if (isFenceClose(text.substring(scan, nextEnd).trim(), fence)) {
+                        blockEnd = if (nextEnd < len) nextEnd + 1 else len
+                        break
+                    }
+                    scan = if (nextEnd < len) nextEnd + 1 else len
+                }
+                out.append(text, i, blockEnd)
+                i = blockEnd
+                plainStart = blockEnd
+                continue
+            }
         }
 
         // 2. Inline code span: `...` (matched backtick run within paragraph)
@@ -1628,8 +1799,9 @@ private fun sanitizeTextChunk(chunk: String): String {
     var result = Regex("""\\text\{([^}]*)\}""").replace(chunk) { it.groupValues[1] }
     // 2. \% -> %
     result = result.replace("""\%""", "%")
-    // 3. Remove $...$ around numbers and units (e.g. $51.6 GB$, $89%$, $100$)
-    result = Regex("""(?<!\$)\$\s*([~≈±+\-–—]?\s*\d[\d.,\s]*(?:[a-zA-Zа-яА-ЯёЁ%°²³/-]+(?:\s*[a-zA-Zа-яА-ЯёЁ%°²³/-]+)*)?)\s*\$(?!\$)""").replace(result) {
+    // 3. Remove $...$ around numbers and units (e.g. $51.6 GB$, $89%$, $100$),
+    //    without touching prose currency pairs like "$5 и $10" where the second $ starts another number.
+    result = Regex("""(?<!\$)\$\s*([~≈±+\-–—]?\s*\d[\d.,\s]*(?:[a-zA-Zа-яА-ЯёЁ%°²³/-]+(?:\s*[a-zA-Zа-яА-ЯёЁ%°²³/-]+)*)?)\s*\$(?!\$|\d)""").replace(result) {
         it.groupValues[1].trim()
     }
     // Also remove $...$ around standalone percentage e.g. $%$
@@ -1639,8 +1811,74 @@ private fun sanitizeTextChunk(chunk: String): String {
     return result
 }
 
+private data class FenceSpec(
+    val char: Char,
+    val length: Int,
+    val info: String
+)
+
+private fun parseFenceOpen(trimmed: String): FenceSpec? {
+    if (trimmed.length < 3) return null
+    val ch = trimmed[0]
+    if (ch != '`' && ch != '~') return null
+    var count = 0
+    while (count < trimmed.length && trimmed[count] == ch) count++
+    if (count < 3) return null
+    val info = trimmed.substring(count).trim()
+    // По CommonMark info-строка бэктик-фенса не может содержать бэктики
+    // (иначе ```code``` в одну строку — это инлайн-код, а не блок).
+    if (ch == '`' && info.contains('`')) return null
+    return FenceSpec(char = ch, length = count, info = info)
+}
+
+private fun isFenceClose(trimmed: String, fence: FenceSpec): Boolean {
+    if (trimmed.length < fence.length || trimmed[0] != fence.char) return false
+    var count = 0
+    while (count < trimmed.length && trimmed[count] == fence.char) count++
+    return count >= fence.length && trimmed.substring(count).isBlank()
+}
+
 private val ATX_HEADER_REGEX = Regex("""^(#{1,6})\s+(.+?)\s*$""")
 private val ATX_CLOSING_HASHES = Regex("""\s+#+$""")
+private val HORIZONTAL_RULE_REGEX = Regex("""^(?:-\s*){3,}$|^(?:\*\s*){3,}$|^(?:_\s*){3,}$""")
+private val TABLE_DELIMITER_REGEX = Regex("""^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$""")
+private val NUMBERED_ITEM_REGEX = Regex("""^([0-9]+)\.\s+(.*)$""")
+private val TASK_CHECKBOX_REGEX = Regex("""^\[([ xX])]\s+(.*)$""")
+
+private fun leadingIndentWidth(line: String): Int {
+    var width = 0
+    for (ch in line) {
+        when (ch) {
+            ' ' -> width += 1
+            '\t' -> width += 4
+            else -> break
+        }
+    }
+    return width
+}
+
+private fun isBulletMarker(trimmed: String): Boolean =
+    trimmed.startsWith("* ") || trimmed.startsWith("- ") || trimmed.startsWith("+ ")
+
+private fun isTableStart(lines: List<String>, index: Int): Boolean {
+    if (index + 1 >= lines.size) return false
+    val trimmed = lines[index].trim()
+    return trimmed.contains("|") && TABLE_DELIMITER_REGEX.matches(lines[index + 1].trim())
+}
+
+private fun isBlockBoundary(lines: List<String>, index: Int): Boolean {
+    val trimmed = lines[index].trim()
+    if (trimmed.isEmpty()) return true
+    if (parseFenceOpen(trimmed) != null) return true
+    if (trimmed.startsWith("$$") || trimmed.startsWith("\\[")) return true
+    if (ATX_HEADER_REGEX.find(trimmed) != null) return true
+    if (HORIZONTAL_RULE_REGEX.matches(trimmed)) return true
+    if (trimmed.startsWith(">")) return true
+    if (isTableStart(lines, index)) return true
+    if (isBulletMarker(trimmed) || NUMBERED_ITEM_REGEX.matches(trimmed)) return true
+    if (parseStandaloneLinkCard(trimmed) != null) return true
+    return false
+}
 
 /**
  * Parses raw text into high-level Markdown elements.
@@ -1655,19 +1893,24 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
         val line = lines[i]
         val trimmed = line.trim()
 
-        // 1. Code Block (```lang)
-        if (trimmed.startsWith("```")) {
-            val language = trimmed.removePrefix("```").trim()
+        if (trimmed.isEmpty()) {
+            i++
+            continue
+        }
+
+        // 1. Code Block (```lang, ````markdown, ~~~python)
+        val fence = parseFenceOpen(trimmed)
+        if (fence != null) {
             val codeLines = mutableListOf<String>()
             i++
-            while (i < lines.size && !lines[i].trim().startsWith("```")) {
+            while (i < lines.size && !isFenceClose(lines[i].trim(), fence)) {
                 codeLines.add(lines[i])
                 i++
             }
-            if (i < lines.size && lines[i].trim().startsWith("```")) {
-                i++ // consume closing ```
+            if (i < lines.size && isFenceClose(lines[i].trim(), fence)) {
+                i++ // consume closing fence
             }
-            elements.add(MarkdownElement.CodeBlock(language, codeLines.joinToString("\n")))
+            elements.add(MarkdownElement.CodeBlock(fence.info, codeLines.joinToString("\n")))
             continue
         }
 
@@ -1714,60 +1957,116 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             }
         }
 
-        // 4. Blockquotes (> quote)
-        if (trimmed.startsWith(">")) {
-            val quoteText = trimmed.removePrefix(">").trim()
-            elements.add(MarkdownElement.Blockquote(quoteText))
+        // 4. Horizontal rule (---, ***, ___) — проверяем ДО списков, чтобы «- - -» и «* * *» не стали пунктами.
+        if (HORIZONTAL_RULE_REGEX.matches(trimmed)) {
+            elements.add(MarkdownElement.HorizontalRule)
             i++
             continue
         }
 
-        // 5. Table (Markdown pipe table)
-        if (trimmed.contains("|") && i + 1 < lines.size) {
-            val nextTrimmed = lines[i + 1].trim()
-            val tableDelimiterRegex = Regex("""^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$""")
-            if (tableDelimiterRegex.matches(nextTrimmed)) {
-                val headers = parseTableRow(line)
-                val alignments = parseAlignments(nextTrimmed)
-                val rows = mutableListOf<List<String>>()
-                i += 2
-                while (i < lines.size) {
-                    val rowLine = lines[i]
-                    val rowTrimmed = rowLine.trim()
-                    if (rowTrimmed.isEmpty() || !rowTrimmed.contains("|") || rowTrimmed.startsWith("```")) {
-                        break
-                    }
-                    val rowCells = parseTableRow(rowLine)
-                    val paddedCells = if (rowCells.size < headers.size) {
-                        rowCells + List(headers.size - rowCells.size) { "" }
-                    } else {
-                        rowCells.take(headers.size)
-                    }
-                    rows.add(paddedCells)
-                    i++
+        // 5. Blockquotes: подряд идущие строки «>» объединяются в единую цитату.
+        if (trimmed.startsWith(">")) {
+            val quoteLines = mutableListOf<String>()
+            while (i < lines.size && lines[i].trim().startsWith(">")) {
+                val stripped = lines[i].trimStart().removePrefix(">").let {
+                    if (it.startsWith(" ")) it.drop(1) else it
                 }
-                elements.add(MarkdownElement.Table(headers, rows, alignments))
-                continue
+                quoteLines.add(stripped)
+                i++
             }
+            val mergedQuote = quoteLines.joinToString("\n").trim()
+            if (mergedQuote.isNotEmpty()) {
+                elements.add(MarkdownElement.Blockquote(mergedQuote))
+            }
+            continue
         }
 
-        // 6. Lists (Bullet Lists: * item, - item; Numbered Lists: 1. item)
-        val isBullet = trimmed.startsWith("* ") || trimmed.startsWith("- ")
-        val isNumbered = Regex("^([0-9]+)\\.\\s+(.*)").matches(trimmed)
-        if (isBullet || isNumbered) {
-            val listItems = mutableListOf<MarkdownElement>()
+        // 6. Table (Markdown pipe table)
+        if (isTableStart(lines, i)) {
+            val nextTrimmed = lines[i + 1].trim()
+            val headers = parseTableRow(line)
+            val alignments = parseAlignments(nextTrimmed)
+            val rows = mutableListOf<List<String>>()
+            i += 2
             while (i < lines.size) {
-                val currentTrimmed = lines[i].trim()
-                if (currentTrimmed.startsWith("* ") || currentTrimmed.startsWith("- ")) {
-                    val itemText = currentTrimmed.drop(2).trim()
-                    listItems.add(MarkdownElement.BulletItem(itemText))
+                val rowLine = lines[i]
+                val rowTrimmed = rowLine.trim()
+                if (rowTrimmed.isEmpty() || !rowTrimmed.contains("|") || parseFenceOpen(rowTrimmed) != null) {
+                    break
+                }
+                val rowCells = parseTableRow(rowLine)
+                val paddedCells = if (rowCells.size < headers.size) {
+                    rowCells + List(headers.size - rowCells.size) { "" }
+                } else {
+                    rowCells.take(headers.size)
+                }
+                rows.add(paddedCells)
+                i++
+            }
+            elements.add(MarkdownElement.Table(headers, rows, alignments))
+            continue
+        }
+
+        // 7. Lists: маркеры (-, *, +), нумерация (1.), вложенность по отступу и чекбоксы (- [x] / - [ ]).
+        if (isBulletMarker(trimmed) || NUMBERED_ITEM_REGEX.matches(trimmed)) {
+            val listItems = mutableListOf<MarkdownElement>()
+            val indentStack = mutableListOf<Int>()
+
+            fun resolveIndentLevel(rawIndent: Int): Int {
+                while (indentStack.isNotEmpty() && rawIndent < indentStack.last()) {
+                    indentStack.removeAt(indentStack.lastIndex)
+                }
+                if (indentStack.isEmpty()) {
+                    if (rawIndent > 0) {
+                        indentStack.add(0)
+                        indentStack.add(rawIndent)
+                        return 1
+                    }
+                    indentStack.add(0)
+                    return 0
+                }
+                if (rawIndent > indentStack.last()) {
+                    indentStack.add(rawIndent)
+                }
+                return (indentStack.size - 1).coerceIn(0, 4)
+            }
+
+            while (i < lines.size) {
+                val rawLine = lines[i]
+                val currentTrimmed = rawLine.trim()
+                if (currentTrimmed.isEmpty() || HORIZONTAL_RULE_REGEX.matches(currentTrimmed)) {
+                    break
+                }
+                val rawIndent = leadingIndentWidth(rawLine)
+                if (isBulletMarker(currentTrimmed)) {
+                    val indentLevel = resolveIndentLevel(rawIndent)
+                    val afterMarker = currentTrimmed.drop(2).trim()
+                    val taskMatch = TASK_CHECKBOX_REGEX.matchEntire(afterMarker)
+                    if (taskMatch != null) {
+                        val checked = taskMatch.groupValues[1] != " "
+                        val itemText = taskMatch.groupValues[2].trim()
+                        listItems.add(MarkdownElement.BulletItem(itemText, indentLevel = indentLevel, checked = checked))
+                    } else {
+                        listItems.add(MarkdownElement.BulletItem(afterMarker, indentLevel = indentLevel))
+                    }
                     i++
                 } else {
-                    val numMatch = Regex("^([0-9]+)\\.\\s+(.*)").find(currentTrimmed)
+                    val numMatch = NUMBERED_ITEM_REGEX.find(currentTrimmed)
                     if (numMatch != null) {
+                        val indentLevel = resolveIndentLevel(rawIndent)
                         val number = numMatch.groupValues[1]
-                        val itemText = numMatch.groupValues[2]
-                        listItems.add(MarkdownElement.NumberedItem(number, itemText))
+                        val itemText = numMatch.groupValues[2].trim()
+                        listItems.add(MarkdownElement.NumberedItem(number, itemText, indentLevel = indentLevel))
+                        i++
+                    } else if (rawIndent >= 2 && listItems.isNotEmpty() && !isBlockBoundary(lines, i)) {
+                        // Строка-продолжение с отступом относится к предыдущему пункту списка.
+                        val prev = listItems.removeAt(listItems.lastIndex)
+                        val updated = when (prev) {
+                            is MarkdownElement.BulletItem -> prev.copy(text = prev.text + "\n" + currentTrimmed)
+                            is MarkdownElement.NumberedItem -> prev.copy(text = prev.text + "\n" + currentTrimmed)
+                            else -> prev
+                        }
+                        listItems.add(updated)
                         i++
                     } else {
                         break
@@ -1778,8 +2077,7 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             continue
         }
 
-        // 7. Отдельная ссылка: длинный URL не должен занимать пол-экрана
-        // голым текстом. Превращаем его в карточку с доменом и путём.
+        // 8. Отдельная ссылка или картинка: превращается в аккуратную карточку.
         val standaloneLink = parseStandaloneLinkCard(trimmed)
         if (standaloneLink != null) {
             elements.add(standaloneLink)
@@ -1787,12 +2085,26 @@ fun parseMarkdown(rawText: String): List<MarkdownElement> {
             continue
         }
 
-        // 8. Regular paragraph / empty line
-        if (trimmed.isNotEmpty()) {
-            elements.add(MarkdownElement.Paragraph(line))
+        // 9. Обычный абзац: смежные строки без пустой строки объединяются в один блок
+        // с сохранением переносов (без лишнего меж-абзацного зазора).
+        val paragraphLines = mutableListOf<String>()
+        while (i < lines.size) {
+            if (paragraphLines.isNotEmpty() && isBlockBoundary(lines, i)) {
+                break
+            }
+            val rawParaLine = lines[i]
+            val cleanedLine = when {
+                rawParaLine.endsWith("\\") && !rawParaLine.endsWith("\\\\") -> rawParaLine.dropLast(1).trimEnd()
+                rawParaLine.endsWith("  ") -> rawParaLine.trimEnd()
+                else -> rawParaLine
+            }
+            paragraphLines.add(cleanedLine)
+            i++
         }
-
-        i++
+        val mergedParagraph = paragraphLines.joinToString("\n")
+        if (mergedParagraph.isNotBlank()) {
+            elements.add(MarkdownElement.Paragraph(mergedParagraph))
+        }
     }
 
     return elements
@@ -1833,7 +2145,7 @@ internal class StreamingMarkdownCache {
      * и вне блочной LaTeX-формулы. Всё до него уже не изменится.
      */
     private fun findStableBoundary(text: String): Int {
-        var inFence = false
+        var activeFence: FenceSpec? = null
         var mathDelimiter: String? = null
         var lastBoundary = 0
         var lineStart = 0
@@ -1845,24 +2157,31 @@ internal class StreamingMarkdownCache {
             val trimmed = text.substring(lineStart, lineEnd).trim()
 
             when {
-                inFence -> if (trimmed.startsWith("```")) inFence = false
+                activeFence != null -> {
+                    if (isFenceClose(trimmed, activeFence)) activeFence = null
+                }
 
                 mathDelimiter != null -> {
                     if (trimmed.contains(mathDelimiter!!)) mathDelimiter = null
                 }
 
-                trimmed.startsWith("```") -> inFence = true
+                else -> {
+                    val openedFence = parseFenceOpen(trimmed)
+                    when {
+                        openedFence != null -> activeFence = openedFence
 
-                trimmed.startsWith("$$") -> {
-                    if (!trimmed.removePrefix("$$").contains("$$")) mathDelimiter = "$$"
-                }
+                        trimmed.startsWith("$$") -> {
+                            if (!trimmed.removePrefix("$$").contains("$$")) mathDelimiter = "$$"
+                        }
 
-                trimmed.startsWith("\\[") -> {
-                    if (!trimmed.contains("\\]")) mathDelimiter = "\\]"
-                }
+                        trimmed.startsWith("\\[") -> {
+                            if (!trimmed.contains("\\]")) mathDelimiter = "\\]"
+                        }
 
-                trimmed.isEmpty() -> {
-                    lastBoundary = (lineEnd + 1).coerceAtMost(text.length)
+                        trimmed.isEmpty() -> {
+                            lastBoundary = (lineEnd + 1).coerceAtMost(text.length)
+                        }
+                    }
                 }
             }
 
@@ -1873,11 +2192,12 @@ internal class StreamingMarkdownCache {
     }
 }
 
+private val STANDALONE_MD_IMAGE = Regex("""^!\[([^\]]*)]\((https?://[^)\s]+)\)$""")
 private val STANDALONE_MD_LINK = Regex("""^\[([^\]]+)]\((https?://[^)\s]+)\)$""")
 private val STANDALONE_BARE_LINK = Regex("""^<?(https?://[^\s<>]+)>?$""")
 
 /**
- * Строка целиком состоит из ссылки. Markdown-ссылка сохраняет свой текст
+ * Строка целиком состоит из ссылки или изображения. Markdown-ссылка сохраняет свой текст
  * как заголовок, голая ссылка получает домен.
  */
 private fun parseStandaloneLinkCard(line: String): MarkdownElement.LinkCard? {
@@ -1889,6 +2209,16 @@ private fun parseStandaloneLinkCard(line: String): MarkdownElement.LinkCard? {
         .removeSurrounding("*")
         .removeSurrounding("_")
         .trim()
+    STANDALONE_MD_IMAGE.matchEntire(clean)?.let { match ->
+        val url = match.groupValues[2].trim()
+        if (url.isNotBlank()) {
+            return MarkdownElement.LinkCard(
+                url = url,
+                title = match.groupValues[1].trim().takeIf { it.isNotBlank() },
+                isImage = true
+            )
+        }
+    }
     STANDALONE_MD_LINK.matchEntire(clean)?.let { match ->
         val url = match.groupValues[2].trim()
         if (url.isNotBlank()) {
@@ -1926,137 +2256,297 @@ internal fun trimUrlTail(raw: String): String {
     return raw.substring(0, end)
 }
 
-/**
- * Formats inline Markdown: bold (**text**), italic (*text*), code (`code`), strikethrough (~~text~~),
- * and inline math ($x = y$).
- */
-fun renderInlineMarkdown(
-    text: String,
-    primaryColor: Color = Color(0xFF90CAF9),
-    secondaryColor: Color = Color(0xFF80CBC4),
-    showCursor: Boolean = false
-): AnnotatedString {
-    val sanitized = sanitizeMarkdown(text)
-    return buildAnnotatedString {
-        var cursor = 0
+private const val MAX_INLINE_DEPTH = 6
+private const val ESCAPABLE_MD_PUNCT = "\\`*_{}[]()#+-.!~$|"
 
-        val regex = Regex(
-            "(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|~~.*?~~|\\$.*?\\$|" +
-                    "\\[.*?\\]\\(.*?\\)|<?https?://[^\\s<>]+>?)"
-        )
-        val matches = regex.findAll(sanitized)
+private data class ParsedBracketLink(
+    val label: String,
+    val url: String,
+    val endExclusive: Int
+)
 
-        for (match in matches) {
-            if (match.range.first > cursor) {
-                append(sanitized.substring(cursor, match.range.first))
+private fun findInlineCodeEnd(text: String, openIdx: Int, tickCount: Int): Int {
+    val len = text.length
+    var pos = openIdx + tickCount
+    while (pos < len) {
+        if (text[pos] == '`') {
+            var run = 0
+            while (pos + run < len && text[pos + run] == '`') run++
+            if (run == tickCount) return pos
+            pos += run
+        } else {
+            pos++
+        }
+    }
+    return -1
+}
+
+private fun parseBracketLink(text: String, openBracketIdx: Int): ParsedBracketLink? {
+    val len = text.length
+    if (openBracketIdx >= len || text[openBracketIdx] != '[') return null
+    var pos = openBracketIdx + 1
+    var bracketDepth = 1
+    while (pos < len && bracketDepth > 0) {
+        val ch = text[pos]
+        when {
+            ch == '\\' && pos + 1 < len -> pos += 2
+            ch == '`' -> {
+                var ticks = 0
+                while (pos + ticks < len && text[pos + ticks] == '`') ticks++
+                val closeCode = findInlineCodeEnd(text, pos, ticks)
+                pos = if (closeCode >= 0) closeCode + ticks else pos + ticks
             }
+            ch == '[' -> {
+                bracketDepth++
+                pos++
+            }
+            ch == ']' -> {
+                bracketDepth--
+                if (bracketDepth == 0) break
+                pos++
+            }
+            else -> pos++
+        }
+    }
+    if (bracketDepth != 0 || pos >= len) return null
+    val closeBracketIdx = pos
+    if (closeBracketIdx + 1 >= len || text[closeBracketIdx + 1] != '(') return null
 
-            val token = match.value
+    var urlPos = closeBracketIdx + 2
+    while (urlPos < len && text[urlPos].isWhitespace()) urlPos++
+    val urlStart = urlPos
+    var urlEnd = -1
+    var parenDepth = 0
+    var closeParenIdx = -1
+    var inTitleQuote: Char? = null
 
-            when {
-                // Bold (**text**), в том числе жирная ссылка.
-                token.startsWith("**") && token.endsWith("**") && token.length >= 4 -> {
-                    val inner = token.substring(2, token.length - 2)
-                    val link = STANDALONE_MD_LINK.matchEntire(inner)
-                    if (link != null) {
-                        val linkText = link.groupValues[1]
-                        val url = link.groupValues[2]
-                        val start = length
-                        pushStyle(
-                            SpanStyle(
-                                color = primaryColor,
-                                fontWeight = FontWeight.Bold,
-                                textDecoration = TextDecoration.Underline
-                            )
-                        )
-                        append(linkText)
-                        pop()
-                        addStringAnnotation("URL", url, start, length)
-                    } else {
-                        pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                        append(inner)
-                        pop()
-                    }
+    while (urlPos < len) {
+        val ch = text[urlPos]
+        if (inTitleQuote != null) {
+            if (ch == '\\' && urlPos + 1 < len) {
+                urlPos += 2
+                continue
+            }
+            if (ch == inTitleQuote) inTitleQuote = null
+            urlPos++
+            continue
+        }
+        when {
+            ch == '\\' && urlPos + 1 < len -> urlPos += 2
+            ch == '(' -> {
+                parenDepth++
+                urlPos++
+            }
+            ch == ')' -> {
+                if (parenDepth == 0) {
+                    if (urlEnd < 0) urlEnd = urlPos
+                    closeParenIdx = urlPos
+                    break
                 }
-
-                // Italic (*text*)
-                token.startsWith("*") && token.endsWith("*") && token.length >= 2 -> {
-                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                    append(token.substring(1, token.length - 1))
-                    pop()
+                parenDepth--
+                urlPos++
+            }
+            ch.isWhitespace() && urlEnd < 0 -> {
+                urlEnd = urlPos
+                urlPos++
+                while (urlPos < len && text[urlPos].isWhitespace()) urlPos++
+                if (urlPos < len && (text[urlPos] == '"' || text[urlPos] == '\'')) {
+                    inTitleQuote = text[urlPos]
+                    urlPos++
                 }
+            }
+            else -> urlPos++
+        }
+    }
+    if (closeParenIdx < 0) return null
+    val rawUrl = text.substring(urlStart, if (urlEnd >= urlStart) urlEnd else closeParenIdx)
+        .trim()
+        .removePrefix("<")
+        .removeSuffix(">")
+    if (rawUrl.isEmpty()) return null
+    return ParsedBracketLink(
+        label = text.substring(openBracketIdx + 1, closeBracketIdx),
+        url = rawUrl,
+        endExclusive = closeParenIdx + 1
+    )
+}
 
-                // Inline code (`code`) — мягкая акцентная подсветка вместо серого кирпича.
-                // Скруглить углы у SpanStyle нельзя, поэтому берём светлую заливку
-                // и воздух по бокам через пробелы.
-                token.startsWith("`") && token.endsWith("`") && token.length >= 2 -> {
+private fun findClosingDelimiter(
+    text: String,
+    openIdx: Int,
+    delimiter: String,
+    requireWordBoundary: Boolean
+): Int {
+    val len = text.length
+    val dLen = delimiter.length
+    val startIdx = openIdx + dLen
+    if (startIdx >= len) return -1
+    if (text[startIdx].isWhitespace()) return -1
+    val dChar = delimiter[0]
+    if (dLen == 1 && text[startIdx] == dChar) return -1
+    if (requireWordBoundary && openIdx > 0 && text[openIdx - 1].isLetterOrDigit()) return -1
+
+    var pos = startIdx
+    while (pos <= len - dLen) {
+        val ch = text[pos]
+        if (ch == '\\' && pos + 1 < len) {
+            pos += 2
+            continue
+        }
+        if (ch == '`') {
+            var ticks = 0
+            while (pos + ticks < len && text[pos + ticks] == '`') ticks++
+            val closeCode = findInlineCodeEnd(text, pos, ticks)
+            pos = if (closeCode >= 0) closeCode + ticks else pos + ticks
+            continue
+        }
+        if (ch == dChar && text.startsWith(delimiter, pos)) {
+            var runEnd = pos
+            while (runEnd < len && text[runEnd] == dChar) runEnd++
+            val runLen = runEnd - pos
+            // Для «**bold *italic***» внешний «**» закрывается на правом краю тройки «***»,
+            // чтобы внутренний «*italic*» сохранил свою закрывающую звёздочку.
+            val candidatePos = when {
+                dLen == 1 && runLen > 1 -> -1
+                dLen > 1 && runLen > dLen -> runEnd - dLen
+                else -> pos
+            }
+            if (candidatePos > startIdx && !text[candidatePos - 1].isWhitespace()) {
+                val afterIdx = candidatePos + dLen
+                val boundaryOk = !requireWordBoundary || afterIdx >= len || !text[afterIdx].isLetterOrDigit()
+                if (boundaryOk) return candidatePos
+            }
+            pos = runEnd
+            continue
+        }
+        pos++
+    }
+    return -1
+}
+
+private fun AnnotatedString.Builder.appendInlineMarkdown(
+    text: String,
+    primaryColor: Color,
+    secondaryColor: Color,
+    depth: Int
+) {
+    val len = text.length
+    var i = 0
+    while (i < len) {
+        val ch = text[i]
+
+        // 1. Экранирование ASCII-пунктуации Markdown (\*, \_, \`, \[, \], \\ и т.д.),
+        //    не трогает Windows-пути вроде C:\Users\name.
+        if (ch == '\\' && i + 1 < len && text[i + 1] in ESCAPABLE_MD_PUNCT) {
+            append(text[i + 1])
+            i += 2
+            continue
+        }
+
+        // 2. Инлайн-код (`code`, ``foo `bar` ``) — без искусственных пробелов по краям,
+        //    чтобы не рвать пунктуацию и не портить копирование.
+        if (ch == '`') {
+            var ticks = 0
+            while (i + ticks < len && text[i + ticks] == '`') ticks++
+            val closeIdx = findInlineCodeEnd(text, i, ticks)
+            if (closeIdx >= 0) {
+                var code = text.substring(i + ticks, closeIdx)
+                if (code.length >= 2 && code.startsWith(' ') && code.endsWith(' ') && code.any { it != ' ' }) {
+                    code = code.substring(1, code.length - 1)
+                }
+                pushStyle(
+                    SpanStyle(
+                        fontFamily = RobotoMono,
+                        background = primaryColor.copy(alpha = 0.13f),
+                        color = primaryColor,
+                        fontSize = TypeScale.label
+                    )
+                )
+                append(code)
+                pop()
+                i = closeIdx + ticks
+                continue
+            }
+            append(text, i, i + ticks)
+            i += ticks
+            continue
+        }
+
+        // 3. Встроенное изображение ![alt](url): без висящего «!» и без лишних сетевых загрузок.
+        if (ch == '!' && i + 1 < len && text[i + 1] == '[') {
+            val parsed = parseBracketLink(text, i + 1)
+            if (parsed != null) {
+                val label = parsed.label.trim().ifBlank { linkHost(parsed.url).ifBlank { "Изображение" } }
+                if (isWebUrl(parsed.url)) {
+                    val start = length
                     pushStyle(
                         SpanStyle(
-                            fontFamily = RobotoMono,
-                            background = primaryColor.copy(alpha = 0.13f),
                             color = primaryColor,
-                            fontSize = TypeScale.label
+                            textDecoration = TextDecoration.Underline
                         )
                     )
-                    append(" ${token.substring(1, token.length - 1)} ")
+                    append(label)
+                    pop()
+                    addStringAnnotation("URL", parsed.url, start, length)
+                } else {
+                    pushStyle(SpanStyle(color = secondaryColor, fontStyle = FontStyle.Italic))
+                    append(label)
                     pop()
                 }
+                i = parsed.endExclusive
+                continue
+            }
+        }
 
-                // Strikethrough (~~text~~)
-                token.startsWith("~~") && token.endsWith("~~") && token.length >= 4 -> {
-                    pushStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
-                    append(token.substring(2, token.length - 2))
-                    pop()
-                }
-
-                // Inline LaTeX ($formula$)
-                token.startsWith("$") && token.endsWith("$") && token.length >= 2 -> {
-                    val rawFormula = token.substring(1, token.length - 1)
+        // 4. Markdown-ссылка [label](url) с поддержкой вложенного форматирования внутри label.
+        if (ch == '[') {
+            val parsed = parseBracketLink(text, i)
+            if (parsed != null) {
+                if (isWebUrl(parsed.url)) {
+                    val start = length
                     pushStyle(
                         SpanStyle(
-                            fontFamily = RobotoMono,
-                            color = secondaryColor,
-                            fontWeight = FontWeight.Medium
+                            color = primaryColor,
+                            textDecoration = TextDecoration.Underline
                         )
                     )
-                    append(formatInlineMath(rawFormula))
+                    if (depth < MAX_INLINE_DEPTH) {
+                        appendInlineMarkdown(parsed.label, primaryColor, secondaryColor, depth + 1)
+                    } else {
+                        append(parsed.label)
+                    }
                     pop()
-                }
-
-                // Markdown-ссылки ([text](url)): подпись остаётся осмысленной,
-                // адрес прячется в аннотацию и открывается по нажатию.
-                token.startsWith("[") && token.contains("](") && token.endsWith(")") -> {
-                    val linkText = token.substringAfter("[").substringBefore("]")
-                    val url = token.substringAfter("](").substringBeforeLast(")")
-                    if (isWebUrl(url)) {
-                        val start = length
-                        pushStyle(
-                            SpanStyle(
-                                color = primaryColor,
-                                textDecoration = TextDecoration.Underline
-                            )
-                        )
-                        append(linkText)
-                        pop()
-                        addStringAnnotation("URL", url, start, length)
+                    addStringAnnotation("URL", parsed.url, start, length)
+                } else {
+                    // file://, javascript: и прочие схемы не должны становиться кликабельными.
+                    if (depth < MAX_INLINE_DEPTH) {
+                        appendInlineMarkdown(parsed.label, primaryColor, secondaryColor, depth + 1)
                     } else {
-                        // file://, javascript: и прочие схемы не должны
-                        // превращаться в кликабельную ссылку из ответа модели.
-                        append(linkText)
+                        append(parsed.label)
                     }
                 }
+                i = parsed.endExclusive
+                continue
+            }
+        }
 
-                // Голые ссылки: в абзаце показываем короткий домен с путём,
-                // а саму ссылку кладём в аннотацию.
-                token.startsWith("http://") || token.startsWith("https://") ||
-                        token.startsWith("<http://") || token.startsWith("<https://") -> {
-                    val clean = if (token.startsWith("<") && token.endsWith(">")) {
-                        token.substring(1, token.length - 1)
-                    } else {
-                        token
-                    }
-                    val url = trimUrlTail(clean)
-                    val tail = clean.substring(url.length)
+        // 5. Автоссылка <https://...> или голый URL https://... / http://...
+        if ((ch == '<' && (text.startsWith("<https://", i, ignoreCase = true) || text.startsWith("<http://", i, ignoreCase = true))) ||
+            ((ch == 'h' || ch == 'H') &&
+                (i == 0 || !text[i - 1].isLetterOrDigit()) &&
+                (text.startsWith("https://", i, ignoreCase = true) || text.startsWith("http://", i, ignoreCase = true)))
+        ) {
+            val isAngle = ch == '<'
+            var end = i + (if (isAngle) 1 else 0)
+            while (end < len && !text[end].isWhitespace() && text[end] != '<' && text[end] != '>') {
+                end++
+            }
+            val closedAngle = isAngle && end < len && text[end] == '>'
+            val rawUrl = text.substring(i + (if (isAngle) 1 else 0), end)
+            if (!isAngle || closedAngle) {
+                val url = trimUrlTail(rawUrl)
+                val tail = rawUrl.substring(url.length)
+                if (isWebUrl(url)) {
                     val start = length
                     pushStyle(
                         SpanStyle(
@@ -2068,55 +2558,532 @@ fun renderInlineMarkdown(
                     pop()
                     addStringAnnotation("URL", url, start, length)
                     append(tail)
+                    i = if (closedAngle) end + 1 else end
+                    continue
                 }
+            }
+        }
 
-                else -> append(token)
+        // 6. Вложенное форматирование: ***, ___, **, __, ~~, *, _
+        if (depth < MAX_INLINE_DEPTH) {
+            // Bold + Italic: ***...*** / ___...___
+            if ((ch == '*' && text.startsWith("***", i)) || (ch == '_' && text.startsWith("___", i))) {
+                val delim = if (ch == '*') "***" else "___"
+                val closeIdx = findClosingDelimiter(text, i, delim, requireWordBoundary = ch == '_')
+                if (closeIdx >= 0) {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic))
+                    appendInlineMarkdown(text.substring(i + 3, closeIdx), primaryColor, secondaryColor, depth + 1)
+                    pop()
+                    i = closeIdx + 3
+                    continue
+                }
             }
 
-            cursor = match.range.last + 1
+            // Bold: **...** / __...__ (подчёркивания — строго по границам слов, безопасно для snake_case)
+            if ((ch == '*' && text.startsWith("**", i)) || (ch == '_' && text.startsWith("__", i))) {
+                val delim = if (ch == '*') "**" else "__"
+                val closeIdx = findClosingDelimiter(text, i, delim, requireWordBoundary = ch == '_')
+                if (closeIdx >= 0) {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                    appendInlineMarkdown(text.substring(i + 2, closeIdx), primaryColor, secondaryColor, depth + 1)
+                    pop()
+                    i = closeIdx + 2
+                    continue
+                }
+            }
+
+            // Strikethrough: ~~...~~
+            if (ch == '~' && text.startsWith("~~", i)) {
+                val closeIdx = findClosingDelimiter(text, i, "~~", requireWordBoundary = false)
+                if (closeIdx >= 0) {
+                    pushStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
+                    appendInlineMarkdown(text.substring(i + 2, closeIdx), primaryColor, secondaryColor, depth + 1)
+                    pop()
+                    i = closeIdx + 2
+                    continue
+                }
+            }
+
+            // Italic: *...* / _..._ (безопасно для «2 * 3 * 4» и «full_unlock»)
+            if (ch == '*' || ch == '_') {
+                val delim = ch.toString()
+                val closeIdx = findClosingDelimiter(text, i, delim, requireWordBoundary = ch == '_')
+                if (closeIdx >= 0) {
+                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                    appendInlineMarkdown(text.substring(i + 1, closeIdx), primaryColor, secondaryColor, depth + 1)
+                    pop()
+                    i = closeIdx + 1
+                    continue
+                }
+            }
         }
 
-        if (cursor < sanitized.length) {
-            append(sanitized.substring(cursor))
+        // 7. Inline LaTeX ($formula$) — защищён от цен вида «$5 и $10».
+        if (ch == '$' && i + 1 < len && text[i + 1] != '$' && !text[i + 1].isWhitespace()) {
+            var closeIdx = -1
+            var scan = i + 1
+            while (scan < len) {
+                if (text[scan] == '\\' && scan + 1 < len) {
+                    scan += 2
+                    continue
+                }
+                if (text[scan] == '$') {
+                    if (scan > i + 1 && !text[scan - 1].isWhitespace() &&
+                        (scan + 1 >= len || (text[scan + 1] != '$' && !text[scan + 1].isDigit()))
+                    ) {
+                        closeIdx = scan
+                        break
+                    }
+                }
+                scan++
+            }
+            if (closeIdx >= 0) {
+                val rawFormula = text.substring(i + 1, closeIdx)
+                pushStyle(
+                    SpanStyle(
+                        fontFamily = RobotoMono,
+                        color = secondaryColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                append(formatMathFallback(rawFormula))
+                pop()
+                i = closeIdx + 1
+                continue
+            }
         }
 
+        append(ch)
+        i++
+    }
+}
+
+/**
+ * Formats inline Markdown with nesting support: ***bold italic***, **bold**, __bold__,
+ * *italic*, _italic_ (safe for snake_case), `code` (including multi-backtick spans without
+ * extra padding spaces), ~~strikethrough~~, escapes, links, images, and inline math ($x = y$).
+ */
+fun renderInlineMarkdown(
+    text: String,
+    primaryColor: Color = Color(0xFF90CAF9),
+    secondaryColor: Color = Color(0xFF80CBC4),
+    showCursor: Boolean = false
+): AnnotatedString {
+    val sanitized = sanitizeMarkdown(text)
+    return buildAnnotatedString {
+        appendInlineMarkdown(
+            text = sanitized,
+            primaryColor = primaryColor,
+            secondaryColor = secondaryColor,
+            depth = 0
+        )
         if (showCursor) {
             appendInlineContent(CURSOR_INLINE_ID, "▋")
         }
     }
 }
 
-private fun formatInlineMath(latex: String): String {
-    return latex
-        .replace("\\alpha", "α")
-        .replace("\\beta", "β")
-        .replace("\\gamma", "γ")
-        .replace("\\delta", "δ")
-        .replace("\\epsilon", "ε")
-        .replace("\\theta", "θ")
-        .replace("\\lambda", "λ")
-        .replace("\\mu", "μ")
-        .replace("\\pi", "π")
-        .replace("\\sigma", "σ")
-        .replace("\\phi", "φ")
-        .replace("\\omega", "ω")
-        .replace("\\pm", "±")
-        .replace("\\times", "×")
-        .replace("\\div", "÷")
-        .replace("\\le", "≤")
-        .replace("\\ge", "≥")
-        .replace("\\neq", "≠")
-        .replace("\\approx", "≈")
-        .replace("\\infty", "∞")
-        .replace("\\sum", "∑")
-        .replace("\\prod", "∏")
-        .replace("\\int", "∫")
-        .replace("\\sqrt", "√")
-        .replace("^2", "²")
-        .replace("^3", "³")
-        .replace("_0", "₀")
-        .replace("_1", "₁")
-        .replace("_2", "₂")
-        .replace("_i", "ᵢ")
-        .replace("_n", "ₙ")
+private val MATH_SYMBOL_MAP: Map<String, String> = mapOf(
+    // Греческий алфавит (строчные)
+    "alpha" to "α", "beta" to "β", "gamma" to "γ", "delta" to "δ",
+    "epsilon" to "ε", "varepsilon" to "ε", "zeta" to "ζ", "eta" to "η",
+    "theta" to "θ", "vartheta" to "ϑ", "iota" to "ι", "kappa" to "κ",
+    "lambda" to "λ", "mu" to "μ", "nu" to "ν", "xi" to "ξ",
+    "pi" to "π", "varpi" to "ϖ", "rho" to "ρ", "varrho" to "ϱ",
+    "sigma" to "σ", "varsigma" to "ς", "tau" to "τ", "upsilon" to "υ",
+    "phi" to "φ", "varphi" to "φ", "chi" to "χ", "psi" to "ψ", "omega" to "ω",
+    // Греческий алфавит (заглавные)
+    "Gamma" to "Γ", "Delta" to "Δ", "Theta" to "Θ", "Lambda" to "Λ",
+    "Xi" to "Ξ", "Pi" to "Π", "Sigma" to "Σ", "Upsilon" to "Υ",
+    "Phi" to "Φ", "Psi" to "Ψ", "Omega" to "Ω",
+    // Операторы, отношения, стрелки, логика и множества
+    "pm" to "±", "mp" to "∓", "times" to "×", "div" to "÷",
+    "cdot" to "·", "ast" to "∗", "star" to "⋆", "circ" to "∘",
+    "bullet" to "•", "oplus" to "⊕", "otimes" to "⊗",
+    "le" to "≤", "leq" to "≤", "leqslant" to "≤",
+    "ge" to "≥", "geq" to "≥", "geqslant" to "≥",
+    "ne" to "≠", "neq" to "≠",
+    "approx" to "≈", "equiv" to "≡", "sim" to "∼", "simeq" to "≃",
+    "cong" to "≅", "propto" to "∝", "ll" to "≪", "gg" to "≫",
+    "to" to "→", "rightarrow" to "→", "longrightarrow" to "→",
+    "leftarrow" to "←", "longleftarrow" to "←", "leftrightarrow" to "↔",
+    "mapsto" to "↦", "Rightarrow" to "⇒", "Longrightarrow" to "⇒",
+    "Leftarrow" to "⇐", "Leftrightarrow" to "⇔", "iff" to "⇔", "implies" to "⇒",
+    "forall" to "∀", "exists" to "∃", "nexists" to "∄",
+    "in" to "∈", "notin" to "∉", "ni" to "∋",
+    "emptyset" to "∅", "varnothing" to "∅",
+    "subset" to "⊂", "subseteq" to "⊆", "supset" to "⊃", "supseteq" to "⊇",
+    "cup" to "∪", "cap" to "∩", "setminus" to "∖",
+    "land" to "∧", "wedge" to "∧", "lor" to "∨", "vee" to "∨",
+    "neg" to "¬", "lnot" to "¬",
+    "infty" to "∞", "partial" to "∂", "nabla" to "∇",
+    "sum" to "∑", "prod" to "∏", "coprod" to "∐",
+    "int" to "∫", "iint" to "∬", "iiint" to "∭", "oint" to "∮",
+    "cdots" to "⋯", "ldots" to "…", "dots" to "…", "vdots" to "⋮", "ddots" to "⋱",
+    "angle" to "∠", "perp" to "⊥", "parallel" to "∥", "triangle" to "△",
+    "degree" to "°", "prime" to "′",
+    "langle" to "⟨", "rangle" to "⟩",
+    "lceil" to "⌈", "rceil" to "⌉", "lfloor" to "⌊", "rfloor" to "⌋",
+    "quad" to "  ", "qquad" to "   "
+)
+
+private val MATH_OPERATOR_NAMES: Set<String> = setOf(
+    "sin", "cos", "tan", "cot", "sec", "csc",
+    "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh",
+    "log", "ln", "exp", "lim", "limsup", "liminf",
+    "sup", "inf", "max", "min", "arg", "deg", "det",
+    "dim", "gcd", "hom", "ker", "Pr", "mod"
+)
+
+private val MATH_NOOP_COMMANDS: Set<String> = setOf(
+    "displaystyle", "textstyle", "scriptstyle", "scriptscriptstyle",
+    "limits", "nolimits", "nonumber", "notag",
+    "big", "Big", "bigg", "Bigg",
+    "bigl", "bigr", "Bigl", "Bigr", "biggl", "biggr", "Biggl", "Biggr",
+    "middle"
+)
+
+private val MATH_BLACKBOARD_MAP: Map<Char, String> = mapOf(
+    'R' to "ℝ", 'N' to "ℕ", 'Z' to "ℤ", 'Q' to "ℚ",
+    'C' to "ℂ", 'P' to "ℙ", 'E' to "𝔼", 'H' to "ℍ"
+)
+
+private val SUPERSCRIPT_MAP: Map<Char, Char> = mapOf(
+    '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
+    '5' to '⁵', '6' to '⁶', '7' to '⁷', '8' to '⁸', '9' to '⁹',
+    '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾',
+    'n' to 'ⁿ', 'i' to 'ⁱ'
+)
+
+private val SUBSCRIPT_MAP: Map<Char, Char> = mapOf(
+    '0' to '₀', '1' to '₁', '2' to '₂', '3' to '₃', '4' to '₄',
+    '5' to '₅', '6' to '₆', '7' to '₇', '8' to '₈', '9' to '₉',
+    '+' to '₊', '-' to '₋', '=' to '₌', '(' to '₍', ')' to '₎',
+    'a' to 'ₐ', 'e' to 'ₑ', 'i' to 'ᵢ', 'j' to 'ⱼ', 'k' to 'ₖ',
+    'm' to 'ₘ', 'n' to 'ₙ', 'o' to 'ₒ', 'r' to 'ᵣ', 'x' to 'ₓ'
+)
+
+private val MATH_MULTI_SPACE_REGEX = Regex("[ \\t]{2,}")
+
+/**
+ * Преобразует LaTeX-формулу в читаемый Unicode-текст для inline-математики,
+ * стриминга и офлайн-фолбэка (без WebView/KaTeX).
+ */
+internal fun formatMathFallback(latex: String): String {
+    if (latex.isBlank()) return ""
+    val raw = formatMathExpr(latex.trim(), depth = 0)
+    return raw
+        .split('\n')
+        .joinToString("\n") { line ->
+            MATH_MULTI_SPACE_REGEX.replace(line, " ").trim()
+        }
+        .trim()
+}
+
+private fun formatMathExpr(input: String, depth: Int): String {
+    if (input.isEmpty() || depth > 12) return input
+    val sb = StringBuilder(input.length)
+    var i = 0
+    val len = input.length
+
+    while (i < len) {
+        val ch = input[i]
+
+        if (ch == '\\') {
+            if (i + 1 >= len) {
+                i++
+                continue
+            }
+            val next = input[i + 1]
+            if (!next.isLetter()) {
+                when (next) {
+                    '\\' -> sb.append('\n')
+                    '{' -> sb.append('{')
+                    '}' -> sb.append('}')
+                    '|' -> sb.append('‖')
+                    '%', '$', '_', '#', '&' -> sb.append(next)
+                    ',', ';', ':', ' ' -> sb.append(' ')
+                    '!' -> Unit
+                    else -> sb.append(next)
+                }
+                i += 2
+                continue
+            }
+
+            var cmdEnd = i + 1
+            while (cmdEnd < len && input[cmdEnd].isLetter()) cmdEnd++
+            val cmd = input.substring(i + 1, cmdEnd)
+            i = cmdEnd
+
+            when (cmd) {
+                "frac", "dfrac", "tfrac", "cfrac" -> {
+                    val numGroup = readMathBraceGroup(input, i)
+                    if (numGroup != null) {
+                        val denGroup = readMathBraceGroup(input, numGroup.second)
+                        val num = formatMathExpr(numGroup.first, depth + 1).trim()
+                        if (denGroup != null) {
+                            val den = formatMathExpr(denGroup.first, depth + 1).trim()
+                            val numFormatted = if (needsMathGroupParens(num, isDenominator = false)) "($num)" else num
+                            val denFormatted = if (needsMathGroupParens(den, isDenominator = true)) "($den)" else den
+                            sb.append(numFormatted).append('/').append(denFormatted)
+                            i = denGroup.second
+                        } else {
+                            sb.append(num)
+                            i = numGroup.second
+                        }
+                    }
+                }
+
+                "sqrt" -> {
+                    var scan = skipHorizontalSpaces(input, i)
+                    var degree: String? = null
+                    if (scan < len && input[scan] == '[') {
+                        val closeBracket = input.indexOf(']', scan + 1)
+                        if (closeBracket > scan) {
+                            degree = input.substring(scan + 1, closeBracket)
+                            scan = closeBracket + 1
+                        }
+                    }
+                    val rootPrefix = when (degree?.trim()) {
+                        null, "", "2" -> "√"
+                        "3" -> "∛"
+                        "4" -> "∜"
+                        else -> "${formatMathScript(degree, isSuper = true, depth = depth + 1)}√"
+                    }
+                    val argGroup = readMathBraceGroup(input, scan)
+                    if (argGroup != null) {
+                        val inner = formatMathExpr(argGroup.first, depth + 1).trim()
+                        if (inner.isEmpty()) {
+                            sb.append(rootPrefix)
+                        } else if (inner.length == 1 || inner.all { it.isDigit() }) {
+                            sb.append(rootPrefix).append(inner)
+                        } else {
+                            sb.append(rootPrefix).append('(').append(inner).append(')')
+                        }
+                        i = argGroup.second
+                    } else {
+                        sb.append(rootPrefix)
+                        i = scan
+                    }
+                }
+
+                "text", "textrm", "textbf", "textit", "mbox" -> {
+                    val grp = readMathBraceGroup(input, i)
+                    if (grp != null) {
+                        sb.append(grp.first)
+                        i = grp.second
+                    }
+                }
+
+                "mathrm", "mathbf", "mathit", "mathsf", "mathtt", "operatorname", "mathcal" -> {
+                    val grp = readMathBraceGroup(input, i)
+                    if (grp != null) {
+                        sb.append(formatMathExpr(grp.first, depth + 1))
+                        i = grp.second
+                    }
+                }
+
+                "mathbb" -> {
+                    val grp = readMathBraceGroup(input, i)
+                    if (grp != null) {
+                        for (c in grp.first) {
+                            sb.append(MATH_BLACKBOARD_MAP[c] ?: c.toString())
+                        }
+                        i = grp.second
+                    }
+                }
+
+                "binom" -> {
+                    val nGrp = readMathBraceGroup(input, i)
+                    val kGrp = if (nGrp != null) readMathBraceGroup(input, nGrp.second) else null
+                    if (nGrp != null && kGrp != null) {
+                        val n = formatMathExpr(nGrp.first, depth + 1).trim()
+                        val k = formatMathExpr(kGrp.first, depth + 1).trim()
+                        sb.append("C(").append(n).append(", ").append(k).append(')')
+                        i = kGrp.second
+                    }
+                }
+
+                "overline", "bar", "hat", "widehat", "tilde", "widetilde", "vec" -> {
+                    val grp = readMathBraceGroup(input, i)
+                    if (grp != null) {
+                        val inner = formatMathExpr(grp.first, depth + 1).trim()
+                        if (inner.length == 1) {
+                            val combining = when (cmd) {
+                                "overline", "bar" -> '\u0304'
+                                "hat", "widehat" -> '\u0302'
+                                "tilde", "widetilde" -> '\u0303'
+                                else -> '\u20D7'
+                            }
+                            sb.append(inner).append(combining)
+                        } else {
+                            val label = when (cmd) {
+                                "overline", "bar" -> "bar"
+                                "hat", "widehat" -> "hat"
+                                "tilde", "widetilde" -> "tilde"
+                                else -> "vec"
+                            }
+                            sb.append(label).append('(').append(inner).append(')')
+                        }
+                        i = grp.second
+                    }
+                }
+
+                "left", "right" -> {
+                    val scan = skipHorizontalSpaces(input, i)
+                    if (scan < len && input[scan] == '.') {
+                        i = scan + 1
+                    }
+                }
+
+                "begin", "end", "color" -> {
+                    val grp = readMathBraceGroup(input, i)
+                    if (grp != null) {
+                        i = grp.second
+                    }
+                }
+
+                "bmod", "pmod" -> sb.append("mod")
+
+                else -> {
+                    val mapped = MATH_SYMBOL_MAP[cmd]
+                    when {
+                        mapped != null -> sb.append(mapped)
+                        cmd in MATH_OPERATOR_NAMES -> sb.append(cmd)
+                        cmd in MATH_NOOP_COMMANDS -> Unit
+                        else -> sb.append('\\').append(cmd)
+                    }
+                }
+            }
+            continue
+        }
+
+        if (ch == '^' || ch == '_') {
+            val isSuper = ch == '^'
+            val arg = readMathScriptArg(input, i + 1)
+            if (arg != null) {
+                sb.append(formatMathScript(arg.first, isSuper = isSuper, depth = depth + 1))
+                i = arg.second
+            } else {
+                sb.append(ch)
+                i++
+            }
+            continue
+        }
+
+        if (ch == '{') {
+            val grp = readMathBraceGroup(input, i)
+            if (grp != null) {
+                sb.append(formatMathExpr(grp.first, depth + 1))
+                i = grp.second
+                continue
+            }
+        }
+
+        if (ch == '&') {
+            sb.append(' ')
+            i++
+            continue
+        }
+
+        sb.append(ch)
+        i++
+    }
+
+    return sb.toString()
+}
+
+private fun skipHorizontalSpaces(input: String, start: Int): Int {
+    var pos = start
+    while (pos < input.length && (input[pos] == ' ' || input[pos] == '\t')) {
+        pos++
+    }
+    return pos
+}
+
+private fun readMathBraceGroup(input: String, start: Int): Pair<String, Int>? {
+    val pos = skipHorizontalSpaces(input, start)
+    if (pos >= input.length || input[pos] != '{') return null
+    var depth = 0
+    var idx = pos
+    while (idx < input.length) {
+        if (input[idx] == '\\' && idx + 1 < input.length) {
+            idx += 2
+            continue
+        }
+        when (input[idx]) {
+            '{' -> depth++
+            '}' -> {
+                depth--
+                if (depth == 0) {
+                    return input.substring(pos + 1, idx) to (idx + 1)
+                }
+            }
+        }
+        idx++
+    }
+    // Незакрытая группа (например, во время стриминга) — отдаём хвост как есть
+    return input.substring(pos + 1) to input.length
+}
+
+private fun readMathScriptArg(input: String, start: Int): Pair<String, Int>? {
+    val pos = skipHorizontalSpaces(input, start)
+    if (pos >= input.length) return null
+    if (input[pos] == '{') {
+        return readMathBraceGroup(input, pos)
+    }
+    if (input[pos] == '\\' && pos + 1 < input.length && input[pos + 1].isLetter()) {
+        var end = pos + 1
+        while (end < input.length && input[end].isLetter()) end++
+        return input.substring(pos, end) to end
+    }
+    return input.substring(pos, pos + 1) to (pos + 1)
+}
+
+private fun formatMathScript(raw: String, isSuper: Boolean, depth: Int): String {
+    val formatted = formatMathExpr(raw, depth).trim()
+    if (formatted.isEmpty()) return ""
+    val map = if (isSuper) SUPERSCRIPT_MAP else SUBSCRIPT_MAP
+    if (formatted.all { it in map }) {
+        val sb = StringBuilder(formatted.length)
+        for (c in formatted) {
+            sb.append(map[c])
+        }
+        return sb.toString()
+    }
+    val prefix = if (isSuper) "^" else "_"
+    return if (formatted.length == 1) "$prefix$formatted" else "$prefix($formatted)"
+}
+
+private fun needsMathGroupParens(expr: String, isDenominator: Boolean): Boolean {
+    val trimmed = expr.trim()
+    if (trimmed.length <= 1) return false
+    if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+        var depth = 0
+        var enclosesAll = true
+        for (idx in trimmed.indices) {
+            when (trimmed[idx]) {
+                '(' -> depth++
+                ')' -> {
+                    depth--
+                    if (depth == 0 && idx < trimmed.lastIndex) {
+                        enclosesAll = false
+                        break
+                    }
+                }
+            }
+        }
+        if (enclosesAll && depth == 0) return false
+    }
+    if (trimmed.any { ch ->
+            ch == ' ' || ch == '+' || ch == '-' || ch == '−' || ch == '=' ||
+                ch == '/' || ch == '×' || ch == '·' || ch == '±' || ch == ',' || ch == '\n'
+        }
+    ) {
+        return true
+    }
+    if (isDenominator && trimmed[0].isDigit() && trimmed.any { !it.isDigit() && it != '.' }) {
+        return true
+    }
+    return false
 }

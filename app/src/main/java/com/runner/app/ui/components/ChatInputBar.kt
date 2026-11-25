@@ -12,10 +12,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -194,6 +196,11 @@ fun ChatInputBar(
     onStopListening: (() -> Unit)? = null,
     placeholder: String? = null,
     isLiveMode: Boolean = false,
+    /** Внешнее состояние кнопки «Думать» (при синхронизации с Reasoning Effort модели). */
+    thinkActiveOverride: Boolean? = null,
+    onToggleThinkOverride: (() -> Unit)? = null,
+    onLongClickThink: (() -> Unit)? = null,
+    thinkMenu: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -497,10 +504,18 @@ fun ChatInputBar(
         ) {
             InputModeChips(
                 webSearch = inputState.webSearch,
-                think = inputState.think,
+                think = thinkActiveOverride ?: inputState.think,
                 enabled = !isRunning,
                 onToggleSearch = { inputState.webSearch = !inputState.webSearch },
-                onToggleThink = { inputState.think = !inputState.think }
+                onToggleThink = {
+                    if (onToggleThinkOverride != null) {
+                        onToggleThinkOverride()
+                    } else {
+                        inputState.think = !inputState.think
+                    }
+                },
+                onLongClickThink = onLongClickThink,
+                thinkMenu = thinkMenu
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -679,7 +694,9 @@ private fun InputModeChips(
     think: Boolean,
     enabled: Boolean,
     onToggleSearch: () -> Unit,
-    onToggleThink: () -> Unit
+    onToggleThink: () -> Unit,
+    onLongClickThink: (() -> Unit)? = null,
+    thinkMenu: (@Composable () -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     Row(
@@ -698,26 +715,37 @@ private fun InputModeChips(
                 onToggleSearch()
             }
         )
-        InputModeChip(
-            label = "Думать",
-            icon = RunnerIcons.Psychology,
-            active = think,
-            enabled = enabled,
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onToggleThink()
-            }
-        )
+        Box {
+            InputModeChip(
+                label = "Думать",
+                icon = RunnerIcons.Lightbulb,
+                active = think,
+                enabled = enabled,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onToggleThink()
+                },
+                onLongClick = onLongClickThink?.let { handler ->
+                    {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        handler()
+                    }
+                }
+            )
+            thinkMenu?.invoke()
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun InputModeChip(
     label: String,
     icon: ImageVector,
     active: Boolean,
     enabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val shape = RunnerShapes.medium
     val background by animateColorAsState(
@@ -755,7 +783,17 @@ private fun InputModeChip(
                 shape
             )
             .semantics(mergeDescendants = true) { role = Role.Button }
-            .clickable(enabled = enabled, onClick = onClick)
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(
+                        enabled = enabled,
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                } else {
+                    Modifier.clickable(enabled = enabled, onClick = onClick)
+                }
+            )
             .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -133,6 +133,7 @@ import com.runner.app.tools.TrashStore
 import com.runner.app.ui.components.DONATE_GITHUB_REPO
 import com.runner.app.ui.components.DONATE_TG_CHANNEL
 import com.runner.app.ui.components.DONATE_TIKTOK
+import com.runner.app.ui.components.BrandLogoOrMonogram
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
@@ -368,6 +369,21 @@ private fun SettingsRoot(
     val context = LocalContext.current
 
     var searchQuery by remember { mutableStateOf("") }
+    val activeModelLogo = remember(
+        activeProvider?.activeModel,
+        activeProvider?.id,
+        activeProvider?.name,
+        activeProvider?.baseUrl
+    ) {
+        activeProvider?.let { p ->
+            ProviderLogos.forModelOrProvider(
+                modelId = p.activeModel,
+                providerId = p.id,
+                providerName = p.name,
+                baseUrl = p.baseUrl
+            )
+        }
+    }
 
     val searchableItems = listOf(
         SearchableSetting(
@@ -381,7 +397,7 @@ private fun SettingsRoot(
             title = "Модель",
             section = "Провайдеры",
             description = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
-            icon = RunnerIcons.SmartToy,
+            icon = activeModelLogo ?: RunnerIcons.Layers,
             route = SettingsRoute.Providers
         ),
         SearchableSetting(
@@ -770,7 +786,7 @@ private fun SettingsRoot(
                 label = "Модель",
                 value = formatModelName(activeProvider?.activeModel.orEmpty()).ifEmpty { "Выбрать модель" },
                 onClick = { onNavigate(SettingsRoute.Providers) },
-                icon = RunnerIcons.SmartToy
+                icon = activeModelLogo ?: RunnerIcons.Layers
             )
             SettingsDivider()
             SettingsRow(
@@ -2279,8 +2295,11 @@ private fun ProvidersList(
         SettingsGroup {
             providers.forEachIndexed { index, provider ->
                 if (index > 0) SettingsDivider()
-                val providerLogo = remember(provider.id, provider.name) {
-                    ProviderLogos.forProvider(provider.id, provider.name)
+                val providerLogo = remember(provider.id, provider.name, provider.baseUrl) {
+                    ProviderLogos.forProvider(provider.id, provider.name, provider.baseUrl)
+                }
+                val providerMonogram = remember(provider.name, provider.baseUrl) {
+                    ProviderLogos.monogramFor(providerName = provider.name, baseUrl = provider.baseUrl)
                 }
 
                 Row(
@@ -2308,11 +2327,12 @@ private fun ProvidersList(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = providerLogo ?: RunnerIcons.SmartToy,
-                            contentDescription = null,
+                        BrandLogoOrMonogram(
+                            logo = providerLogo,
+                            monogram = providerMonogram,
                             tint = if (provider.id == activeProviderId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
+                            iconSize = 16.dp,
+                            fontSize = 10.sp
                         )
                     }
 

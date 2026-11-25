@@ -64,6 +64,7 @@ import com.runner.app.data.ModelInfo
 import com.runner.app.data.ModelRecommendations
 import com.runner.app.data.Provider
 import com.runner.app.data.ProviderStore
+import com.runner.app.ui.components.BrandLogoOrMonogram
 import com.runner.app.ui.components.ProviderLogos
 import com.runner.app.ui.components.RunnerIcons
 import com.runner.app.ui.components.openExternalUrl
@@ -824,6 +825,7 @@ private fun WizardModelStep(
     }
     val providerId = provider?.id.orEmpty()
     val providerName = provider?.name.orEmpty()
+    val providerBaseUrl = provider?.baseUrl.orEmpty()
 
     var query by remember(providerId) { mutableStateOf("") }
     var showAll by remember(providerId) { mutableStateOf(false) }
@@ -955,6 +957,7 @@ private fun WizardModelStep(
                             model = model,
                             providerId = providerId,
                             providerName = providerName,
+                            providerBaseUrl = providerBaseUrl,
                             isSelected = model.id == selectedModel,
                             isRecommended = model.id == recommended,
                             onSelect = { onSelectModel(model.id) }
@@ -974,6 +977,7 @@ private fun WizardModelStep(
                             model = model,
                             providerId = providerId,
                             providerName = providerName,
+                            providerBaseUrl = providerBaseUrl,
                             isSelected = model.id == selectedModel,
                             isRecommended = model.id == recommended,
                             onSelect = { onSelectModel(model.id) }
@@ -1105,15 +1109,17 @@ private fun WizardModelRow(
     model: ModelInfo,
     providerId: String,
     providerName: String,
+    providerBaseUrl: String = "",
     isSelected: Boolean,
     isRecommended: Boolean,
     onSelect: () -> Unit
 ) {
-    val modelLogo = remember(model.id, providerId, providerName) {
+    val modelLogo = remember(model.id, providerId, providerName, providerBaseUrl) {
         ProviderLogos.forModelOrProvider(
             modelId = model.id,
             providerId = providerId,
-            providerName = providerName
+            providerName = providerName,
+            baseUrl = providerBaseUrl
         )
     }
 
@@ -1141,7 +1147,8 @@ private fun WizardModelRow(
         ) {
             ModelAvatar(
                 modelId = model.id,
-                label = model.label,
+                providerName = providerName,
+                providerBaseUrl = providerBaseUrl,
                 logo = modelLogo
             )
             Spacer(modifier = Modifier.width(10.dp))
@@ -1245,12 +1252,17 @@ private fun WizardModelRow(
 @Composable
 private fun ModelAvatar(
     modelId: String,
-    label: String,
+    providerName: String,
+    providerBaseUrl: String,
     logo: ImageVector?
 ) {
     val tint = modelAvatarColor(modelId)
-    val initial = remember(label) {
-        label.trim().firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?"
+    val monogram = remember(modelId, providerName, providerBaseUrl) {
+        ProviderLogos.monogramFor(
+            modelId = modelId,
+            providerName = providerName,
+            baseUrl = providerBaseUrl
+        )
     }
 
     Box(
@@ -1261,21 +1273,13 @@ private fun ModelAvatar(
             .border(1.dp, tint.copy(alpha = 0.28f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        if (logo != null) {
-            Icon(
-                imageVector = logo,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(18.dp)
-            )
-        } else {
-            Text(
-                text = initial,
-                color = tint,
-                fontSize = TypeScale.body,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+        BrandLogoOrMonogram(
+            logo = logo,
+            monogram = monogram,
+            tint = tint,
+            iconSize = 18.dp,
+            fontSize = 11.sp
+        )
     }
 }
 
