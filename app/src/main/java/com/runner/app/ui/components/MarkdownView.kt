@@ -1800,8 +1800,8 @@ private fun sanitizeTextChunk(chunk: String): String {
     // 2. \% -> %
     result = result.replace("""\%""", "%")
     // 3. Remove $...$ around numbers and units (e.g. $51.6 GB$, $89%$, $100$),
-    //    without touching prose currency pairs like "$5 и $10" where the second $ starts another number.
-    result = Regex("""(?<!\$)\$\s*([~≈±+\-–—]?\s*\d[\d.,\s]*(?:[a-zA-Zа-яА-ЯёЁ%°²³/-]+(?:\s*[a-zA-Zа-яА-ЯёЁ%°²³/-]+)*)?)\s*\$(?!\$|\d)""").replace(result) {
+    //    without touching prose currency like "$5 и $10, формула $x^2$".
+    result = Regex("""(?<!\$)\$\s*([~≈±+\-–—]?\s*\d+(?:[.,]\d+)*(?:\s*[a-zA-Zа-яА-ЯёЁ%°²³/-]+)?)\$(?!\$|[A-Za-zА-Яа-яЁё0-9\\])""").replace(result) {
         it.groupValues[1].trim()
     }
     // Also remove $...$ around standalone percentage e.g. $%$
@@ -2618,7 +2618,7 @@ private fun AnnotatedString.Builder.appendInlineMarkdown(
             }
         }
 
-        // 7. Inline LaTeX ($formula$) — защищён от цен вида «$5 и $10».
+        // 7. Inline LaTeX ($formula$) — защищён от цен вида «$5 и $10» и незакрытых «$».
         if (ch == '$' && i + 1 < len && text[i + 1] != '$' && !text[i + 1].isWhitespace()) {
             var closeIdx = -1
             var scan = i + 1
@@ -2627,13 +2627,14 @@ private fun AnnotatedString.Builder.appendInlineMarkdown(
                     scan += 2
                     continue
                 }
+                if (text[scan] == '\n') break
                 if (text[scan] == '$') {
                     if (scan > i + 1 && !text[scan - 1].isWhitespace() &&
-                        (scan + 1 >= len || (text[scan + 1] != '$' && !text[scan + 1].isDigit()))
+                        (scan + 1 >= len || (text[scan + 1] != '$' && !text[scan + 1].isLetterOrDigit()))
                     ) {
                         closeIdx = scan
-                        break
                     }
+                    break
                 }
                 scan++
             }
